@@ -1,0 +1,39 @@
+generic_record_table:
+  threshold: 4
+  score_groups:
+    - weight: 2
+      markers: ["器具名称", "设备名称", "仪器名称"]
+    - weight: 2
+      markers: ["型号/规格", "型号规格", "规格型号"]
+    - weight: 2
+      markers: ["器具编号", "设备编号", "仪器编号"]
+    - weight: 1
+      markers: ["制造厂/商", "制造厂", "制造商", "生产厂商", "厂商", "厂家"]
+    - weight: 1
+      markers: ["校准依据", "检测依据", "依据"]
+    - weight: 1
+      markers: ["校准地点", "检测地点", "地点"]
+    - weight: 1
+      markers: ["原始记录"]
+
+base_fields:
+  - key: basis_standard
+    markers: ["校准依据", "检测依据", "检测/校准依据", "依据"]
+    format: "{mode_prefix}依据：{value}"
+    mode_aware: true
+  - key: device_name
+    markers: ["器具名称", "设备名称", "仪器名称"]
+    format: "器具名称：{value}"
+  - key: manufacturer
+    markers: ["制造厂/商", "制造厂", "制造商", "生产厂商", "厂商", "厂家"]
+    format: "制造厂/商：{value}"
+  - key: device_model
+    markers: ["型号/规格", "型号规格", "规格型号", "型号"]
+    format: "型号/规格：{value}"
+  - key: device_code
+    markers: ["器具编号", "设备编号", "仪器编号", "编号"]
+    format: "器具编号：{value}"
+  - key: location
+    markers: ["校准地点", "检测地点", "地点"]
+    format: "{mode_prefix}地点：{value}"
+    mode_aware: true

@@ -1,0 +1,31 @@
+device_name:
+  patterns:
+    - "(设备名称|名称|品名)[:：]?\\s*(.+)"
+
+device_model:
+  patterns:
+    - "(设备型号|型号|规格型号|Model|TYPE)[:：]?\\s*(.+)"
+
+device_code:
+  patterns:
+    - "(设备编号|编号|出厂编号|No\\.?|Serial No)[:：]?\\s*(.+)"
+
+manufacturer:
+  patterns:
+    - "(生产厂家|制造厂家|厂家|制造单位|Manufacturer)[:：]?\\s*(.+)"
+
+certificate_no:
+  patterns:
+    - "(缆专检号|Certificate\\s*series\\s*number)[:：]?\\s*([A-Za-z0-9\\-]+)"
+
+client_name:
+  patterns:
+    - "(委托单位|Client)[:：]?\\s*(.+)"
+
+receive_date:
+  patterns:
+    - "(收样日期|Received date)[:：]?\\s*(\\d{4}[^\\n]{0,12})"
+
+calibration_date:
+  patterns:
+    - "(校准日期|Date for calibration)[:：]?\\s*(\\d{4}[^\\n]{0,12})"

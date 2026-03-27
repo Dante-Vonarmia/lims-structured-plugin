@@ -1,0 +1,98 @@
+templates:
+  r-801b:
+    handler_key: r801b
+    template_aliases:
+      - R-801B
+      - R_801B
+    source_keywords:
+      - 本次任务信息和计量标准器具清单
+
+  r-803b:
+    handler_key: r803b
+    template_aliases:
+      - R-803B
+      - R_803B
+    source_keywords:
+      - 低温冲击
+      - 缆专检号
+      - 器具名称
+      - 型号/规格
+    editor:
+      note: 可编辑后再点“匹配数据”更新目标 Word。
+      fields:
+        - key: certificate_no
+          label: 序号
+        - key: device_name
+          label: 器具名称
+        - key: manufacturer
+          label: 制造厂/商
+        - key: device_model
+          label: 型号/规格
+        - key: device_code
+          label: 器具编号
+        - key: basis_mode
+          label: 依据类型（检测/校准）
+        - key: basis_standard
+          label: 检测/校准依据
+          wide: true
+        - key: temperature
+          label: 温度 (℃)
+        - key: humidity
+          label: 湿度 (%RH)
+        - key: location
+          label: 检测/校准地点
+          wide: true
+        - key: section2_u_mm
+          label: 二项 U (mm)
+        - key: section2_value_mm
+          label: 二项实测 (mm)
+        - key: section3_u_g
+          label: 三项 U (g)
+        - key: section3_value_g
+          label: 三项实测 (g)
+        - key: section4_u_g
+          label: 四项 U (g)
+        - key: hammer_actual_row_1
+          label: 铁锤实际值第1行（空格或逗号分隔）
+          wide: true
+        - key: hammer_actual_row_2
+          label: 铁锤实际值第2行（空格或逗号分隔）
+          wide: true
+        - key: hammer_actual_row_3
+          label: 铁锤实际值第3行（空格或逗号分隔）
+          wide: true
+
+  r-825b:
+    handler_key: r825b
+    template_aliases:
+      - R-825B
+      - R_825B
+      - 软化击穿试验仪
+      - 软击穿试验仪
+    source_keywords:
+      - 软化击穿
+    editor:
+      note: 仅展示该模板实际填充字段。
+      fields:
+        - key: certificate_no
+          label: 序号
+        - key: device_name
+          label: 器具名称
+        - key: manufacturer
+          label: 制造厂/商
+        - key: device_model
+          label: 型号/规格
+        - key: device_code
+          label: 器具编号
+        - key: basis_mode
+          label: 依据类型（检测/校准）
+        - key: basis_standard
+          label: 检测/校准依据
+          wide: true
+        - key: temperature
+          label: 温度 (℃)
+        - key: humidity
+          label: 湿度 (%RH)
+        - key: location
+          label: 检测/校准地点
+          wide: true

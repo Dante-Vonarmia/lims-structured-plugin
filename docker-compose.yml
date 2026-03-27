@@ -1,0 +1,24 @@
+name: lims-device-report
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: lims-device-report-backend
+    restart: unless-stopped
+    environment:
+      UPLOAD_DIR: /data/uploads
+      OUTPUT_DIR: /data/outputs
+      TEMPLATE_DIR: /data/templates
+      RAW_RECORD_DIR: /data/raw-records
+      DEFAULT_TEMPLATE_NAME: report_template.docx
+      OFFLINE_MODE: "1"
+    volumes:
+      - ./backend:/app
+      - ./data/uploads:/data/uploads
+      - ./data/outputs:/data/outputs
+      - ./backend/templates:/data/templates
+      - ./data/raw-records:/data/raw-records
+    ports:
+      - "18081:8000"
