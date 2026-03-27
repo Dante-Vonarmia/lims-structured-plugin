@@ -63,49 +63,34 @@
 
     .bar-layout {
       display: grid;
-      grid-template-columns: 1fr;
+      grid-template-columns: minmax(0, 1fr) 460px;
       gap: 8px;
       align-items: start;
       min-width: 0;
     }
 
-    .bar-main {
-      display: grid;
-      gap: 8px;
-      min-width: 0;
-    }
+    .bar-main { display: grid; gap: 8px; min-width: 0; }
 
     .log-panel {
-      border: 1px solid var(--border-2);
-      background: linear-gradient(180deg, rgba(244, 247, 251, 0.78) 0%, rgba(236, 242, 249, 0.78) 100%);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 8px 24px rgba(20, 40, 65, 0.16);
-      backdrop-filter: blur(6px);
+      border: 1px dashed #b8c3d3;
+      background: linear-gradient(180deg, rgba(244, 247, 251, 0.92) 0%, rgba(236, 242, 249, 0.92) 100%);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
       min-width: 0;
       display: grid;
       grid-template-rows: auto 1fr;
-      position: fixed;
-      top: 12px;
-      right: 12px;
-      width: min(360px, calc(100vw - 24px));
-      z-index: 920;
-      opacity: 0.82;
-      transition: opacity 0.18s ease;
-    }
-
-    .log-panel:hover {
+      position: static;
+      width: 100%;
+      z-index: 1;
       opacity: 1;
     }
 
-    .log-panel.is-collapsed {
-      grid-template-rows: auto;
-    }
-
     .log-panel-head {
-      border-bottom: 1px solid var(--border);
-      padding: 6px 8px;
+      border-bottom: 1px dashed #b8c3d3;
+      padding: 4px 6px;
       background: linear-gradient(180deg, #f9fbff 0%, var(--panel-2) 100%);
       font-weight: 700;
-      color: #2c4564;
+      color: #4a617d;
+      font-size: 12px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -116,11 +101,14 @@
       white-space: nowrap;
     }
 
-    .log-panel-toggle {
-      height: 24px;
-      padding: 0 8px;
+    .log-head-meta {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: #344b68;
       font-size: 12px;
       font-weight: 600;
+      white-space: nowrap;
     }
 
     .toolbar {
@@ -128,6 +116,98 @@
       flex-wrap: wrap;
       gap: 6px;
       align-items: center;
+    }
+
+    .toolbar-groups {
+      display: grid;
+      grid-template-columns: max-content minmax(520px, 1fr);
+      gap: 8px;
+      align-items: start;
+    }
+
+    .toolbar-group {
+      border: 1px dashed #b8c3d3;
+      background: linear-gradient(180deg, #f8fbff 0%, #edf2f9 100%);
+      padding: 6px;
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+      align-content: start;
+    }
+
+    .toolbar-group.compact {
+      width: max-content;
+      min-width: 0;
+    }
+
+    .toolbar-group.catalog-compact {
+      width: max-content;
+      min-width: 0;
+    }
+
+    .toolbar-group-title {
+      font-size: 12px;
+      color: #4a617d;
+      font-weight: 700;
+      border-bottom: 1px dashed #c8d2e1;
+      padding-bottom: 3px;
+    }
+
+    .toolbar-group-title.with-status {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .toolbar-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .toolbar-row.no-wrap {
+      flex-wrap: nowrap;
+    }
+
+    .meta-compact {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      align-items: center;
+      color: #344b68;
+      font-size: 12px;
+    }
+
+    .meta-compact b {
+      color: #173455;
+    }
+
+    .upload-standalone {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-in-log {
+      display: grid;
+      gap: 6px;
+      padding: 6px 8px;
+      border-bottom: 1px dashed #b8c3d3;
+      background: linear-gradient(180deg, #f9fbff 0%, var(--panel-2) 100%);
+      grid-template-columns: 1fr;
+      align-items: start;
+    }
+
+    .icon-btn {
+      min-width: 34px;
+      width: 34px;
+      padding: 0;
+      text-align: center;
+      font-size: 16px;
+      line-height: 1;
     }
 
     .catalog-status {
@@ -1396,14 +1476,10 @@
       padding: 6px 8px;
       color: #3a4d67;
       white-space: pre-wrap;
-      max-height: 128px;
+      height: 62px;
       overflow: auto;
       font-size: 12px;
       line-height: 1.4;
-    }
-
-    .log-panel.is-collapsed .foot {
-      display: none;
     }
 
     .mask {
@@ -1432,11 +1508,8 @@
       .source-recog-item { grid-template-columns: 112px 1fr; }
       .source-form-grid { grid-template-columns: 1fr; }
       .bar-layout { grid-template-columns: 1fr; }
-      .log-panel {
-        top: 8px;
-        right: 8px;
-        width: min(340px, calc(100vw - 16px));
-      }
+      .toolbar-groups { grid-template-columns: 1fr; }
+      .log-panel { width: 100%; }
     }
   </style>
 </head>
@@ -1447,24 +1520,27 @@
         <div class="bar-main">
           <input id="sourceFiles" type="file" hidden multiple />
           <input id="instrumentCatalogFile" type="file" hidden accept=".xlsx,.csv,.txt,.doc,.docx" />
-          <div class="toolbar">
-            <button id="uploadBtn" class="primary" type="button">上传</button>
-            <button id="uploadInstrumentCatalogBtn" type="button">装填计量标准器具目录</button>
-            <button id="clearInstrumentCatalogBtn" type="button">清除计量标准器具目录</button>
-            <button id="runExcelBatchBtn" type="button" hidden>Excel批量生成</button>
-            <button id="refreshAllRecognitionBtn" type="button">刷新全部识别</button>
-            <button id="clearQueueBtn" type="button">清空列表</button>
-          </div>
-          <div class="toolbar">
-            <span class="tag" id="globalStatus">就绪</span>
-            <span class="catalog-status" id="instrumentCatalogStatus">目录 ○ 未就绪</span>
-            <span class="catalog-ready-hint" id="catalogReadyHint">○ 待装填</span>
-            <button id="viewInstrumentCatalogDetailBtn" type="button">查看识别明细</button>
-          </div>
-          <div class="meta">
-            <span>证书模板（来源）：<b id="statTotal">0</b></span>
-            <span>records：<b id="statRecords">0</b></span>
-            <span>已预处理：<b id="statScanned">0</b></span>
+          <div class="toolbar-groups">
+            <div class="toolbar-group compact">
+              <div class="toolbar-group-title">常规操作</div>
+              <div class="toolbar-row">
+                <button id="uploadBtn" class="primary" type="button">上传</button>
+                <button id="refreshAllRecognitionBtn" class="icon-btn" type="button" title="刷新全部识别">↻</button>
+                <button id="clearQueueBtn" class="icon-btn" type="button" title="清空列表">⌫</button>
+                <button id="runExcelBatchBtn" type="button" hidden>Excel批量生成</button>
+              </div>
+            </div>
+            <div class="toolbar-group catalog-compact">
+              <div class="toolbar-group-title with-status">
+                <span>器具目录</span>
+                <span class="catalog-ready-hint" id="catalogReadyHint">○ 待装填</span>
+              </div>
+              <div class="toolbar-row no-wrap">
+                <button id="uploadInstrumentCatalogBtn" type="button">装填计量标准器具目录</button>
+                <button id="clearInstrumentCatalogBtn" type="button">重置</button>
+                <button id="viewInstrumentCatalogDetailBtn" type="button">查看识别明细</button>
+              </div>
+            </div>
           </div>
           <div id="preprocessProgressRow" class="progress-row">
             <span id="preprocessProgressText">预处理：0/0</span>
@@ -1474,7 +1550,12 @@
         <div class="log-panel" id="logPanel">
           <div class="log-panel-head">
             <span class="log-panel-title">日志操作</span>
-            <button id="logPanelToggleBtn" class="log-panel-toggle" type="button">收起</button>
+            <div class="log-head-meta">
+              <span class="tag" id="globalStatus">就绪</span>
+              <span>证书模板（来源）：<b id="statTotal">0</b></span>
+              <span>records：<b id="statRecords">0</b></span>
+              <span>已预处理：<b id="statScanned">0</b></span>
+            </div>
           </div>
           <div class="foot" id="batchLog">日志：等待操作。</div>
         </div>
@@ -1517,7 +1598,6 @@
           <button id="clearSelectedBtn" type="button" class="small-btn">清空勾选</button>
           <button id="removeSelectedBtn" type="button" class="small-btn">移除选中</button>
           <span id="selectedCountText" class="hint">已选：0</span>
-          <span class="hint">注：资产编号建议用于唯一性；客户坚持不使用时可不填。</span>
         </div>
         <div class="body" id="queueList"></div>
       </section>
@@ -1867,7 +1947,16 @@
       $("batchLog").scrollTop = $("batchLog").scrollHeight;
     }
 
-    function setStatus(text) { $("globalStatus").textContent = text || ""; }
+    function setStatus(text) {
+      const raw = String(text || "").trim();
+      const loadedMatch = raw.match(/计量标准器具目录已装填[:：]?\s*(\d+)\s*项/);
+      if (loadedMatch) { $("globalStatus").textContent = "就绪"; return; }
+      if (/计量标准器具目录已清除/.test(raw)) {
+        $("globalStatus").textContent = "就绪";
+        return;
+      }
+      $("globalStatus").textContent = raw || "";
+    }
 
     function setPreprocessProgress(current, total, fileName, label = "预处理") {
       const row = $("preprocessProgressRow");
@@ -2350,7 +2439,8 @@
         hint.innerHTML = "○ 待装填";
         return;
       }
-      hint.innerHTML = `<span class="catalog-ready-dot"></span>已就绪 ${total}`;
+      const html = `<span class="catalog-ready-dot"></span>已就绪 ${total}`;
+      hint.innerHTML = html;
     }
 
     function renderInstrumentCatalogDetailContent() {
@@ -2499,15 +2589,6 @@
       state.instrumentCatalogRowByToken = rowByToken;
       state.instrumentCatalogTokenSet = tokenSet;
       state.instrumentCatalogFileName = String(fileName || "").trim();
-      const status = $("instrumentCatalogStatus");
-      if (status) {
-        if (!deduped.length) {
-          status.textContent = "目录 ○ 未就绪";
-        } else {
-          const suffix = state.instrumentCatalogFileName ? `（${state.instrumentCatalogFileName}）` : "";
-          status.textContent = `目录 ● ${deduped.length}${suffix}`;
-        }
-      }
       const uploadBtn = $("uploadInstrumentCatalogBtn");
       if (uploadBtn) uploadBtn.textContent = deduped.length ? "重装计量标准器具目录" : "装填计量标准器具目录";
       renderCatalogReadyHint();
@@ -5411,13 +5492,6 @@
         setStatus("计量标准器具目录已清除");
       });
 
-      $("logPanelToggleBtn").addEventListener("click", () => {
-        const panel = $("logPanel");
-        if (!panel) return;
-        const collapsed = panel.classList.toggle("is-collapsed");
-        $("logPanelToggleBtn").textContent = collapsed ? "展开" : "收起";
-      });
-
       const queueListEl = $("queueList");
 
       queueListEl.addEventListener("click", async (event) => {
@@ -6082,7 +6156,11 @@
       try {
         await loadRuntimeConfig();
         await loadTemplates();
-        bindEvents();
+        try {
+          bindEvents();
+        } catch (bindError) {
+          appendLog(`事件绑定异常：${bindError.message || "unknown"}`);
+        }
         await autoLoadInstrumentCatalog();
         renderQueue();
         setPreviewPlaceholder("sourcePreview", "证书模板预览未加载");
