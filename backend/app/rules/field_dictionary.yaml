@@ -1,0 +1,71 @@
+aliases:
+  device_name:
+    - deviceName
+    - 器具名称
+    - 设备名称
+    - 仪器名称
+    - name
+  device_model:
+    - deviceModel
+    - 型号
+    - 型号规格
+    - 型号/规格
+    - 规格型号
+    - model
+  device_code:
+    - deviceCode
+    - 器具编号
+    - 设备编号
+    - 仪器编号
+    - 资产编号
+    - 编号
+    - serial
+    - code
+  manufacturer:
+    - manufacturerName
+    - 生产厂商
+    - 制造厂商
+    - 制造厂/商
+    - 制造商
+    - 厂家
+    - 厂商
+  basis_standard:
+    - calibration_basis
+    - basis
+    - 检测依据
+    - 校准依据
+    - 检测/校准依据
+    - 技术规范代号
+  location:
+    - 校准地点
+    - 检测地点
+    - 地点
+  temperature:
+    - 温度
+  humidity:
+    - 湿度
+  certificate_no:
+    - 证书编号
+    - 证书号
+    - 缆专检号
+  client_name:
+    - 委托单位
+    - 客户名称
+    - 客户
+  receive_date:
+    - 收样日期
+    - 收样时间
+  calibration_date:
+    - 校准日期
+    - 检定日期
+    - 检测日期
+
+formulas:
+  - type: unify_dates
+    receive_key: receive_date
+    calibration_key: calibration_date
+  - type: date_offset
+    source_key: calibration_date
+    fallback_key: receive_date
+    target_key: publish_date
+    days: 1

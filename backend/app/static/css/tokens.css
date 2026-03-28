@@ -1,0 +1,18 @@
+:root {
+  --bg: #d9dde3;
+  --panel: #eef1f5;
+  --panel-2: #e6ebf2;
+  --border: #8e99aa;
+  --border-2: #6f7d91;
+  --text: #1a2535;
+  --muted: #4d5d73;
+  --ok: #1c6b37;
+  --warn: #8e5f0f;
+  --err: #8f2020;
+  --btn-top: #f8fbff;
+  --btn-bottom: #d8e1ee;
+  --btn-hover-top: #ffffff;
+  --btn-hover-bottom: #c7d4e6;
+  --btn-primary-top: #dff2ff;
+  --btn-primary-bottom: #b9d7f3;
+}

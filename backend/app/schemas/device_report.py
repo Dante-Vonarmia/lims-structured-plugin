@@ -128,6 +128,22 @@ class TemplateMatchResponse(BaseModel):
     matched_by: Optional[str] = None
 
 
+class TemplateFeedbackRequest(BaseModel):
+    template_name: str
+    raw_text: str = ""
+    file_name: Optional[str] = None
+    device_name: Optional[str] = None
+    device_model: Optional[str] = None
+    device_code: Optional[str] = None
+    manufacturer: Optional[str] = None
+
+
+class TemplateFeedbackResponse(BaseModel):
+    saved: bool = True
+    pending_file: str = ""
+    entry: dict[str, object] = Field(default_factory=dict)
+
+
 class EditorPrefillRequest(BaseModel):
     template_name: str
     fields: DeviceFields

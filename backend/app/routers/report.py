@@ -38,6 +38,8 @@ from ..schemas.device_report import (
     ReportResponse,
     TemplateMatchRequest,
     TemplateMatchResponse,
+    TemplateFeedbackRequest,
+    TemplateFeedbackResponse,
     InstrumentCatalogParseResponse,
 )
 from ..services.excel_batch_service import inspect_excel_records, parse_excel_rows, preview_excel_sheet
@@ -51,6 +53,7 @@ from ..services.template_service import (
     match_template_name,
     render_report,
 )
+from ..services.template_feedback_service import build_template_feedback_entry
 
 router = APIRouter()
 
@@ -281,6 +284,23 @@ def match_templates(request: TemplateMatchRequest) -> TemplateMatchResponse:
         templates=templates,
     )
     return TemplateMatchResponse(matched_template=matched_template, matched_by=matched_by)
+
+
+@router.post("/templates/feedback/correct", response_model=TemplateFeedbackResponse)
+def submit_template_feedback(request: TemplateFeedbackRequest) -> TemplateFeedbackResponse:
+    try:
+        payload = build_template_feedback_entry(
+            template_name=request.template_name,
+            raw_text=request.raw_text,
+            file_name=request.file_name or "",
+            device_name=request.device_name or "",
+            device_model=request.device_model or "",
+            device_code=request.device_code or "",
+            manufacturer=request.manufacturer or "",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return TemplateFeedbackResponse(**payload)
 
 
 @router.get("/templates/editor-schema")

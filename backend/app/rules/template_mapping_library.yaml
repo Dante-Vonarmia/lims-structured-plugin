@@ -108,3 +108,76 @@ templates:
     source_keywords:
       - 局部放电
       - 系统
+
+  r-859b:
+    template_aliases:
+      - R-859B
+      - R_859B
+      - 工频高电压测量系统
+    source_keywords:
+      - 工频高电压测量系统
+    editor:
+      note: 本模板按字段字典驱动；未识别字段会保留为空并高亮提示。
+      fields:
+        - key: certificate_no
+          label: 序号
+        - key: device_name
+          label: 器具名称
+        - key: manufacturer
+          label: 制造厂/商
+        - key: device_model
+          label: 型号/规格
+        - key: device_code
+          label: 器具编号
+        - key: basis_mode
+          label: 依据类型（检测/校准）
+        - key: basis_standard
+          label: 检测/校准依据
+          wide: true
+        - key: temperature
+          label: 温度 (℃)
+        - key: humidity
+          label: 湿度 (%RH)
+        - key: location
+          label: 检测/校准地点
+          wide: true
+        - key: urel_percent
+          label: 扩展不确定度 Urel (%)
+        - key: voltage_range_1
+          label: 量程1 (kV)
+        - key: voltage_indicated_values_1
+          label: 量程1 指示值(kV)
+          wide: true
+        - key: voltage_actual_values_1
+          label: 量程1 实际值(kV)
+          wide: true
+        - key: voltage_range_2
+          label: 量程2 (kV)
+        - key: voltage_indicated_values_2
+          label: 量程2 指示值(kV)
+          wide: true
+        - key: voltage_actual_values_2
+          label: 量程2 实际值(kV)
+          wide: true
+        - key: voltage_range_3
+          label: 量程3 (kV)
+        - key: voltage_indicated_values_3
+          label: 量程3 指示值(kV)
+          wide: true
+        - key: voltage_actual_values_3
+          label: 量程3 实际值(kV)
+          wide: true
+        - key: linearity_ux_values
+          label: 被校系统工频高压示值 Ux(kV)
+          wide: true
+        - key: linearity_u2_values
+          label: 变压器空载输出电压示值 U2(V)
+          wide: true
+        - key: linearity_fi_values
+          label: Ux 和 U2 比值 Fi
+          wide: true
+        - key: linearity_f_avg
+          label: Fi 平均值 F
+        - key: linearity_fi_delta_percent
+          label: Fi 与 F 的相对变化量(%)
+          wide: true

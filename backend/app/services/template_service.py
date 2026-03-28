@@ -8,6 +8,7 @@ from typing import Iterable
 from uuid import uuid4
 
 from ..config import OUTPUT_DIR, TEMPLATE_DIR
+from .field_dictionary import apply_field_dictionary
 from .fixed_template_mapping_service import (
     fill_generic_record_docx,
     fill_r802b_docx,
@@ -52,8 +53,7 @@ def render_report(
     context: dict[str, str],
     source_file_path: Path | None = None,
 ) -> tuple[str, Path]:
-    context = _normalize_context_aliases(context)
-    context = _normalize_report_dates(context)
+    context = apply_field_dictionary(context)
     template_path = TEMPLATE_DIR / template_name
     if not template_path.exists():
         raise FileNotFoundError(f"Template not found: {template_name}")
