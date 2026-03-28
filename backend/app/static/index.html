@@ -1044,6 +1044,12 @@
       margin: 2px 4px 2px 0;
     }
 
+    .general-check-media-cell {
+      min-height: 52px;
+      line-height: 1.2;
+      padding: 3px 4px;
+    }
+
     .source-recog-block-table.general-check-table td {
       white-space: normal;
       overflow: visible;
@@ -1149,6 +1155,15 @@
       align-items: center;
       gap: 8px;
       min-width: 0;
+    }
+
+    .pane-head-device {
+      color: #355373;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 340px;
     }
 
     #activeFileText {
@@ -1648,6 +1663,7 @@
           <div class="preview-pane source-pane">
             <div class="pane-head">
               <span>证书模板（来源）</span>
+              <span id="sourceDeviceNameText" class="pane-head-device">器具名称：-</span>
               <span class="source-tab-switch">
                 <button id="sourceViewPreviewBtn" type="button" class="source-tab-btn is-active">证书模板预览</button>
                 <button id="sourceViewFormBtn" type="button" class="source-tab-btn">字段识别</button>
@@ -1666,7 +1682,7 @@
           <div class="preview-pane target-pane">
             <div class="target-actions">
               <span class="right-tab-switch">
-                <button id="rightTabFieldBtn" type="button" class="right-tab-btn">字段配对</button>
+                <button id="rightTabFieldBtn" type="button" class="right-tab-btn">字段编辑</button>
                 <button id="rightTabPreviewBtn" type="button" class="right-tab-btn is-active">原始记录预览</button>
               </span>
               <span class="target-generate-group">
@@ -1682,7 +1698,7 @@
             </div>
             <div id="rightFieldPanel" class="right-tab-panel">
               <div class="target-field-panel">
-                <div class="target-field-head">字段配对（可编辑，以此为生成值）</div>
+                <div class="target-field-head">字段编辑（可编辑，以此为生成值）</div>
                 <div id="targetFieldForm" class="target-field-form"><div class="placeholder">字段表单未加载</div></div>
               </div>
             </div>
@@ -2050,6 +2066,10 @@
       return html;
     }
 
+    function hasDocxImageToken(text) {
+      return /\[\[DOCX_IMG\|/.test(String(text || ""));
+    }
+
     function toDateOnlyDisplay(value) {
       const text = String(value || "").trim();
       if (!text) return "";
@@ -2346,6 +2366,15 @@
       $("statScanned").textContent = String(scanned);
     }
 
+    function updateSourceDeviceNameText(item) {
+      const el = $("sourceDeviceNameText");
+      if (!el) return;
+      const fields = (item && item.fields) || {};
+      const name = String(fields.device_name || "").trim();
+      el.textContent = `器具名称：${name || "-"}`;
+      el.title = name || "";
+    }
+
     function renderQueue() {
       renderStats();
       const wrap = $("queueList");
@@ -2353,6 +2382,7 @@
       if (!state.queue.length) {
         wrap.innerHTML = '<div style="padding:16px;color:#5c6f89;">暂无文件（上传可选文件；也可拖拽文件/文件夹到此处）</div>';
         $("activeFileText").textContent = "当前：未选择文件";
+        updateSourceDeviceNameText(null);
         updateSelectedCountText([]);
         updateDetailPanelVisibility();
         refreshActionButtons();
@@ -2362,6 +2392,7 @@
       if (!visibleItems.length) {
         wrap.innerHTML = '<div style="padding:16px;color:#5c6f89;">当前筛选条件下无记录</div>';
         updateSelectedCountText([]);
+        updateSourceDeviceNameText(getActiveItem());
         refreshActionButtons();
         return;
       }
@@ -2429,6 +2460,7 @@
         $("activeFileText").textContent = `当前：${active.sourceFileName || active.fileName}${rec}`;
       }
       else $("activeFileText").textContent = "当前：未选择文件";
+      updateSourceDeviceNameText(active);
       updateDetailPanelVisibility();
       refreshActionButtons();
     }
@@ -2956,6 +2988,16 @@
     function getTemplateMatchRawText(item) {
       if (!item) return "";
       const fields = item.fields || {};
+      const hasBaseDeviceName = !!String(fields.device_name || "").trim();
+      if (hasBaseDeviceName) {
+        return [
+          fields.device_name || "",
+          fields.device_model || "",
+          fields.device_code || "",
+          item.fileName || "",
+          item.sourceCode || "",
+        ].filter(Boolean).join("\n");
+      }
       return [
         item.rawText || "",
         fields.raw_record || "",
@@ -4367,10 +4409,13 @@
         };
         const renderedRowsHtml = groupTitle === "其它校准信息" ? buildCalibInfoLayout() : rowHtml;
         const blockText = cleanBlockText(section.block || "");
+        const isGeneralCheckGroup = groupTitle === "校准结果/说明（续页）";
         const blockHtml = blockText
-          ? renderStructuredBlockHtml(blockText, {
-            forceGeneralCheckTable: groupTitle === "校准结果/说明（续页）" && !!section.forceGeneralCheckTable,
-          })
+          ? (isGeneralCheckGroup
+            ? renderGeneralCheckWysiwygBlock(blockText, { readOnly: true })
+            : renderStructuredBlockHtml(blockText, {
+              forceGeneralCheckTable: !!section.forceGeneralCheckTable,
+            }))
           : "";
         const toggleHtml = collapsible
           ? `<button type="button" class="source-recog-group-toggle" data-group-toggle="1" data-group-key="${escapeAttr(groupKey)}" aria-expanded="${collapsed ? "false" : "true"}" title="${collapsed ? "展开" : "收起"}">${collapsed ? "▶" : "▼"}</button>`
@@ -4390,9 +4435,12 @@
     function parseTableRowsFromBlock(blockText) {
       const lines = String(blockText || "").split("\n").map((x) => x.trim()).filter(Boolean);
       if (lines.length < 2) return null;
+      const docxImageTokenPattern = /\[\[DOCX_IMG\|[^\]]+\]\]/g;
+      const maskedLines = lines.map((line) => String(line || "").replace(docxImageTokenPattern, (token) => token.replace(/\|/g, "\u0001")));
+      const restoreDocxImageTokens = (value) => String(value || "").replace(/\u0001/g, "|");
 
-      const tryWithSplitter = (splitter) => {
-        const rows = lines.map((line) => splitter(line).map((cell) => cell.trim()).filter((cell) => cell !== ""));
+      const tryWithSplitter = (splitter, sourceLines = maskedLines) => {
+        const rows = sourceLines.map((line) => splitter(line).map((cell) => restoreDocxImageTokens(cell.trim())));
         if (!rows.every((row) => row.length >= 2)) return null;
         const colCount = rows[0].length;
         if (colCount < 2) return null;
@@ -4403,7 +4451,7 @@
       const tableByTab = tryWithSplitter((line) => line.split("\t"));
       if (tableByTab) return tableByTab;
 
-      const hasPipe = lines.every((line) => line.includes("|"));
+      const hasPipe = maskedLines.every((line) => line.includes("|"));
       if (hasPipe) {
         const tableByPipe = tryWithSplitter((line) => line.split("|"));
         if (tableByPipe) return tableByPipe;
@@ -4707,6 +4755,60 @@
       return null;
     }
 
+    function renderStructuredTableHtml(tableRows) {
+      const rows = Array.isArray(tableRows)
+        ? tableRows.map((row) => (Array.isArray(row) ? row.map((cell) => String(cell || "").trim()) : []))
+        : [];
+      if (rows.length < 2) return "";
+      const colCount = rows.reduce((max, row) => Math.max(max, row.length), 0);
+      if (colCount < 2) return "";
+      const grid = rows.map((row) => {
+        const next = row.slice(0, colCount);
+        while (next.length < colCount) next.push("");
+        return next;
+      });
+      const occupied = grid.map(() => Array(colCount).fill(false));
+      const bodyHtml = grid.map((row, rowIdx) => {
+        const cells = [];
+        for (let colIdx = 0; colIdx < colCount; colIdx += 1) {
+          if (occupied[rowIdx][colIdx]) continue;
+          const text = String(row[colIdx] || "").trim();
+          const tagName = rowIdx === 0 ? "th" : "td";
+          if (!text) {
+            cells.push(`<${tagName}></${tagName}>`);
+            continue;
+          }
+          let colspan = 1;
+          while (colIdx + colspan < colCount && !occupied[rowIdx][colIdx + colspan] && !String(row[colIdx + colspan] || "").trim()) {
+            colspan += 1;
+          }
+          let rowspan = 1;
+          while (rowIdx + rowspan < grid.length) {
+            let canExtend = true;
+            for (let mergeCol = colIdx; mergeCol < colIdx + colspan; mergeCol += 1) {
+              if (occupied[rowIdx + rowspan][mergeCol] || String(grid[rowIdx + rowspan][mergeCol] || "").trim()) {
+                canExtend = false;
+                break;
+              }
+            }
+            if (!canExtend) break;
+            rowspan += 1;
+          }
+          for (let mergeRow = rowIdx; mergeRow < rowIdx + rowspan; mergeRow += 1) {
+            for (let mergeCol = colIdx; mergeCol < colIdx + colspan; mergeCol += 1) {
+              occupied[mergeRow][mergeCol] = true;
+            }
+          }
+          const attrs = [];
+          if (rowspan > 1) attrs.push(`rowspan="${rowspan}"`);
+          if (colspan > 1) attrs.push(`colspan="${colspan}"`);
+          cells.push(`<${tagName}${attrs.length ? ` ${attrs.join(" ")}` : ""}>${renderRichCellHtml(text)}</${tagName}>`);
+        }
+        return `<tr>${cells.join("")}</tr>`;
+      }).join("");
+      return `<div class="source-recog-block source-recog-block-formatted"><table class="source-recog-block-table"><tbody>${bodyHtml}</tbody></table></div>`;
+    }
+
     function extractMeasurementItemsBlockText(item, fields) {
       const f = (fields && typeof fields === "object") ? fields : {};
       const recognized = (item && item.recognizedFields && typeof item.recognizedFields === "object")
@@ -4996,6 +5098,73 @@
       return [];
     }
 
+    function renderGeneralCheckEditorCell(cell, rowIdx, colIdx, options = {}) {
+      const cellText = String(cell || "");
+      const attrs = [
+        'type="text"',
+        'data-field="general_check_cell"',
+        `data-row="${rowIdx}"`,
+        `data-col="${colIdx}"`,
+      ];
+      if (options && options.widthStyle) {
+        return `<td style="${options.widthStyle}"><input ${attrs.join(" ")} value="${escapeAttr(cellText)}" /></td>`;
+      }
+      if (hasDocxImageToken(cellText)) {
+        return `<td class="general-check-media-cell">${renderRichCellHtml(cellText)}</td>`;
+      }
+      return `<td><input ${attrs.join(" ")} value="${escapeAttr(cellText)}" /></td>`;
+    }
+
+    function buildGeneralCheckWysiwygData(blockText) {
+      const multiColumnTable = parseGeneralCheckMultiColumnTable(String(blockText || ""));
+      if (multiColumnTable) {
+        const [header, ...body] = multiColumnTable;
+        const normalizedHeader = (Array.isArray(header) ? header : []).map((cell) => String(cell || "").trim());
+        const normalizedRows = (body.length ? body : [Array(normalizedHeader.length || 1).fill("")])
+          .map((row) => row.map((cell) => String(cell || "")));
+        return { twoColumn: false, header: normalizedHeader, rows: normalizedRows };
+      }
+      const rows = parseGeneralCheckRowsForEditor(String(blockText || ""));
+      const normalizedRows = (rows.length ? rows : [["", ""]])
+        .map((row) => [String((row && row[0]) || ""), String((row && row[1]) || "")]);
+      return { twoColumn: true, header: ["序号/标记", "内容"], rows: normalizedRows };
+    }
+
+    function renderGeneralCheckWysiwygBlock(blockText, options = {}) {
+      const readOnly = !!(options && options.readOnly);
+      const data = buildGeneralCheckWysiwygData(blockText);
+      const header = Array.isArray(data.header) ? data.header : [];
+      const rows = Array.isArray(data.rows) ? data.rows : [];
+      if (!header.length) return '<div class="source-recog-block">（空）</div>';
+
+      const headHtml = `<tr>${header.map((cell, colIdx) => {
+        if (data.twoColumn && colIdx === 0) return `<th style="width:120px;">${escapeHtml(cell)}</th>`;
+        return `<th>${escapeHtml(cell)}</th>`;
+      }).join("")}</tr>`;
+
+      const bodyHtml = rows.map((row, rowIdx) => `<tr>${row.map((cell, colIdx) => {
+        if (readOnly) {
+          if (data.twoColumn && colIdx === 0) {
+            return `<td style="width:120px;">${renderRichCellHtml(cell)}</td>`;
+          }
+          return `<td>${renderRichCellHtml(cell)}</td>`;
+        }
+        if (data.twoColumn && colIdx === 0) {
+          return renderGeneralCheckEditorCell(String(cell || ""), rowIdx, colIdx, { widthStyle: "width:120px;" });
+        }
+        return renderGeneralCheckEditorCell(String(cell || ""), rowIdx, colIdx);
+      }).join("")}</tr>`).join("");
+
+      return `
+        <div class="measurement-table-wrap">
+          <table class="measurement-table">
+            <thead>${headHtml}</thead>
+            <tbody>${bodyHtml}</tbody>
+          </table>
+        </div>
+      `;
+    }
+
     function parseGeneralCheckMultiColumnTable(blockText) {
       const directTableRows = parseTableRowsFromBlock(blockText);
       if (directTableRows && directTableRows.length >= 2) {
@@ -5011,8 +5180,188 @@
       const isValueHeader = (text) => /^(?:标\s*称\s*值|实\s*际\s*值|显\s*示\s*值|实\s*测\s*值)\s*(?:\([^)]*\))?\s*[:：]?$/i.test(String(text || "").trim());
       const isGenericHeader = (text) => /[:：]\s*$/.test(String(text || "").trim());
       const isNumberCell = (text) => /^[+-]?\d+(?:\.\d+)?$/.test(String(text || "").trim());
+      const isNumberWithUnitCell = (text) => {
+        const compact = String(text || "").trim().replace(/\s+/g, "");
+        return /^[+-]?\d+(?:\.\d+)?(?:[mMkK]?[ωΩ])?$/.test(compact);
+      };
+      const isMeasuredValueHeader = (text) => /^(?:实\s*际\s*值|实\s*测\s*值)\s*(?:\([^)]*\))?\s*[:：]?$/i.test(String(text || "").trim());
+      const toRoundedIntText = (text) => {
+        const compact = String(text || "").trim().replace(/\s+/g, "").replace(/[mMkK]?[ωΩ]$/i, "");
+        const n = Number.parseFloat(compact);
+        if (!Number.isFinite(n)) return "";
+        return String(Math.round(n));
+      };
       const isStopText = (text) => /^(?:注[:：]?|\(以下空白\)|（以下空白）|以下空白)/.test(String(text || "").trim());
       const isLikelyNextHeader = (text) => isValueHeader(text) || isGenericHeader(text) || /^(?:一|二|三|四|五|六|七|八|九|十)[、.．]/.test(String(text || "").trim());
+      const parseResistanceCalibrationBlock = (rows, startIndex) => {
+        const current = rows[startIndex] || ["", ""];
+        const marker = String(current[0] || "").trim();
+        const title = String(current[1] || "").trim();
+        if (!marker || !/电阻校准/.test(title)) return null;
+
+        const out = [[marker, title]];
+        let j = startIndex + 1;
+        const isMarkerRow = (idx) => String((rows[idx] && rows[idx][0]) || "").trim().length > 0;
+        const getText = (idx) => String((rows[idx] && rows[idx][1]) || "").trim();
+        const isDecimalLike = (v) => /\./.test(String(v || "").replace(/\s+/g, ""));
+        const isIntegerLike = (v) => {
+          const compact = String(v || "").trim().replace(/\s+/g, "").replace(/[mMkK]?[ωΩ]$/i, "");
+          return /^[-+]?\d+$/.test(compact);
+        };
+        const collectValues = (stopFn, unitAware = false) => {
+          const values = [];
+          while (j < rows.length) {
+            if (isMarkerRow(j)) break;
+            const t = getText(j);
+            if (!t) { j += 1; continue; }
+            if (stopFn && stopFn(t)) break;
+            if (isStopText(t) || isLikelyNextHeader(t)) break;
+            if (unitAware ? !isNumberWithUnitCell(t) : !isNumberCell(t)) break;
+            values.push(t);
+            j += 1;
+          }
+          return values;
+        };
+
+        if (j < rows.length && !isMarkerRow(j) && /全检量程/.test(getText(j))) {
+          out.push(["", getText(j)]);
+          j += 1;
+        }
+
+        while (j < rows.length && !isMarkerRow(j) && /标准值.*[ωΩ]/i.test(getText(j))) {
+          const standardLabel = getText(j);
+          j += 1;
+          let nominal1 = collectValues((t) => isMeasuredValueHeader(t));
+          let actualLabel = "";
+          if (j < rows.length && !isMarkerRow(j) && isMeasuredValueHeader(getText(j))) {
+            actualLabel = getText(j);
+            j += 1;
+          }
+          const actualAll = collectValues((t) => /非全检量程/.test(t) || /标准值.*[ωΩ]/i.test(t));
+
+          let actual1 = actualAll.slice();
+          let nominal2 = [];
+          let actual2 = [];
+          for (let k = 1; k < actualAll.length - 1; k += 1) {
+            if (!isIntegerLike(actualAll[k])) continue;
+            if (!isDecimalLike(actualAll[k - 1])) continue;
+            let m = -1;
+            for (let n = k + 1; n < actualAll.length; n += 1) {
+              if (isDecimalLike(actualAll[n])) { m = n; break; }
+            }
+            if (m > k) {
+              actual1 = actualAll.slice(0, k);
+              nominal2 = actualAll.slice(k, m);
+              actual2 = actualAll.slice(m);
+              break;
+            }
+          }
+
+          if (nominal1.length && actual1.length === nominal1.length + 1) {
+            const roundedActual = actual1.map((v) => toRoundedIntText(v)).filter(Boolean);
+            const nominalRounded = nominal1.map((v) => toRoundedIntText(v)).filter(Boolean);
+            const canAlignWithSingleMissing = (() => {
+              if (roundedActual.length !== nominalRounded.length + 1) return false;
+              let iNominal = 0;
+              let iActual = 0;
+              let usedSkip = false;
+              while (iNominal < nominalRounded.length && iActual < roundedActual.length) {
+                if (nominalRounded[iNominal] === roundedActual[iActual]) {
+                  iNominal += 1;
+                  iActual += 1;
+                  continue;
+                }
+                if (usedSkip) return false;
+                usedSkip = true;
+                iActual += 1;
+              }
+              return iNominal === nominalRounded.length;
+            })();
+            if (canAlignWithSingleMissing) nominal1 = roundedActual;
+          }
+
+          if (nominal1.length) out.push(["", standardLabel, ...nominal1]);
+          if (actual1.length) out.push(["", actualLabel || "实测值(Ω)：", ...actual1]);
+          if (nominal2.length) out.push(["", standardLabel, ...nominal2]);
+          if (actual2.length) out.push(["", actualLabel || "实测值(Ω)：", ...actual2]);
+        }
+
+        if (j < rows.length && !isMarkerRow(j) && /非全检量程/.test(getText(j))) {
+          out.push(["", getText(j)]);
+          j += 1;
+          while (j < rows.length && !isMarkerRow(j) && /量程/.test(getText(j))) {
+            let rangeVals = [];
+            let standardVals = [];
+            if (j < rows.length && !isMarkerRow(j) && /量程/.test(getText(j))) {
+              const label = getText(j);
+              j += 1;
+              rangeVals = collectValues((t) => /标准值/.test(t), true);
+              out.push(["", label, ...rangeVals]);
+            }
+            if (j < rows.length && !isMarkerRow(j) && /标准值/.test(getText(j))) {
+              const label = getText(j);
+              j += 1;
+              standardVals = collectValues((t) => isMeasuredValueHeader(t), true);
+              out.push(["", label, ...standardVals]);
+            }
+            if (j < rows.length && !isMarkerRow(j) && isMeasuredValueHeader(getText(j))) {
+              const label = getText(j);
+              j += 1;
+              const vals = collectValues((t) => /量程/.test(t), true);
+              const expectedGroupSize = Math.max(rangeVals.length, standardVals.length);
+              if (expectedGroupSize >= 1 && vals.length >= expectedGroupSize * 2) {
+                const actual1 = vals.slice(0, expectedGroupSize);
+                const tail = vals.slice(expectedGroupSize);
+                out.push(["", label, ...actual1]);
+                if (tail.length >= expectedGroupSize * 3) {
+                  const range2 = tail.slice(0, expectedGroupSize);
+                  const standard2 = tail.slice(expectedGroupSize, expectedGroupSize * 2);
+                  const actual2 = tail.slice(expectedGroupSize * 2, expectedGroupSize * 3);
+                  out.push(["", "量程：", ...range2]);
+                  out.push(["", "标准值：", ...standard2]);
+                  out.push(["", "实测值：", ...actual2]);
+                } else if (tail.length) {
+                  out.push(["", "实测值：", ...tail]);
+                }
+              } else {
+                out.push(["", label, ...vals]);
+              }
+            }
+          }
+        }
+
+        return { rows: out, nextIndex: Math.max(startIndex, j - 1) };
+      };
+      const splitCalibrationNumericBlock = (values) => {
+        const arr = Array.isArray(values) ? values.map((v) => String(v || "").trim()).filter(Boolean) : [];
+        if (arr.length < 6) return null;
+        if (arr.length % 2 === 0) {
+          const half = arr.length / 2;
+          return [arr.slice(0, half), arr.slice(half)];
+        }
+        const firstDecimalIdx = arr.findIndex((v) => /\./.test(v));
+        if (firstDecimalIdx > 0 && firstDecimalIdx < arr.length) {
+          const left = arr.slice(0, firstDecimalIdx);
+          const right = arr.slice(firstDecimalIdx);
+          if (left.length + 1 === right.length && left.length >= 4) {
+            const toRoundedInt = (v) => {
+              const n = Number.parseFloat(String(v || ""));
+              if (!Number.isFinite(n)) return "";
+              return String(Math.round(n));
+            };
+            const leftInt = left.map((v) => toRoundedInt(v));
+            const rightInt = right.map((v) => toRoundedInt(v));
+            const tailAligned = rightInt.slice(1).every((v, idx) => v && v === leftInt[idx]);
+            if (tailAligned && rightInt[0]) {
+              return [[rightInt[0], ...left], right];
+            }
+          }
+          if (Math.abs(left.length - right.length) <= 1 && left.length >= 4 && right.length >= 4) {
+            return [left, right];
+          }
+        }
+        return null;
+      };
 
       const rebuiltRows = [];
       let hasExpandedNumericRow = false;
@@ -5023,6 +5372,38 @@
         if (isStopText(text)) {
           rebuiltRows.push([marker, text]);
           continue;
+        }
+        const resistanceParsed = parseResistanceCalibrationBlock(twoColRows, i);
+        if (resistanceParsed && Array.isArray(resistanceParsed.rows) && resistanceParsed.rows.length) {
+          rebuiltRows.push(...resistanceParsed.rows);
+          hasExpandedNumericRow = true;
+          i = Number(resistanceParsed.nextIndex || i);
+          continue;
+        }
+        // Some templates omit "标称值/实际值" labels and only keep two numeric blocks.
+        // For these rows, split the contiguous numeric block into two equal rows.
+        if (marker && /校准/.test(text)) {
+          const numericBlock = [];
+          let j = i + 1;
+          while (j < twoColRows.length) {
+            const nextMarker = String((twoColRows[j] && twoColRows[j][0]) || "").trim();
+            const nextText = String((twoColRows[j] && twoColRows[j][1]) || "").trim();
+            if (nextMarker) break;
+            if (isStopText(nextText) || isLikelyNextHeader(nextText)) break;
+            if (!isNumberCell(nextText)) break;
+            numericBlock.push(nextText);
+            j += 1;
+          }
+          const splitRows = splitCalibrationNumericBlock(numericBlock);
+          if (splitRows) {
+            const [nominalValues, actualValues] = splitRows;
+            rebuiltRows.push([marker, text]);
+            rebuiltRows.push(["", "标称值(mm)：", ...nominalValues]);
+            rebuiltRows.push(["", "实际值(mm)：", ...actualValues]);
+            hasExpandedNumericRow = true;
+            i = j - 1;
+            continue;
+          }
         }
         if (!isValueHeader(text) && !isGenericHeader(text)) {
           rebuiltRows.push([marker, text]);
@@ -5073,10 +5454,7 @@
       const forceGeneralCheckTable = !!(options && options.forceGeneralCheckTable);
       const multiColumnGeneralCheckTable = forceGeneralCheckTable ? parseGeneralCheckMultiColumnTable(blockText) : null;
       if (multiColumnGeneralCheckTable) {
-        const [header, ...body] = multiColumnGeneralCheckTable;
-        const headHtml = `<tr>${header.map((cell) => `<th>${escapeHtml(cell)}</th>`).join("")}</tr>`;
-        const bodyHtml = body.map((row) => `<tr>${row.map((cell) => `<td>${renderRichCellHtml(cell)}</td>`).join("")}</tr>`).join("");
-        return `<div class="source-recog-block source-recog-block-formatted"><table class="source-recog-block-table"><thead>${headHtml}</thead><tbody>${bodyHtml}</tbody></table></div>`;
+        return renderStructuredTableHtml(multiColumnGeneralCheckTable);
       }
       const generalCheckRows = parseGeneralCheckRowsFromBlock(blockText, forceGeneralCheckTable);
       if (generalCheckRows) {
@@ -5088,10 +5466,7 @@
 
       const tableRows = parseTableRowsFromBlock(blockText);
       if (tableRows) {
-        const [header, ...body] = tableRows;
-        const headHtml = `<tr>${header.map((cell) => `<th>${escapeHtml(cell)}</th>`).join("")}</tr>`;
-        const bodyHtml = body.map((row) => `<tr>${row.map((cell) => `<td>${renderRichCellHtml(cell)}</td>`).join("")}</tr>`).join("");
-        return `<div class="source-recog-block source-recog-block-formatted"><table class="source-recog-block-table"><thead>${headHtml}</thead><tbody>${bodyHtml}</tbody></table></div>`;
+        return renderStructuredTableHtml(tableRows);
       }
 
       const kvRows = parseKeyValueRowsFromBlock(blockText);
@@ -5121,14 +5496,17 @@
     function extractGeneralCheckFullBlock(raw, src = {}) {
       const text = String(raw || "");
       const srcObj = (src && typeof src === "object") ? src : {};
-      const fromSrc = cleanBlockText(srcObj.general_check_full || "")
-        || cleanBlockText(srcObj.general_check || "");
-      if (fromSrc) return fromSrc;
       const fullBlock = extractBlockByLine(
         text,
         [/(?:校准结果\s*\/\s*说明|Results\s+of\s+calibration\s+and\s+additional\s+explanation)/i],
         [/(?:以下空白|\(以下空白\)|（以下空白）)/i, /(?:校准证书续页专用|Page\s+of\s+total\s+pages)/i, /(?:检测员|校准员|核验员|审核|批准)/i],
       );
+      const fromSrc = cleanBlockText(srcObj.general_check_full || "")
+        || cleanBlockText(srcObj.general_check || "");
+      if (fromSrc) {
+        if (fullBlock && hasDocxImageToken(fullBlock) && !hasDocxImageToken(fromSrc)) return fullBlock;
+        return fromSrc;
+      }
       if (fullBlock) return fullBlock;
       return extractBlockByLine(
         text,
@@ -5306,44 +5684,9 @@
           `;
         }
         if (field.key === "general_check_full") {
-          const multiColumnTable = parseGeneralCheckMultiColumnTable(String(f.general_check_full || ""));
-          if (multiColumnTable) {
-            const [header, ...body] = multiColumnTable;
-            const normalizedRows = body.length ? body : [Array(header.length).fill("")];
-            const headHtml = `<tr>${header.map((cell) => `<th>${escapeHtml(cell)}</th>`).join("")}</tr>`;
-            const bodyHtml = normalizedRows.map((row, rowIdx) => `<tr>${row.map((cell, colIdx) => `<td><input type="text" data-field="general_check_cell" data-row="${rowIdx}" data-col="${colIdx}" value="${escapeAttr(String(cell || ""))}" /></td>`).join("")}</tr>`).join("");
-            return `
-              <label class="source-form-item wide ${isProblem ? "is-problem" : ""}">
-                <div class="measurement-table-wrap">
-                  <table class="measurement-table">
-                    <thead>${headHtml}</thead>
-                    <tbody>${bodyHtml}</tbody>
-                  </table>
-                </div>
-              </label>
-            `;
-          }
-          const rows = parseGeneralCheckRowsForEditor(String(f.general_check_full || ""));
-          const normalizedRows = rows.length ? rows : [["", ""]];
-          const bodyHtml = normalizedRows.map((row, rowIdx) => `
-            <tr>
-              <td style="width:120px;"><input type="text" data-field="general_check_cell" data-row="${rowIdx}" data-col="0" value="${escapeAttr(String(row[0] || ""))}" /></td>
-              <td><input type="text" data-field="general_check_cell" data-row="${rowIdx}" data-col="1" value="${escapeAttr(String(row[1] || ""))}" /></td>
-            </tr>
-          `).join("");
           return `
             <label class="source-form-item wide ${isProblem ? "is-problem" : ""}">
-              <div class="measurement-table-wrap">
-                <table class="measurement-table">
-                  <thead>
-                    <tr>
-                      <th style="width:120px;">序号/标记</th>
-                      <th>内容</th>
-                    </tr>
-                  </thead>
-                  <tbody>${bodyHtml}</tbody>
-                </table>
-              </div>
+              ${renderGeneralCheckWysiwygBlock(String(f.general_check_full || ""), { readOnly: false })}
             </label>
           `;
         }

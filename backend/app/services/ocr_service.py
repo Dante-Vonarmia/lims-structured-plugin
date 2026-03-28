@@ -1,4 +1,6 @@
 import os
+import base64
+import posixpath
 import re
 import subprocess
 import tempfile
@@ -13,6 +15,14 @@ IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff", ".h
 DOCX_SUFFIXES = {".docx"}
 DOC_XML_PATH = "word/document.xml"
 NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+DRAWING_NS = {"a": "http://schemas.openxmlformats.org/drawingml/2006/main"}
+REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+DOC_XML_RELS_PATH = "word/_rels/document.xml.rels"
+DOCX_INLINE_IMAGE_TOKEN_PREFIX = "[[DOCX_IMG|"
+DOCX_INLINE_IMAGE_TOKEN_SUFFIX = "]]"
+MAX_DOCX_INLINE_IMAGES = 12
+MAX_DOCX_INLINE_IMAGE_BYTES = 600 * 1024
 DOCX_LABEL_KEYWORDS = (
     "器具名称",
     "设备名称",
@@ -173,6 +183,7 @@ def _extract_docx_text(file_path: Path) -> str:
     try:
         with zipfile.ZipFile(file_path, "r") as zf:
             xml_data = zf.read(DOC_XML_PATH)
+            image_tokens = _load_docx_inline_image_tokens(zf)
     except Exception:
         return ""
 
@@ -185,7 +196,7 @@ def _extract_docx_text(file_path: Path) -> str:
 
     for tbl in root.findall(".//w:tbl", NS):
         for tr in tbl.findall("./w:tr", NS):
-            cells = [_normalize_docx_space("".join([(node.text or "") for node in tc.findall(".//w:t", NS)])) for tc in tr.findall("./w:tc", NS)]
+            cells = [_extract_docx_cell_content(tc, image_tokens) for tc in tr.findall("./w:tc", NS)]
             cells = [cell for cell in cells if cell]
             if len(cells) < 2:
                 continue
@@ -194,10 +205,7 @@ def _extract_docx_text(file_path: Path) -> str:
                 lines.append(f"{pair[0]}: {pair[1]}")
 
     for paragraph in root.findall(".//w:p", NS):
-        text_nodes = paragraph.findall(".//w:t", NS)
-        if not text_nodes:
-            continue
-        line = _normalize_docx_space("".join([(node.text or "") for node in text_nodes]))
+        line = _extract_docx_paragraph_content(paragraph, image_tokens)
         if line and not _is_docx_placeholder_text(line):
             lines.append(line)
 
@@ -215,6 +223,109 @@ def _extract_docx_text(file_path: Path) -> str:
 
 def _normalize_docx_space(value: str) -> str:
     return re.sub(r"\s+", " ", (value or "").replace("\u3000", " ")).strip()
+
+
+def _build_docx_inline_image_token(data_url: str) -> str:
+    return f"{DOCX_INLINE_IMAGE_TOKEN_PREFIX}{data_url}{DOCX_INLINE_IMAGE_TOKEN_SUFFIX}"
+
+
+def _guess_image_mime_by_path(path: str) -> str:
+    suffix = Path(path).suffix.lower()
+    if suffix in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    if suffix == ".png":
+        return "image/png"
+    if suffix == ".bmp":
+        return "image/bmp"
+    if suffix == ".webp":
+        return "image/webp"
+    if suffix in {".tif", ".tiff"}:
+        return "image/tiff"
+    if suffix == ".gif":
+        return "image/gif"
+    if suffix == ".svg":
+        return "image/svg+xml"
+    return "image/png"
+
+
+def _resolve_docx_rel_target(target: str) -> str:
+    text = str(target or "").strip()
+    if not text:
+        return ""
+    if text.startswith("/"):
+        return text.lstrip("/")
+    return posixpath.normpath(posixpath.join("word", text))
+
+
+def _load_docx_inline_image_tokens(zf: zipfile.ZipFile) -> dict[str, str]:
+    try:
+        rel_xml = zf.read(DOC_XML_RELS_PATH)
+    except Exception:
+        return {}
+    try:
+        rel_root = ET.fromstring(rel_xml)
+    except Exception:
+        return {}
+
+    tokens: dict[str, str] = {}
+    count = 0
+    for rel in rel_root.findall(f".//{{{REL_NS}}}Relationship"):
+        rel_type = str(rel.attrib.get("Type", "")).strip().lower()
+        if not rel_type.endswith("/image"):
+            continue
+        rel_id = str(rel.attrib.get("Id", "")).strip()
+        target = _resolve_docx_rel_target(str(rel.attrib.get("Target", "")))
+        if not rel_id or not target:
+            continue
+        try:
+            raw = zf.read(target)
+        except Exception:
+            continue
+        if not raw:
+            continue
+        if len(raw) > MAX_DOCX_INLINE_IMAGE_BYTES:
+            tokens[rel_id] = "[图片]"
+            continue
+        if count >= MAX_DOCX_INLINE_IMAGES:
+            tokens[rel_id] = "[图片]"
+            continue
+        mime = _guess_image_mime_by_path(target)
+        encoded = base64.b64encode(raw).decode("ascii")
+        tokens[rel_id] = _build_docx_inline_image_token(f"data:{mime};base64,{encoded}")
+        count += 1
+    return tokens
+
+
+def _extract_docx_drawing_tokens(node: ET.Element, image_tokens: dict[str, str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for blip in node.findall(".//a:blip", DRAWING_NS):
+        embed = str(blip.attrib.get(f"{{{R_NS}}}embed", "")).strip()
+        if not embed or embed in seen:
+            continue
+        seen.add(embed)
+        result.append(image_tokens.get(embed, "[图片]"))
+    return result
+
+
+def _extract_docx_cell_content(tc: ET.Element, image_tokens: dict[str, str]) -> str:
+    text = _normalize_docx_space("".join([(node.text or "") for node in tc.findall(".//w:t", NS)]))
+    image_parts = _extract_docx_drawing_tokens(tc, image_tokens)
+    if text and image_parts:
+        return f"{text} {' '.join(image_parts)}".strip()
+    if image_parts:
+        return " ".join(image_parts).strip()
+    return text
+
+
+def _extract_docx_paragraph_content(paragraph: ET.Element, image_tokens: dict[str, str]) -> str:
+    text = _normalize_docx_space("".join([(node.text or "") for node in paragraph.findall(".//w:t", NS)]))
+    image_parts = _extract_docx_drawing_tokens(paragraph, image_tokens)
+    if text and image_parts:
+        return f"{text} {' '.join(image_parts)}".strip()
+    if image_parts:
+        return " ".join(image_parts).strip()
+    return text
 
 
 def _normalize_docx_token(value: str) -> str:

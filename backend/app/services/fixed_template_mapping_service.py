@@ -1,5 +1,6 @@
 import io
 import json
+import posixpath
 import re
 import zipfile
 from datetime import datetime, timedelta
@@ -16,8 +17,13 @@ from .fixed_template_rule_engine import (
 )
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-NS = {"w": W_NS}
+R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+CT_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
+NS = {"w": W_NS, "r": R_NS}
 DOC_XML_PATH = "word/document.xml"
+DOC_RELS_PATH = "word/_rels/document.xml.rels"
+CONTENT_TYPES_PATH = "[Content_Types].xml"
 MAX_INSTRUMENT_ROWS = 5
 _PLACEHOLDER_VALUES = {"", "-", "--", "—", "/", "／"}
 
@@ -130,18 +136,40 @@ def fill_r802b_docx(
     if record_table is not None:
         _fill_r802b_record_table(record_table, payload)
     _fill_page_number_placeholders_in_root(root)
-    copied_general_check_table = _copy_r802b_general_check_table_from_source(root, source_file_path)
+    copied_general_check_table, copied_table = _copy_r802b_general_check_table_from_source(root, source_file_path)
+    rel_updates: dict[str, bytes] = {}
+    if copied_general_check_table and copied_table is not None and source_file_path is not None:
+        rel_updates = _copy_docx_image_dependencies_for_table(
+            template_path=template_path,
+            source_file_path=source_file_path,
+            table_element=copied_table,
+        )
     if not copied_general_check_table:
         _append_r802b_general_check_text_only(root, payload)
 
     _preserve_original_namespaces(root, original_namespaces)
     updated_xml = ET.tostring(root, encoding="utf-8", xml_declaration=True)
     with zipfile.ZipFile(template_path, "r") as zin, zipfile.ZipFile(output_path, "w") as zout:
+        updated_rels_xml = rel_updates.get("__rels__")
+        updated_ct_xml = rel_updates.get("__ct__")
+        existing_names = {x.filename for x in zin.infolist()}
         for item in zin.infolist():
             if item.filename == DOC_XML_PATH:
                 zout.writestr(item, updated_xml)
+            elif item.filename == DOC_RELS_PATH and updated_rels_xml is not None:
+                zout.writestr(item, updated_rels_xml)
+            elif item.filename == CONTENT_TYPES_PATH and updated_ct_xml is not None:
+                zout.writestr(item, updated_ct_xml)
             else:
                 zout.writestr(item, zin.read(item.filename))
+        if updated_rels_xml is not None and DOC_RELS_PATH not in existing_names:
+            zout.writestr(DOC_RELS_PATH, updated_rels_xml)
+        if updated_ct_xml is not None and CONTENT_TYPES_PATH not in existing_names:
+            zout.writestr(CONTENT_TYPES_PATH, updated_ct_xml)
+        for path, raw in rel_updates.items():
+            if path.startswith("__"):
+                continue
+            zout.writestr(path, raw)
     return True
 
 
@@ -613,7 +641,7 @@ def build_r802b_payload(
         start_patterns=(r"(?:其它|其他)校准信息", r"Calibration Information"),
         end_patterns=(r"一般检查", r"备注", r"结果", r"检测员", r"校准员", r"核验员"),
     )
-    detail_general_check = normalize_multiline_text(context.get("general_check", "")) or _extract_text_block(
+    detail_general_check = normalize_multiline_text(context.get("general_check_full", "")) or normalize_multiline_text(context.get("general_check", "")) or _extract_text_block(
         raw_text,
         start_patterns=(r"(?:一[、.．)]\s*)?一般检查", r"General inspection"),
         end_patterns=(r"^\s*(?:二|2)[、.．)]", r"备注", r"结果", r"检测员", r"校准员", r"核验员"),
@@ -820,29 +848,201 @@ def _append_r802b_detail_blocks(
 def _copy_r802b_general_check_table_from_source(
     target_root: ET.Element,
     source_file_path: Path | None,
-) -> bool:
+) -> tuple[bool, ET.Element | None]:
     if source_file_path is None or not source_file_path.exists() or source_file_path.suffix.lower() != ".docx":
-        return False
+        return False, None
     try:
         with zipfile.ZipFile(source_file_path, "r") as zf:
             source_xml = zf.read(DOC_XML_PATH)
         source_root = ET.fromstring(source_xml)
     except Exception:
-        return False
+        return False, None
 
     source_table = _find_general_check_table_element(source_root)
     if source_table is None:
-        return False
+        return False, None
 
     body = target_root.find("./w:body", NS)
     if body is None:
-        return False
+        return False, None
 
     insert_index = _find_r802b_general_check_insert_index(body)
     cloned_table = ET.fromstring(ET.tostring(source_table, encoding="utf-8"))
     _sanitize_general_check_table_rows(cloned_table)
     body.insert(insert_index, cloned_table)
-    return True
+    return True, cloned_table
+
+
+def _copy_docx_image_dependencies_for_table(
+    template_path: Path,
+    source_file_path: Path,
+    table_element: ET.Element,
+) -> dict[str, bytes]:
+    updates: dict[str, bytes] = {}
+    embed_ids = _collect_embed_relationship_ids(table_element)
+    if not embed_ids:
+        return updates
+    try:
+        with zipfile.ZipFile(template_path, "r") as zf:
+            template_rels_xml = zf.read(DOC_RELS_PATH) if DOC_RELS_PATH in zf.namelist() else None
+            template_ct_xml = zf.read(CONTENT_TYPES_PATH) if CONTENT_TYPES_PATH in zf.namelist() else None
+            template_media_names = {name for name in zf.namelist() if name.startswith("word/media/")}
+    except Exception:
+        return updates
+    try:
+        with zipfile.ZipFile(source_file_path, "r") as zf:
+            source_rels_xml = zf.read(DOC_RELS_PATH) if DOC_RELS_PATH in zf.namelist() else None
+            source_names = set(zf.namelist())
+            source_reader = zf
+            if source_rels_xml is None:
+                return updates
+            source_rels_root = ET.fromstring(source_rels_xml)
+            source_rel_map: dict[str, tuple[str, str, str]] = {}
+            for rel in source_rels_root.findall(f".//{{{REL_NS}}}Relationship"):
+                rel_id = str(rel.attrib.get("Id", "")).strip()
+                if not rel_id:
+                    continue
+                source_rel_map[rel_id] = (
+                    str(rel.attrib.get("Type", "")).strip(),
+                    str(rel.attrib.get("Target", "")).strip(),
+                    str(rel.attrib.get("TargetMode", "")).strip(),
+                )
+
+            if template_rels_xml:
+                target_rels_root = ET.fromstring(template_rels_xml)
+            else:
+                target_rels_root = ET.Element(f"{{{REL_NS}}}Relationships")
+            existing_rids = {str(rel.attrib.get("Id", "")).strip() for rel in target_rels_root.findall(f".//{{{REL_NS}}}Relationship")}
+            existing_targets = {str(rel.attrib.get("Target", "")).strip() for rel in target_rels_root.findall(f".//{{{REL_NS}}}Relationship")}
+
+            rid_mapping: dict[str, str] = {}
+            added_exts: set[str] = set()
+
+            for old_rid in sorted(embed_ids):
+                rel_info = source_rel_map.get(old_rid)
+                if not rel_info:
+                    continue
+                rel_type, rel_target, rel_mode = rel_info
+                if not rel_type.lower().endswith("/image"):
+                    continue
+                if rel_mode.lower() == "external":
+                    continue
+                source_media_path = _resolve_docx_rel_target_path(rel_target)
+                if not source_media_path or source_media_path not in source_names:
+                    continue
+                try:
+                    raw = source_reader.read(source_media_path)
+                except Exception:
+                    continue
+                if not raw:
+                    continue
+                ext = Path(source_media_path).suffix.lower() or ".png"
+                media_zip_path = _next_available_media_path(template_media_names, ext)
+                template_media_names.add(media_zip_path)
+                rel_target_path = posixpath.relpath(media_zip_path, "word")
+
+                new_rid = _next_available_rid(existing_rids)
+                existing_rids.add(new_rid)
+                existing_targets.add(rel_target_path)
+                new_rel = ET.Element(f"{{{REL_NS}}}Relationship")
+                new_rel.set("Id", new_rid)
+                new_rel.set("Type", rel_type)
+                new_rel.set("Target", rel_target_path)
+                target_rels_root.append(new_rel)
+                rid_mapping[old_rid] = new_rid
+                updates[media_zip_path] = raw
+                if ext:
+                    added_exts.add(ext.lstrip(".").lower())
+
+            if rid_mapping:
+                _remap_table_embed_rids(table_element, rid_mapping)
+                updates["__rels__"] = ET.tostring(target_rels_root, encoding="utf-8", xml_declaration=True)
+                if template_ct_xml is not None:
+                    updated_ct = _ensure_content_types_for_image_exts(template_ct_xml, added_exts)
+                    updates["__ct__"] = updated_ct
+    except Exception:
+        return {}
+    return updates
+
+
+def _collect_embed_relationship_ids(node: ET.Element) -> set[str]:
+    result: set[str] = set()
+    key = f"{{{R_NS}}}embed"
+    for elem in node.iter():
+        value = str(elem.attrib.get(key, "")).strip()
+        if value:
+            result.add(value)
+    return result
+
+
+def _resolve_docx_rel_target_path(target: str) -> str:
+    value = str(target or "").strip()
+    if not value:
+        return ""
+    if value.startswith("/"):
+        return value.lstrip("/")
+    return posixpath.normpath(posixpath.join("word", value))
+
+
+def _next_available_rid(existing: set[str]) -> str:
+    idx = 1
+    while True:
+        rid = f"rId{idx}"
+        if rid not in existing:
+            return rid
+        idx += 1
+
+
+def _next_available_media_path(existing_media_paths: set[str], ext: str) -> str:
+    idx = 1
+    while True:
+        path = f"word/media/copied-general-check-{idx}{ext}"
+        if path not in existing_media_paths:
+            return path
+        idx += 1
+
+
+def _remap_table_embed_rids(table_element: ET.Element, mapping: dict[str, str]) -> None:
+    if not mapping:
+        return
+    key = f"{{{R_NS}}}embed"
+    for elem in table_element.iter():
+        old = str(elem.attrib.get(key, "")).strip()
+        if old and old in mapping:
+            elem.set(key, mapping[old])
+
+
+def _ensure_content_types_for_image_exts(content_types_xml: bytes, exts: set[str]) -> bytes:
+    if not exts:
+        return content_types_xml
+    try:
+        root = ET.fromstring(content_types_xml)
+    except Exception:
+        return content_types_xml
+    defaults = {
+        "png": "image/png",
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "bmp": "image/bmp",
+        "gif": "image/gif",
+        "tif": "image/tiff",
+        "tiff": "image/tiff",
+        "webp": "image/webp",
+        "svg": "image/svg+xml",
+    }
+    existing = {str(x.attrib.get("Extension", "")).strip().lower() for x in root.findall(f".//{{{CT_NS}}}Default")}
+    for ext in sorted(exts):
+        if not ext or ext in existing:
+            continue
+        content_type = defaults.get(ext)
+        if not content_type:
+            continue
+        node = ET.Element(f"{{{CT_NS}}}Default")
+        node.set("Extension", ext)
+        node.set("ContentType", content_type)
+        root.append(node)
+        existing.add(ext)
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
 def _find_general_check_table_element(root: ET.Element) -> ET.Element | None:

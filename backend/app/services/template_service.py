@@ -151,6 +151,7 @@ def match_template_name(
         return None, None
 
     name_hints = _build_name_hints(raw_text=raw_text, file_name=file_name)
+    explicit_device_name = _extract_primary_device_name(raw_text or "")
     template_code = _extract_template_code(normalized_source)
     if template_code:
         candidates = _match_by_code(template_code, template_list)
@@ -160,6 +161,13 @@ def match_template_name(
             matched_by_name = _match_by_name_hints(name_hints, candidates)
             if matched_by_name:
                 return matched_by_name, f"code+name:{template_code}"
+
+    # If base-info device name is available, prioritize name-based match and
+    # do not let continuation-page keywords hijack template selection.
+    if explicit_device_name:
+        matched_by_name = _match_by_name_hints(name_hints, template_list)
+        if matched_by_name:
+            return matched_by_name, "name:explicit"
 
     library_code = match_mapping_code_by_keywords(normalized_source)
     if library_code:
@@ -380,19 +388,22 @@ def _build_name_hints(raw_text: str, file_name: str | None) -> list[str]:
         hints.append(cleaned)
 
     for pattern in (
-        r"(?:器具名称|设备名称|仪器名称)[:：]?\s*([^\n|]+)",
-        r"(?:device|instrument)\s*name[:：]?\s*([^\n|]+)",
+        r"(?mi)^\s*(?:器具名称|设备名称|仪器名称)[:：]?\s*([^\n|]+)",
+        r"(?mi)^\s*(?:device|instrument)\s*name[:：]?\s*([^\n|]+)",
     ):
         for match in re.finditer(pattern, raw_text or "", flags=re.IGNORECASE):
             value = match.group(1)
+            if "计量标准器具名称" in value:
+                continue
             _push(value)
             cleaned = _clean_name_hint(value)
             if cleaned:
                 explicit_name_hints.append(cleaned)
 
-    # If explicit device-name fields exist, trust them and avoid noisy line hints.
+    # If explicit device-name fields exist, trust only the first one from base info.
     if explicit_name_hints:
-        return hints
+        first = explicit_name_hints[0]
+        return [first] if first else hints
 
     for line in (raw_text or "").splitlines():
         stripped = line.strip()
@@ -413,6 +424,22 @@ def _build_name_hints(raw_text: str, file_name: str | None) -> list[str]:
         stem = re.sub(r"(?i)^r[-_ ]?\d{3}[a-z]\s*", "", stem).strip()
         _push(stem)
     return hints
+
+
+def _extract_primary_device_name(raw_text: str) -> str:
+    for pattern in (
+        r"(?mi)^\s*器具名称[:：]?\s*([^\n|]+)",
+        r"(?mi)^\s*设备名称[:：]?\s*([^\n|]+)",
+        r"(?mi)^\s*仪器名称[:：]?\s*([^\n|]+)",
+        r"(?mi)^\s*(?:device|instrument)\s*name[:：]?\s*([^\n|]+)",
+    ):
+        match = re.search(pattern, raw_text or "", flags=re.IGNORECASE)
+        if not match:
+            continue
+        value = _clean_name_hint(match.group(1))
+        if value and "计量标准器具名称" not in value:
+            return value
+    return ""
 
 
 def _clean_name_hint(value: str) -> str:

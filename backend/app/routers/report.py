@@ -654,17 +654,7 @@ def _parse_catalog_docx(raw_bytes: bytes) -> list[dict[str, str]]:
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Word 清单内容无效：{str(exc)}") from exc
 
-    tables: list[list[list[str]]] = []
-    for tbl in root.findall(".//{*}tbl"):
-        rows: list[list[str]] = []
-        for tr in tbl.findall("./{*}tr"):
-            cells: list[str] = []
-            for tc in tr.findall("./{*}tc"):
-                text = "".join([(node.text or "") for node in tc.findall(".//{*}t")])
-                cells.append(_normalize_catalog_value(text))
-            rows.append(cells)
-        if rows:
-            tables.append(rows)
+    tables = _extract_docx_table_rows(root)
 
     candidates: list[dict[str, str]] = []
     has_structured_table = False
@@ -743,6 +733,95 @@ def _extract_catalog_lines_from_docx_paragraphs(root: ET.Element) -> list[str]:
         if line:
             lines.append(line)
     return lines
+
+
+def _extract_docx_table_rows(root: ET.Element, preserve_paragraphs: bool = False) -> list[list[list[str]]]:
+    tables: list[list[list[str]]] = []
+    for tbl in root.findall(".//{*}tbl"):
+        active_vmerge: dict[int, str] = {}
+        rows: list[list[str]] = []
+        for tr in tbl.findall("./{*}tr"):
+            row: list[str] = []
+            occupied: set[int] = set()
+            col_idx = _get_docx_row_grid_before(tr)
+            for tc in tr.findall("./{*}tc"):
+                span = _get_docx_cell_grid_span(tc)
+                text = _extract_docx_cell_text(tc, preserve_paragraphs=preserve_paragraphs)
+                vmerge = _get_docx_cell_vmerge(tc)
+
+                while col_idx in occupied:
+                    col_idx += 1
+                if col_idx < 0:
+                    col_idx = 0
+                if col_idx + span > len(row):
+                    row.extend([""] * (col_idx + span - len(row)))
+
+                if vmerge == "continue" and not text:
+                    text = active_vmerge.get(col_idx, "")
+
+                row[col_idx] = text
+                for offset in range(span):
+                    pos = col_idx + offset
+                    occupied.add(pos)
+                    if vmerge == "restart":
+                        active_vmerge[pos] = text
+                    elif vmerge != "continue":
+                        active_vmerge.pop(pos, None)
+                col_idx += span
+
+            if row:
+                rows.append(row)
+
+        if rows:
+            max_width = max(len(row) for row in rows)
+            for row in rows:
+                if len(row) < max_width:
+                    row.extend([""] * (max_width - len(row)))
+            tables.append(rows)
+
+    return tables
+
+
+def _extract_docx_cell_text(tc: ET.Element, preserve_paragraphs: bool = False) -> str:
+    if preserve_paragraphs:
+        paragraphs: list[str] = []
+        for p in tc.findall("./{*}p"):
+            chunks = [(node.text or "") for node in p.findall(".//{*}t")]
+            line = "".join(chunks).strip()
+            if line:
+                paragraphs.append(line)
+        return "\n".join(paragraphs).strip()
+    text = "".join([(node.text or "") for node in tc.findall(".//{*}t")])
+    return _normalize_catalog_value(text)
+
+
+def _get_docx_cell_grid_span(tc: ET.Element) -> int:
+    grid_span = tc.find("./{*}tcPr/{*}gridSpan")
+    if grid_span is None:
+        return 1
+    try:
+        span = int(grid_span.attrib.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val", "1"))
+    except Exception:
+        return 1
+    return span if span > 0 else 1
+
+
+def _get_docx_cell_vmerge(tc: ET.Element) -> str:
+    vmerge = tc.find("./{*}tcPr/{*}vMerge")
+    if vmerge is None:
+        return ""
+    return vmerge.attrib.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val", "continue") or "continue"
+
+
+def _get_docx_row_grid_before(tr: ET.Element) -> int:
+    grid_before = tr.find("./{*}trPr/{*}gridBefore")
+    if grid_before is None:
+        return 0
+    try:
+        value = int(grid_before.attrib.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val", "0"))
+    except Exception:
+        return 0
+    return value if value > 0 else 0
 
 
 def _pick_catalog_cell(row: list[str], col_idx: int) -> str:
@@ -825,8 +904,13 @@ def _detect_catalog_column_map(header_row: list[str]) -> dict[str, int]:
 
 def _row_to_catalog_item(row: list[str], column_map: dict[str, int]) -> dict[str, str]:
     item: dict[str, str] = {key: "" for key in _CATALOG_KEYS}
+    certificate_no_idx, valid_date_idx = _resolve_certificate_and_valid_indices(row, column_map)
     for key in _CATALOG_KEYS:
         idx = int(column_map.get(key, -1))
+        if key == "certificate_no":
+            idx = certificate_no_idx
+        elif key == "valid_date":
+            idx = valid_date_idx
         if idx >= 0:
             item[key] = _pick_catalog_cell(row, idx)
     cert_no, valid_date = _split_certificate_and_valid_date(item["certificate_no"], item["valid_date"])
@@ -860,6 +944,18 @@ def _split_certificate_and_valid_date(certificate_no: str, valid_date: str) -> t
     return cert_only, extracted_valid
 
 
+def _resolve_certificate_and_valid_indices(row: list[str], column_map: dict[str, int]) -> tuple[int, int]:
+    certificate_no_idx = int(column_map.get("certificate_no", -1))
+    valid_date_idx = int(column_map.get("valid_date", -1))
+    if certificate_no_idx >= 0 and valid_date_idx == certificate_no_idx:
+        next_idx = certificate_no_idx + 1
+        if next_idx < len(row):
+            next_value = _normalize_catalog_value(row[next_idx])
+            if next_value and _extract_date_text(next_value):
+                valid_date_idx = next_idx
+    return certificate_no_idx, valid_date_idx
+
+
 def _extract_measurement_rows_from_docx(raw_bytes: bytes) -> list[dict[str, str]]:
     try:
         with zipfile.ZipFile(io.BytesIO(raw_bytes), "r") as zf:
@@ -871,24 +967,7 @@ def _extract_measurement_rows_from_docx(raw_bytes: bytes) -> list[dict[str, str]
     except Exception:
         return []
 
-    tables: list[list[list[str]]] = []
-    for tbl in root.findall(".//{*}tbl"):
-        rows: list[list[str]] = []
-        for tr in tbl.findall("./{*}tr"):
-            cells: list[str] = []
-            for tc in tr.findall("./{*}tc"):
-                paragraphs: list[str] = []
-                for p in tc.findall("./{*}p"):
-                    chunks = [(node.text or "") for node in p.findall(".//{*}t")]
-                    line = "".join(chunks).strip()
-                    if line:
-                        paragraphs.append(line)
-                text = "\n".join(paragraphs).strip()
-                cells.append(text)
-            if cells:
-                rows.append(cells)
-        if rows:
-            tables.append(rows)
+    tables = _extract_docx_table_rows(root, preserve_paragraphs=True)
 
     candidates: list[dict[str, str]] = []
     for table_rows in tables:
@@ -905,8 +984,13 @@ def _extract_measurement_rows_from_docx(raw_bytes: bytes) -> list[dict[str, str]
 
         for row in table_rows[header_row_idx + 1 :]:
             raw_item = {key: "" for key in _CATALOG_KEYS}
+            certificate_no_idx, valid_date_idx = _resolve_certificate_and_valid_indices(row, column_map)
             for key in _CATALOG_KEYS:
                 idx = int(column_map.get(key, -1))
+                if key == "certificate_no":
+                    idx = certificate_no_idx
+                elif key == "valid_date":
+                    idx = valid_date_idx
                 if idx < 0 or idx >= len(row):
                     continue
                 raw_item[key] = str(row[idx] or "").strip()
