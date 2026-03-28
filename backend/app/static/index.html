@@ -5870,6 +5870,7 @@
           }
           const [header, ...body] = tableRows;
           const matchInfo = buildMeasurementCatalogMatchInfo(tableRows);
+          const hasCatalog = !!(state.instrumentCatalogRows && state.instrumentCatalogRows.length);
           const headHtml = `
             <tr>
               <th style="width:40px;">#</th>
@@ -5896,7 +5897,7 @@
             <label class="source-form-item wide ${isProblem ? "is-problem" : ""}">
               <span>${escapeHtml(field.label)}</span>
               <div class="measurement-toolbar">
-                <button type="button" class="btn ghost" data-action="match-measurement-items">一键目录配对</button>
+                <button type="button" class="btn ghost" data-action="match-measurement-items" ${hasCatalog ? "" : "disabled"}>一键目录配对</button>
                 <span class="measurement-toolbar-hint">已识别信息已自动带入；红色表示与目录不匹配</span>
               </div>
               <div class="measurement-table-wrap">
