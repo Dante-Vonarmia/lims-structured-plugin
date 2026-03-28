@@ -430,6 +430,20 @@ def extract_instrument_table(file_id: str) -> dict[str, object]:
     return {"rows": rows, "tsv": tsv, "total": len(rows)}
 
 
+@router.get("/report/general-check-structure")
+def extract_general_check_structure(file_id: str) -> dict[str, object]:
+    file_path = _find_uploaded_file(file_id)
+    if not file_path:
+        raise HTTPException(status_code=404, detail="File not found")
+    if file_path.suffix.lower() != ".docx":
+        return {"table": None}
+    raw_bytes = file_path.read_bytes()
+    if not raw_bytes:
+        return {"table": None}
+    table = _extract_general_check_structure_from_docx(raw_bytes)
+    return {"table": table}
+
+
 def _find_report_file(report_id: str):
     matches = sorted(OUTPUT_DIR.glob(f"{report_id}__*"))
     if not matches:
@@ -780,6 +794,138 @@ def _extract_docx_table_rows(root: ET.Element, preserve_paragraphs: bool = False
             tables.append(rows)
 
     return tables
+
+
+def _extract_general_check_structure_from_docx(raw_bytes: bytes) -> dict[str, Any] | None:
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw_bytes), "r") as zf:
+            xml_bytes = zf.read("word/document.xml")
+    except Exception:
+        return None
+    try:
+        root = ET.fromstring(xml_bytes)
+    except Exception:
+        return None
+
+    best: dict[str, Any] | None = None
+    best_score = -1
+    for tbl in root.findall(".//{*}tbl"):
+        model = _build_docx_table_model(tbl)
+        if not model:
+            continue
+        score = _score_general_check_table(model)
+        if score <= best_score:
+            continue
+        best_score = score
+        best = model
+    if not best or best_score <= 0:
+        return None
+    return best
+
+
+def _build_docx_table_model(tbl: ET.Element) -> dict[str, Any] | None:
+    cells: list[dict[str, Any]] = []
+    active_vmerge: dict[int, dict[str, Any]] = {}
+    occupied: dict[tuple[int, int], bool] = {}
+    max_col = 0
+    row_count = 0
+
+    for row_idx, tr in enumerate(tbl.findall("./{*}tr")):
+        row_count = max(row_count, row_idx + 1)
+        col_idx = _get_docx_row_grid_before(tr)
+        for tc in tr.findall("./{*}tc"):
+            while occupied.get((row_idx, col_idx), False):
+                col_idx += 1
+
+            colspan = _get_docx_cell_grid_span(tc)
+            text = _extract_docx_cell_text(tc, preserve_paragraphs=True)
+            align = _get_docx_cell_align(tc)
+            valign = _get_docx_cell_valign(tc)
+            vmerge = _get_docx_cell_vmerge(tc)
+
+            if vmerge == "continue":
+                for offset in range(colspan):
+                    slot = col_idx + offset
+                    ref = active_vmerge.get(slot)
+                    if ref:
+                        ref["rowspan"] = int(ref.get("rowspan", 1)) + 1
+                    occupied[(row_idx, slot)] = True
+                col_idx += colspan
+                max_col = max(max_col, col_idx)
+                continue
+
+            cell = {
+                "r": row_idx,
+                "c": col_idx,
+                "rowspan": 1,
+                "colspan": colspan,
+                "text": str(text or ""),
+                "align": align,
+                "valign": valign,
+            }
+            cells.append(cell)
+            for offset in range(colspan):
+                slot = col_idx + offset
+                occupied[(row_idx, slot)] = True
+                if vmerge == "restart":
+                    active_vmerge[slot] = cell
+                else:
+                    active_vmerge.pop(slot, None)
+            col_idx += colspan
+            max_col = max(max_col, col_idx)
+
+    if not cells or row_count <= 0 or max_col <= 0:
+        return None
+    return {"rows": row_count, "cols": max_col, "cells": cells}
+
+
+def _score_general_check_table(model: dict[str, Any]) -> int:
+    cells = model.get("cells", []) if isinstance(model, dict) else []
+    if not isinstance(cells, list) or not cells:
+        return -1
+    text = " ".join([str((cell or {}).get("text", "")) for cell in cells]).strip()
+    if not text:
+        return -1
+    score = 0
+    if "一般检查" in text:
+        score += 5
+    if "校准结果" in text or "Results of calibration" in text:
+        score += 4
+    if "标准值" in text and "实际值" in text:
+        score += 4
+    if "全检量程" in text or "非全检量程" in text:
+        score += 3
+    if "测温点" in text:
+        score += 3
+    if "注：" in text:
+        score += 1
+    return score
+
+
+def _get_docx_cell_align(tc: ET.Element) -> str:
+    jc = tc.find("./{*}p/{*}pPr/{*}jc")
+    if jc is None:
+        jc = tc.find("./{*}p[1]/{*}pPr/{*}jc")
+    if jc is None:
+        return "left"
+    value = str(jc.attrib.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val", "")).strip().lower()
+    if value in {"center", "both", "distribute"}:
+        return "center"
+    if value in {"right", "end"}:
+        return "right"
+    return "left"
+
+
+def _get_docx_cell_valign(tc: ET.Element) -> str:
+    v_align = tc.find("./{*}tcPr/{*}vAlign")
+    if v_align is None:
+        return "top"
+    value = str(v_align.attrib.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val", "")).strip().lower()
+    if value in {"center"}:
+        return "middle"
+    if value in {"bottom"}:
+        return "bottom"
+    return "top"
 
 
 def _extract_docx_cell_text(tc: ET.Element, preserve_paragraphs: bool = False) -> str:

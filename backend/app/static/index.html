@@ -1050,6 +1050,50 @@
       padding: 3px 4px;
     }
 
+    .general-check-wysiwyg-cell[contenteditable="true"] {
+      min-height: 24px;
+      outline: none;
+      cursor: text;
+    }
+
+    .general-check-wysiwyg-cell[contenteditable="true"]:focus {
+      box-shadow: inset 0 0 0 1px #6d8fb8;
+      background: #f8fbff;
+    }
+
+    .general-check-image-gallery {
+      margin-top: 6px;
+      padding: 6px;
+      border: 1px dashed #b8c8dc;
+      background: #fff;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .gc-editor-shell {
+      border: 1px solid #cbd7e8;
+      background: #fdfefe;
+    }
+
+    .gc-editor-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px;
+      border-bottom: 1px solid #d8e2ef;
+      background: #f3f8ff;
+    }
+
+    .gc-editor-toolbar .small-btn {
+      min-width: 44px;
+    }
+
+    .gc-editor-canvas {
+      padding: 6px;
+      background: #fff;
+    }
+
     .source-recog-block-table.general-check-table td {
       white-space: normal;
       overflow: visible;
@@ -1682,8 +1726,8 @@
           <div class="preview-pane target-pane">
             <div class="target-actions">
               <span class="right-tab-switch">
-                <button id="rightTabFieldBtn" type="button" class="right-tab-btn">字段编辑</button>
                 <button id="rightTabPreviewBtn" type="button" class="right-tab-btn is-active">原始记录预览</button>
+                <button id="rightTabFieldBtn" type="button" class="right-tab-btn">字段编辑</button>
               </span>
               <span class="target-generate-group">
                 <span class="target-actions-label">生成类型</span>
@@ -1698,7 +1742,7 @@
             </div>
             <div id="rightFieldPanel" class="right-tab-panel">
               <div class="target-field-panel">
-                <div class="target-field-head">字段编辑（可编辑，以此为生成值）</div>
+                <div class="target-field-head">字段编辑（所见即所得，可编辑，以此为生成值）</div>
                 <div id="targetFieldForm" class="target-field-form"><div class="placeholder">字段表单未加载</div></div>
               </div>
             </div>
@@ -2068,6 +2112,33 @@
 
     function hasDocxImageToken(text) {
       return /\[\[DOCX_IMG\|/.test(String(text || ""));
+    }
+
+    function collectDocxImageTokens(text, limit = 2) {
+      const source = String(text || "");
+      if (!source) return [];
+      const maxCount = Number.isFinite(Number(limit)) ? Math.max(0, Number(limit)) : 2;
+      if (!maxCount) return [];
+      const re = /\[\[DOCX_IMG\|[^\]]+\]\]/g;
+      const out = [];
+      const seen = new Set();
+      let m;
+      while ((m = re.exec(source)) !== null) {
+        const token = String(m[0] || "").trim();
+        if (!token || seen.has(token)) continue;
+        seen.add(token);
+        out.push(token);
+        if (out.length >= maxCount) break;
+      }
+      return out;
+    }
+
+    function enrichGeneralCheckWithDocxImages(blockText, rawText) {
+      const block = cleanBlockText(blockText || "");
+      if (hasDocxImageToken(block)) return block;
+      const tokens = collectDocxImageTokens(rawText, 2);
+      if (!tokens.length) return block;
+      return cleanBlockText([block, ...tokens].filter(Boolean).join("\n"));
     }
 
     function toDateOnlyDisplay(value) {
@@ -2769,6 +2840,13 @@
       });
     }
 
+    async function runGeneralCheckStructureExtract(fileId) {
+      if (!fileId) return { table: null };
+      return fetchJson(`/api/report/general-check-structure?file_id=${encodeURIComponent(fileId)}`, {
+        cache: "no-store",
+      });
+    }
+
     function applyStructuredMeasurementItems(fields, extractData) {
       if (!fields || typeof fields !== "object") return false;
       const tsv = String((extractData && extractData.tsv) || "").trim();
@@ -3258,6 +3336,7 @@
           reportId: "",
           reportDownloadUrl: "",
           reportFileName: "",
+          generalCheckStruct: sourceItem.generalCheckStruct || null,
         };
       });
     }
@@ -3435,6 +3514,7 @@
       const blocks = ext === ".docx" ? [item.rawText] : splitRecordBlocks(item.rawText);
       item.recordCount = Math.max(blocks.length, 1);
       let structuredInstrumentData = null;
+      let generalCheckStructureData = null;
       if (ext === ".docx" && item.fileId) {
         try {
           const extracted = await runInstrumentTableExtract(item.fileId);
@@ -3444,7 +3524,16 @@
         } catch (error) {
           appendLog(`结构化器具表提取失败 ${item.fileName}：${error.message || "unknown"}`);
         }
+        try {
+          const structRes = await runGeneralCheckStructureExtract(item.fileId);
+          if (structRes && structRes.table && Array.isArray(structRes.table.cells) && structRes.table.cells.length) {
+            generalCheckStructureData = structRes.table;
+          }
+        } catch (error) {
+          appendLog(`续页结构提取失败 ${item.fileName}：${error.message || "unknown"}`);
+        }
       }
+      item.generalCheckStruct = generalCheckStructureData;
 
       if (blocks.length > 1) {
         item.message = "多记录拆分中";
@@ -3491,6 +3580,7 @@
             reportId: "",
             reportDownloadUrl: "",
             reportFileName: "",
+            generalCheckStruct: generalCheckStructureData,
           };
           await applyAutoTemplateMatch(recordItem, { force: true });
           recordRows.push(recordItem);
@@ -3514,6 +3604,7 @@
       item.recognizedFields = { ...item.fields };
       item.sourceCode = resolveSourceCode(item);
       item.category = inferCategory(item);
+      item.generalCheckStruct = generalCheckStructureData;
 
       if (ext === ".docx") {
         const groupItems = buildMultiDeviceWordItems(item, item.fields || {});
@@ -4290,6 +4381,8 @@
         sections.push({
           title: "校准结果/说明（续页）",
           block: normalizedSrc.general_check_full || "",
+          rawText: raw,
+          tableStruct: item && item.generalCheckStruct ? item.generalCheckStruct : null,
           forceGeneralCheckTable: true,
         });
       }
@@ -4412,7 +4505,11 @@
         const isGeneralCheckGroup = groupTitle === "校准结果/说明（续页）";
         const blockHtml = blockText
           ? (isGeneralCheckGroup
-            ? renderGeneralCheckWysiwygBlock(blockText, { readOnly: true })
+            ? renderGeneralCheckWysiwygBlock(blockText, {
+              readOnly: true,
+              rawText: String(section.rawText || ""),
+              tableStruct: section.tableStruct || null,
+            })
             : renderStructuredBlockHtml(blockText, {
               forceGeneralCheckTable: !!section.forceGeneralCheckTable,
             }))
@@ -4782,18 +4879,7 @@
           while (colIdx + colspan < colCount && !occupied[rowIdx][colIdx + colspan] && !String(row[colIdx + colspan] || "").trim()) {
             colspan += 1;
           }
-          let rowspan = 1;
-          while (rowIdx + rowspan < grid.length) {
-            let canExtend = true;
-            for (let mergeCol = colIdx; mergeCol < colIdx + colspan; mergeCol += 1) {
-              if (occupied[rowIdx + rowspan][mergeCol] || String(grid[rowIdx + rowspan][mergeCol] || "").trim()) {
-                canExtend = false;
-                break;
-              }
-            }
-            if (!canExtend) break;
-            rowspan += 1;
-          }
+          const rowspan = 1;
           for (let mergeRow = rowIdx; mergeRow < rowIdx + rowspan; mergeRow += 1) {
             for (let mergeCol = colIdx; mergeCol < colIdx + colspan; mergeCol += 1) {
               occupied[mergeRow][mergeCol] = true;
@@ -5100,19 +5186,31 @@
 
     function renderGeneralCheckEditorCell(cell, rowIdx, colIdx, options = {}) {
       const cellText = String(cell || "");
-      const attrs = [
-        'type="text"',
+      const baseAttrs = [
+        'class="general-check-wysiwyg-cell"',
         'data-field="general_check_cell"',
         `data-row="${rowIdx}"`,
         `data-col="${colIdx}"`,
       ];
-      if (options && options.widthStyle) {
-        return `<td style="${options.widthStyle}"><input ${attrs.join(" ")} value="${escapeAttr(cellText)}" /></td>`;
-      }
       if (hasDocxImageToken(cellText)) {
         return `<td class="general-check-media-cell">${renderRichCellHtml(cellText)}</td>`;
       }
-      return `<td><input ${attrs.join(" ")} value="${escapeAttr(cellText)}" /></td>`;
+      if (options && options.widthStyle) {
+        return `<td style="${options.widthStyle}" ${baseAttrs.join(" ")} contenteditable="true">${escapeHtml(cellText)}</td>`;
+      }
+      return `<td ${baseAttrs.join(" ")} contenteditable="true">${escapeHtml(cellText)}</td>`;
+    }
+
+    function renderGeneralCheckImageGallery(rawText, currentBlockText) {
+      const fromBlock = collectDocxImageTokens(currentBlockText, 12);
+      if (fromBlock.length) return "";
+      const fromRaw = collectDocxImageTokens(rawText, 12);
+      if (!fromRaw.length) return "";
+      const imgs = fromRaw
+        .slice(0, 6)
+        .map((token) => `<div class="general-check-media-cell">${renderRichCellHtml(token)}</div>`)
+        .join("");
+      return `<div class="general-check-image-gallery">${imgs}</div>`;
     }
 
     function buildGeneralCheckWysiwygData(blockText) {
@@ -5130,12 +5228,130 @@
       return { twoColumn: true, header: ["序号/标记", "内容"], rows: normalizedRows };
     }
 
+    function renderGeneralCheckStructuredTable(tableStruct) {
+      const model = (tableStruct && typeof tableStruct === "object") ? tableStruct : null;
+      const rowCount = Number((model && model.rows) || 0) || 0;
+      const colCount = Number((model && model.cols) || 0) || 0;
+      const cells = Array.isArray(model && model.cells) ? model.cells : [];
+      if (rowCount <= 0 || colCount <= 0 || !cells.length) return "";
+
+      const grid = Array.from({ length: rowCount }, () => Array(colCount).fill(null));
+      for (const rawCell of cells) {
+        const cell = rawCell && typeof rawCell === "object" ? rawCell : {};
+        const r = Number(cell.r || 0) || 0;
+        const c = Number(cell.c || 0) || 0;
+        const rowspan = Math.max(1, Number(cell.rowspan || 1) || 1);
+        const colspan = Math.max(1, Number(cell.colspan || 1) || 1);
+        if (r < 0 || c < 0 || r >= rowCount || c >= colCount) continue;
+        grid[r][c] = { ...cell, r, c, rowspan, colspan };
+        for (let rr = r; rr < Math.min(rowCount, r + rowspan); rr += 1) {
+          for (let cc = c; cc < Math.min(colCount, c + colspan); cc += 1) {
+            if (rr === r && cc === c) continue;
+            grid[rr][cc] = "__covered__";
+          }
+        }
+      }
+
+      const tableRowsRaw = [];
+      for (let r = 0; r < rowCount; r += 1) {
+        const tds = [];
+        for (let c = 0; c < colCount; c += 1) {
+          const slot = grid[r][c];
+          if (slot === "__covered__") continue;
+          if (!slot) {
+            tds.push("<td></td>");
+            continue;
+          }
+          const text = String(slot.text || "");
+          const align = String(slot.align || "left").toLowerCase();
+          const valign = String(slot.valign || "top").toLowerCase();
+          const attrs = [];
+          if (slot.rowspan > 1) attrs.push(`rowspan="${slot.rowspan}"`);
+          if (slot.colspan > 1) attrs.push(`colspan="${slot.colspan}"`);
+          const style = [];
+          if (["left", "center", "right"].includes(align)) style.push(`text-align:${align}`);
+          if (["top", "middle", "bottom"].includes(valign)) style.push(`vertical-align:${valign}`);
+          if (style.length) attrs.push(`style="${style.join(";")}"`);
+          tds.push(`<td ${attrs.join(" ")}>${renderRichCellHtml(text)}</td>`);
+        }
+        tableRowsRaw.push({ html: `<tr>${tds.join("")}</tr>`, texts: Array.from({ length: colCount }, (_, c) => {
+          const slot = grid[r][c];
+          return slot && slot !== "__covered__" ? String(slot.text || "").trim() : "";
+        }) });
+      }
+      const cutIdx = tableRowsRaw.findIndex((row) => {
+        const line = (row.texts || []).join(" ");
+        return /(?:^|\s)注[:：]?(?:\s|$)/.test(line) || /(?:以下空白|\(以下空白\)|（以下空白）)/.test(line);
+      });
+      const tableRows = (cutIdx >= 0 ? tableRowsRaw.slice(0, cutIdx) : tableRowsRaw).map((x) => x.html);
+      return `
+        <div class="source-recog-block source-recog-block-formatted">
+          <table class="source-recog-block-table">
+            <tbody>${tableRows.join("")}</tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function trimGeneralCheckRowsForSourceReadOnly(rows) {
+      const srcRows = Array.isArray(rows) ? rows : [];
+      if (!srcRows.length) return [];
+      const isNoteStart = (row) => {
+        const cells = Array.isArray(row) ? row : [];
+        const text = cells.map((x) => String(x || "").trim()).join(" ");
+        return /(?:^|\s)注[:：]?(?:\s|$)/.test(text);
+      };
+      const isBlankTail = (row) => {
+        const cells = Array.isArray(row) ? row : [];
+        const text = cells.map((x) => String(x || "").trim()).join(" ");
+        return /(?:以下空白|\(以下空白\)|（以下空白）)/.test(text);
+      };
+      const cutIdx = srcRows.findIndex((row) => isNoteStart(row) || isBlankTail(row));
+      if (cutIdx < 0) return srcRows;
+      return srcRows.slice(0, cutIdx);
+    }
+
     function renderGeneralCheckWysiwygBlock(blockText, options = {}) {
       const readOnly = !!(options && options.readOnly);
+      const rawText = String((options && options.rawText) || "");
+      const tableStruct = (options && options.tableStruct && typeof options.tableStruct === "object")
+        ? options.tableStruct
+        : null;
       const data = buildGeneralCheckWysiwygData(blockText);
       const header = Array.isArray(data.header) ? data.header : [];
       const rows = Array.isArray(data.rows) ? data.rows : [];
       if (!header.length) return '<div class="source-recog-block">（空）</div>';
+      const galleryHtml = renderGeneralCheckImageGallery(rawText, blockText);
+      const toolbarHtml = "";
+
+      if (readOnly && tableStruct) {
+        const structuredHtml = renderGeneralCheckStructuredTable(tableStruct);
+        if (structuredHtml) {
+          return `
+            <div class="gc-editor-shell is-readonly">
+              ${toolbarHtml}
+              <div class="gc-editor-canvas">
+                ${structuredHtml}
+                ${galleryHtml}
+              </div>
+            </div>
+          `;
+        }
+      }
+
+      if (readOnly && !data.twoColumn) {
+        const visibleRows = trimGeneralCheckRowsForSourceReadOnly(rows);
+        const mergedTableHtml = renderStructuredTableHtml([header, ...visibleRows]);
+        return `
+          <div class="gc-editor-shell is-readonly">
+            ${toolbarHtml}
+            <div class="gc-editor-canvas">
+              ${mergedTableHtml}
+              ${galleryHtml}
+            </div>
+          </div>
+        `;
+      }
 
       const headHtml = `<tr>${header.map((cell, colIdx) => {
         if (data.twoColumn && colIdx === 0) return `<th style="width:120px;">${escapeHtml(cell)}</th>`;
@@ -5156,11 +5372,17 @@
       }).join("")}</tr>`).join("");
 
       return `
-        <div class="measurement-table-wrap">
-          <table class="measurement-table">
-            <thead>${headHtml}</thead>
-            <tbody>${bodyHtml}</tbody>
-          </table>
+        <div class="gc-editor-shell ${readOnly ? "is-readonly" : ""}">
+          ${toolbarHtml}
+          <div class="gc-editor-canvas">
+            <div class="measurement-table-wrap">
+              <table class="measurement-table">
+                <thead>${headHtml}</thead>
+                <tbody>${bodyHtml}</tbody>
+              </table>
+            </div>
+            ${galleryHtml}
+          </div>
         </div>
       `;
     }
@@ -5504,15 +5726,18 @@
       const fromSrc = cleanBlockText(srcObj.general_check_full || "")
         || cleanBlockText(srcObj.general_check || "");
       if (fromSrc) {
-        if (fullBlock && hasDocxImageToken(fullBlock) && !hasDocxImageToken(fromSrc)) return fullBlock;
-        return fromSrc;
+        if (fullBlock && hasDocxImageToken(fullBlock) && !hasDocxImageToken(fromSrc)) {
+          return enrichGeneralCheckWithDocxImages(fullBlock, text);
+        }
+        return enrichGeneralCheckWithDocxImages(fromSrc, text);
       }
-      if (fullBlock) return fullBlock;
-      return extractBlockByLine(
+      if (fullBlock) return enrichGeneralCheckWithDocxImages(fullBlock, text);
+      const fallbackBlock = extractBlockByLine(
         text,
         [/(?:一[、.．)]\s*)?一般检查|General inspection/i],
         [/(?:以下空白|\(以下空白\)|（以下空白）)/i, /(?:校准证书续页专用|Page\s+of\s+total\s+pages)/i, /(?:检测员|校准员|核验员|审核|批准)/i],
       );
+      return enrichGeneralCheckWithDocxImages(fallbackBlock, text);
     }
 
     function maybeCopyGeneralCheckForBlankTemplate(item) {
@@ -5686,7 +5911,7 @@
         if (field.key === "general_check_full") {
           return `
             <label class="source-form-item wide ${isProblem ? "is-problem" : ""}">
-              ${renderGeneralCheckWysiwygBlock(String(f.general_check_full || ""), { readOnly: false })}
+              ${renderGeneralCheckWysiwygBlock(String(f.general_check_full || ""), { readOnly: false, rawText: rawForDate })}
             </label>
           `;
         }
@@ -6249,12 +6474,20 @@
       const handleTargetFieldChange = (event) => {
         const target = event.target;
         if (!(target instanceof HTMLElement)) return;
-        if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLTextAreaElement) && !(target instanceof HTMLSelectElement)) return;
         const key = String(target.getAttribute("data-field") || "").trim();
         if (!key) return;
+        const isInputControl = (target instanceof HTMLInputElement) || (target instanceof HTMLTextAreaElement) || (target instanceof HTMLSelectElement);
+        const isEditableCell = !!(target.getAttribute("contenteditable") === "true");
+        if (!isInputControl && !isEditableCell) return;
         const item = getActiveItem();
         if (!item) return;
         if (!item.fields) item.fields = createEmptyFields();
+        const readControlValue = () => {
+          if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
+            return String(target.value || "");
+          }
+          return String(target.textContent || "");
+        };
         const rebuildMeasurementItemsFromCells = () => {
           const tableRows = parseTableRowsFromBlock(String(item.fields.measurement_items || ""));
           if (!tableRows || tableRows.length < 2) return false;
@@ -6312,13 +6545,14 @@
         if (key === "general_check_cell") {
           const rowIdx = Number.parseInt(String(target.getAttribute("data-row") || "-1"), 10);
           const colIdx = Number.parseInt(String(target.getAttribute("data-col") || "-1"), 10);
+          const nextCellValue = readControlValue();
           const multiColumnTable = parseGeneralCheckMultiColumnTable(String(item.fields.general_check_full || ""));
           if (multiColumnTable) {
             const [header, ...body] = multiColumnTable;
             const working = (body.length ? body : [Array(header.length).fill("")]).map((row) => row.map((cell) => String(cell || "")));
             if (rowIdx < 0 || rowIdx >= working.length) return;
             if (colIdx < 0 || colIdx >= working[rowIdx].length) return;
-            working[rowIdx][colIdx] = String(target.value || "");
+            working[rowIdx][colIdx] = String(nextCellValue || "");
             item.fields.general_check_full = [header, ...working]
               .map((row) => row.map((cell) => String(cell || "").trim()).join("\t"))
               .join("\n");
@@ -6327,14 +6561,14 @@
             const working = (rows.length ? rows : [["", ""]]).map((row) => [String((row && row[0]) || ""), String((row && row[1]) || "")]);
             if (rowIdx < 0 || rowIdx >= working.length) return;
             if (colIdx < 0 || colIdx > 1) return;
-            working[rowIdx][colIdx] = String(target.value || "");
+            working[rowIdx][colIdx] = String(nextCellValue || "");
             item.fields.general_check_full = buildGeneralCheckTextFromRows(working);
           }
           item.fields.general_check = item.fields.general_check_full;
           renderQueue();
           return;
         }
-        const value = target.value || "";
+        const value = readControlValue();
         item.fields[key] = value;
         if (["receive_date", "calibration_date", "release_date"].includes(key)) {
           const inferred = inferDateTriplet({
@@ -6385,6 +6619,41 @@
         const item = getActiveItem();
         if (!item) return;
         if (!item.fields) item.fields = createEmptyFields();
+        if (action === "gc-bold" || action === "gc-italic") {
+          const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+          const cell = active && active.matches('[data-field="general_check_cell"][contenteditable="true"]')
+            ? active
+            : (active ? active.closest('[data-field="general_check_cell"][contenteditable="true"]') : null);
+          if (!(cell instanceof HTMLElement)) return;
+          try {
+            document.execCommand(action === "gc-bold" ? "bold" : "italic");
+          } catch (_) {
+            return;
+          }
+          cell.dispatchEvent(new Event("input", { bubbles: true }));
+          return;
+        }
+        if (action === "gc-add-row" || action === "gc-del-row") {
+          const data = buildGeneralCheckWysiwygData(String(item.fields.general_check_full || ""));
+          const header = Array.isArray(data.header) && data.header.length ? data.header.map((x) => String(x || "")) : ["序号/标记", "内容"];
+          const width = header.length;
+          const rows = Array.isArray(data.rows) && data.rows.length
+            ? data.rows.map((row) => {
+              const next = Array.isArray(row) ? row.map((x) => String(x || "")) : [];
+              while (next.length < width) next.push("");
+              return next.slice(0, width);
+            })
+            : [Array(width).fill("")];
+          if (action === "gc-add-row") rows.push(Array(width).fill(""));
+          if (action === "gc-del-row" && rows.length > 1) rows.pop();
+          item.fields.general_check_full = [header, ...rows]
+            .map((row) => row.map((cell) => String(cell || "").trim()).join("\t"))
+            .join("\n");
+          item.fields.general_check = item.fields.general_check_full;
+          renderTargetFieldForm(item);
+          renderQueue();
+          return;
+        }
         if (action === "match-measurement-items") {
           const tableRows = parseTableRowsFromBlock(String(item.fields.measurement_items || ""));
           if (!tableRows || tableRows.length < 2) return;

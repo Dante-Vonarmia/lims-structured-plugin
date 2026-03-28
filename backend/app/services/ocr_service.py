@@ -90,7 +90,7 @@ ROTATION_HINT_PATTERNS = (
 )
 
 
-def recognize_file(file_path: Path) -> tuple[str, list[str], str]:
+def recognize_file(file_path: Path) -> tuple[str, list[str], str, dict[str, object]]:
     suffix = file_path.suffix.lower()
 
     if suffix in IMAGE_SUFFIXES:
@@ -105,7 +105,7 @@ def recognize_file(file_path: Path) -> tuple[str, list[str], str]:
     raise ValueError(f"Unsupported file type: {suffix}")
 
 
-def _recognize_image(file_path: Path) -> tuple[str, list[str], str]:
+def _recognize_image(file_path: Path) -> tuple[str, list[str], str, dict[str, object]]:
     prepared_path, cleanup_path = _prepare_image_file(file_path)
     try:
         for engine in (_ocr_by_paddle, _ocr_by_rapid, _ocr_by_tesseract):
@@ -114,16 +114,16 @@ def _recognize_image(file_path: Path) -> tuple[str, list[str], str]:
                 normalized = normalize_text(text)
                 lines = split_lines(normalized)
                 if normalized:
-                    return normalized, lines, engine.__name__.replace("_ocr_by_", "")
+                    return normalized, lines, engine.__name__.replace("_ocr_by_", ""), {}
             except Exception:
                 continue
-        return "", [], "none"
+        return "", [], "none", {}
     finally:
         if cleanup_path:
             cleanup_path.unlink(missing_ok=True)
 
 
-def _recognize_pdf(file_path: Path) -> tuple[str, list[str], str]:
+def _recognize_pdf(file_path: Path) -> tuple[str, list[str], str, dict[str, object]]:
     # First try extracting embedded text from digital PDF.
     try:
         from pypdf import PdfReader
@@ -135,7 +135,7 @@ def _recognize_pdf(file_path: Path) -> tuple[str, list[str], str]:
         text = normalize_text("\n".join(text_parts))
         lines = split_lines(text)
         if text:
-            return text, lines, "pypdf"
+            return text, lines, "pypdf", {}
     except Exception:
         pass
 
@@ -162,21 +162,21 @@ def _recognize_pdf(file_path: Path) -> tuple[str, list[str], str]:
             text = normalize_text(Path(sidecar_path).read_text(encoding="utf-8", errors="ignore"))
             lines = split_lines(text)
             if text:
-                return text, lines, "ocrmypdf"
+                return text, lines, "ocrmypdf", {}
     except Exception:
         pass
     finally:
         Path(sidecar_path).unlink(missing_ok=True)
         Path(output_path).unlink(missing_ok=True)
 
-    return "", [], "none"
+    return "", [], "none", {}
 
 
-def _recognize_docx(file_path: Path) -> tuple[str, list[str], str]:
+def _recognize_docx(file_path: Path) -> tuple[str, list[str], str, dict[str, object]]:
     text = _extract_docx_text(file_path)
     normalized = normalize_text(text)
     lines = split_lines(normalized)
-    return normalized, lines, "docx"
+    return normalized, lines, "docx", {}
 
 
 def _extract_docx_text(file_path: Path) -> str:

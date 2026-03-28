@@ -15,12 +15,13 @@ def run_ocr(request: OCRRequest) -> OCRResponse:
     if not file_path:
         raise HTTPException(status_code=404, detail="File not found")
 
-    raw_text, lines, engine = recognize_file(file_path)
+    raw_text, lines, engine, structured = recognize_file(file_path)
     return OCRResponse(
         file_id=request.file_id,
         raw_text=raw_text,
         lines=lines,
         engine=engine,
+        structured=structured or {},
     )
 
 

@@ -18,6 +18,7 @@ class OCRResponse(BaseModel):
     raw_text: str
     lines: list[str]
     engine: str
+    structured: dict[str, object] = Field(default_factory=dict)
 
 
 class ExtractRequest(BaseModel):
