@@ -507,6 +507,7 @@
     .detail-panel-head-main {
       display: inline-flex;
       align-items: center;
+      gap: 6px;
     }
 
     .detail-panel-head-hint {
@@ -516,6 +517,18 @@
       font-size: 12px;
       white-space: nowrap;
       user-select: none;
+    }
+
+    .detail-nav {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .detail-nav .small-btn {
+      height: 22px;
+      padding: 0 8px;
+      font-size: 12px;
     }
 
     .body {
@@ -1016,6 +1029,19 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+
+    .source-inline-img {
+      display: inline-block;
+      max-width: 180px;
+      max-height: 110px;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      vertical-align: middle;
+      border: 1px solid #cbd7e8;
+      background: #fff;
+      margin: 2px 4px 2px 0;
     }
 
     .source-recog-block-table.general-check-table td {
@@ -1608,7 +1634,14 @@
 
     <section class="panel detail-panel" id="detailPanel">
       <div class="head" id="detailPanelHead" title="双击切换预览全屏（Esc退出）">
-        <span class="detail-panel-head-main">单条检查<span class="detail-panel-head-hint">（双击预览全屏，Esc退出）</span></span>
+        <span class="detail-panel-head-main">
+          单条检查
+          <span class="detail-panel-head-hint">（双击预览全屏，Esc退出）</span>
+          <span class="detail-nav">
+            <button id="prevItemBtn" type="button" class="small-btn" title="上一条">上一个</button>
+            <button id="nextItemBtn" type="button" class="small-btn" title="下一条">下一个</button>
+          </span>
+        </span>
       </div>
       <div class="detail">
         <div class="preview-grid">
@@ -1997,6 +2030,26 @@
       return String(text || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     }
 
+    function renderRichCellHtml(text) {
+      const raw = String(text || "");
+      const tokenRe = /\[\[DOCX_IMG\|([^\]]+)\]\]/g;
+      let html = "";
+      let last = 0;
+      let m;
+      while ((m = tokenRe.exec(raw)) !== null) {
+        html += escapeHtml(raw.slice(last, m.index));
+        const src = String((m && m[1]) || "").trim();
+        if (/^data:image\//i.test(src)) {
+          html += `<img class="source-inline-img" src="${escapeAttr(src)}" alt="img" />`;
+        } else {
+          html += "[图片]";
+        }
+        last = m.index + m[0].length;
+      }
+      html += escapeHtml(raw.slice(last));
+      return html;
+    }
+
     function toDateOnlyDisplay(value) {
       const text = String(value || "").trim();
       if (!text) return "";
@@ -2061,6 +2114,27 @@
 
     function getActiveItem() {
       return state.queue.find((x) => x.id === state.activeId) || null;
+    }
+
+    function isTypingTarget(target) {
+      if (!target || !(target instanceof HTMLElement)) return false;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return true;
+      return !!target.closest("input, textarea, select, [contenteditable='true']");
+    }
+
+    async function navigateActiveItem(step) {
+      const list = getFilteredSortedQueue();
+      if (!Array.isArray(list) || !list.length) return;
+      const currentIndex = list.findIndex((x) => x && x.id === state.activeId);
+      const safeIndex = currentIndex >= 0 ? currentIndex : 0;
+      const nextIndex = Math.max(0, Math.min(list.length - 1, safeIndex + step));
+      const nextItem = list[nextIndex];
+      if (!nextItem || nextItem.id === state.activeId) return;
+      state.activeId = nextItem.id;
+      state.listFilter.activeFilterKey = "";
+      renderQueue();
+      renderTemplateSelect();
+      await renderPreviews();
     }
 
     function getGenerateMode() {
@@ -2425,6 +2499,12 @@
       $("filterStatus").disabled = state.busy && !state.queue.length;
       $("sortKey").disabled = state.busy && !state.queue.length;
       $("sortDir").disabled = state.busy && !state.queue.length;
+      const visible = getFilteredSortedQueue();
+      const activeIndex = visible.findIndex((x) => x && x.id === state.activeId);
+      const canPrev = !state.busy && visible.length > 1 && activeIndex > 0;
+      const canNext = !state.busy && visible.length > 1 && activeIndex >= 0 && activeIndex < visible.length - 1;
+      $("prevItemBtn").disabled = !canPrev;
+      $("nextItemBtn").disabled = !canNext;
       $("togglePreviewFullscreenBtn").textContent = state.previewFullscreen ? "退出全屏" : "预览全屏";
       refreshSourceViewButtons();
       refreshRightViewTabs();
@@ -4916,6 +4996,70 @@
       return [];
     }
 
+    function parseGeneralCheckMultiColumnTable(blockText) {
+      const directTableRows = parseTableRowsFromBlock(blockText);
+      if (directTableRows && directTableRows.length >= 2) {
+        const colCount = Array.isArray(directTableRows[0]) ? directTableRows[0].length : 0;
+        if (colCount >= 3 && directTableRows.every((row) => Array.isArray(row) && row.length === colCount)) {
+          return directTableRows.map((row) => row.map((cell) => String(cell || "").trim()));
+        }
+      }
+
+      // Rebuild dynamic tables from two-column "序号/内容" lines.
+      const twoColRows = parseGeneralCheckRowsFromBlock(blockText, true);
+      if (!twoColRows || !twoColRows.length) return null;
+      const isValueHeader = (text) => /^(?:标\s*称\s*值|实\s*际\s*值|显\s*示\s*值|实\s*测\s*值)\s*(?:\([^)]*\))?\s*[:：]?$/i.test(String(text || "").trim());
+      const isGenericHeader = (text) => /[:：]\s*$/.test(String(text || "").trim());
+      const isNumberCell = (text) => /^[+-]?\d+(?:\.\d+)?$/.test(String(text || "").trim());
+      const isStopText = (text) => /^(?:注[:：]?|\(以下空白\)|（以下空白）|以下空白)/.test(String(text || "").trim());
+      const isLikelyNextHeader = (text) => isValueHeader(text) || isGenericHeader(text) || /^(?:一|二|三|四|五|六|七|八|九|十)[、.．]/.test(String(text || "").trim());
+
+      const rebuiltRows = [];
+      let hasExpandedNumericRow = false;
+      for (let i = 0; i < twoColRows.length; i += 1) {
+        const marker = String((twoColRows[i] && twoColRows[i][0]) || "").trim();
+        const text = String((twoColRows[i] && twoColRows[i][1]) || "").trim();
+        if (!text) continue;
+        if (isStopText(text)) {
+          rebuiltRows.push([marker, text]);
+          continue;
+        }
+        if (!isValueHeader(text) && !isGenericHeader(text)) {
+          rebuiltRows.push([marker, text]);
+          continue;
+        }
+        const values = [];
+        let j = i + 1;
+        while (j < twoColRows.length) {
+          const nextMarker = String((twoColRows[j] && twoColRows[j][0]) || "").trim();
+          const nextText = String((twoColRows[j] && twoColRows[j][1]) || "").trim();
+          if (nextMarker) break;
+          if (isStopText(nextText)) break;
+          if (isLikelyNextHeader(nextText)) break;
+          if (!isNumberCell(nextText)) break;
+          values.push(nextText);
+          j += 1;
+        }
+        if (values.length >= 1) {
+          rebuiltRows.push([marker, text, ...values]);
+          hasExpandedNumericRow = true;
+          i = j - 1;
+        } else {
+          rebuiltRows.push([marker, text]);
+        }
+      }
+      if (!hasExpandedNumericRow) return null;
+      const maxCols = rebuiltRows.reduce((acc, row) => Math.max(acc, Array.isArray(row) ? row.length : 0), 0);
+      if (maxCols < 3) return null;
+      const header = ["序号/标记", "内容", ...Array.from({ length: maxCols - 2 }, (_, idx) => String(idx + 1))];
+      const body = rebuiltRows.map((row) => {
+        const normalized = Array.isArray(row) ? row.map((cell) => String(cell || "").trim()) : [];
+        while (normalized.length < maxCols) normalized.push("");
+        return normalized;
+      });
+      return [header, ...body];
+    }
+
     function buildGeneralCheckTextFromRows(rows) {
       const safeRows = Array.isArray(rows) ? rows : [];
       return safeRows
@@ -4927,10 +5071,17 @@
 
     function renderStructuredBlockHtml(blockText, options = {}) {
       const forceGeneralCheckTable = !!(options && options.forceGeneralCheckTable);
+      const multiColumnGeneralCheckTable = forceGeneralCheckTable ? parseGeneralCheckMultiColumnTable(blockText) : null;
+      if (multiColumnGeneralCheckTable) {
+        const [header, ...body] = multiColumnGeneralCheckTable;
+        const headHtml = `<tr>${header.map((cell) => `<th>${escapeHtml(cell)}</th>`).join("")}</tr>`;
+        const bodyHtml = body.map((row) => `<tr>${row.map((cell) => `<td>${renderRichCellHtml(cell)}</td>`).join("")}</tr>`).join("");
+        return `<div class="source-recog-block source-recog-block-formatted"><table class="source-recog-block-table"><thead>${headHtml}</thead><tbody>${bodyHtml}</tbody></table></div>`;
+      }
       const generalCheckRows = parseGeneralCheckRowsFromBlock(blockText, forceGeneralCheckTable);
       if (generalCheckRows) {
         const bodyHtml = generalCheckRows
-          .map((row) => `<tr><td>${escapeHtml(row[0] || "")}</td><td>${escapeHtml(row[1] || "")}</td></tr>`)
+          .map((row) => `<tr><td>${renderRichCellHtml(row[0] || "")}</td><td>${renderRichCellHtml(row[1] || "")}</td></tr>`)
           .join("");
         return `<div class="source-recog-block source-recog-block-formatted"><table class="source-recog-block-table general-check-table"><tbody>${bodyHtml}</tbody></table></div>`;
       }
@@ -4939,13 +5090,13 @@
       if (tableRows) {
         const [header, ...body] = tableRows;
         const headHtml = `<tr>${header.map((cell) => `<th>${escapeHtml(cell)}</th>`).join("")}</tr>`;
-        const bodyHtml = body.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("");
+        const bodyHtml = body.map((row) => `<tr>${row.map((cell) => `<td>${renderRichCellHtml(cell)}</td>`).join("")}</tr>`).join("");
         return `<div class="source-recog-block source-recog-block-formatted"><table class="source-recog-block-table"><thead>${headHtml}</thead><tbody>${bodyHtml}</tbody></table></div>`;
       }
 
       const kvRows = parseKeyValueRowsFromBlock(blockText);
       if (kvRows) {
-        return kvRows.map((row) => `<div class="source-recog-item"><span class="source-recog-key">${escapeHtml(row.key)}</span><span class="source-recog-val">${escapeHtml(row.value)}</span></div>`).join("");
+        return kvRows.map((row) => `<div class="source-recog-item"><span class="source-recog-key">${escapeHtml(row.key)}</span><span class="source-recog-val">${renderRichCellHtml(row.value)}</span></div>`).join("");
       }
 
       const listRows = parseListLinesFromBlock(blockText);
@@ -4954,7 +5105,7 @@
         return `<div class="source-recog-block source-recog-block-formatted"><ul class="source-recog-block-list">${liHtml}</ul></div>`;
       }
 
-      return `<div class="source-recog-block">${escapeHtml(blockText)}</div>`;
+      return `<div class="source-recog-block">${renderRichCellHtml(blockText)}</div>`;
     }
 
     function extractGeneralCheckBlockFromItem(item) {
@@ -5155,6 +5306,23 @@
           `;
         }
         if (field.key === "general_check_full") {
+          const multiColumnTable = parseGeneralCheckMultiColumnTable(String(f.general_check_full || ""));
+          if (multiColumnTable) {
+            const [header, ...body] = multiColumnTable;
+            const normalizedRows = body.length ? body : [Array(header.length).fill("")];
+            const headHtml = `<tr>${header.map((cell) => `<th>${escapeHtml(cell)}</th>`).join("")}</tr>`;
+            const bodyHtml = normalizedRows.map((row, rowIdx) => `<tr>${row.map((cell, colIdx) => `<td><input type="text" data-field="general_check_cell" data-row="${rowIdx}" data-col="${colIdx}" value="${escapeAttr(String(cell || ""))}" /></td>`).join("")}</tr>`).join("");
+            return `
+              <label class="source-form-item wide ${isProblem ? "is-problem" : ""}">
+                <div class="measurement-table-wrap">
+                  <table class="measurement-table">
+                    <thead>${headHtml}</thead>
+                    <tbody>${bodyHtml}</tbody>
+                  </table>
+                </div>
+              </label>
+            `;
+          }
           const rows = parseGeneralCheckRowsForEditor(String(f.general_check_full || ""));
           const normalizedRows = rows.length ? rows : [["", ""]];
           const bodyHtml = normalizedRows.map((row, rowIdx) => `
@@ -5801,12 +5969,24 @@
         if (key === "general_check_cell") {
           const rowIdx = Number.parseInt(String(target.getAttribute("data-row") || "-1"), 10);
           const colIdx = Number.parseInt(String(target.getAttribute("data-col") || "-1"), 10);
-          const rows = parseGeneralCheckRowsForEditor(String(item.fields.general_check_full || ""));
-          const working = (rows.length ? rows : [["", ""]]).map((row) => [String((row && row[0]) || ""), String((row && row[1]) || "")]);
-          if (rowIdx < 0 || rowIdx >= working.length) return;
-          if (colIdx < 0 || colIdx > 1) return;
-          working[rowIdx][colIdx] = String(target.value || "");
-          item.fields.general_check_full = buildGeneralCheckTextFromRows(working);
+          const multiColumnTable = parseGeneralCheckMultiColumnTable(String(item.fields.general_check_full || ""));
+          if (multiColumnTable) {
+            const [header, ...body] = multiColumnTable;
+            const working = (body.length ? body : [Array(header.length).fill("")]).map((row) => row.map((cell) => String(cell || "")));
+            if (rowIdx < 0 || rowIdx >= working.length) return;
+            if (colIdx < 0 || colIdx >= working[rowIdx].length) return;
+            working[rowIdx][colIdx] = String(target.value || "");
+            item.fields.general_check_full = [header, ...working]
+              .map((row) => row.map((cell) => String(cell || "").trim()).join("\t"))
+              .join("\n");
+          } else {
+            const rows = parseGeneralCheckRowsForEditor(String(item.fields.general_check_full || ""));
+            const working = (rows.length ? rows : [["", ""]]).map((row) => [String((row && row[0]) || ""), String((row && row[1]) || "")]);
+            if (rowIdx < 0 || rowIdx >= working.length) return;
+            if (colIdx < 0 || colIdx > 1) return;
+            working[rowIdx][colIdx] = String(target.value || "");
+            item.fields.general_check_full = buildGeneralCheckTextFromRows(working);
+          }
           item.fields.general_check = item.fields.general_check_full;
           renderQueue();
           return;
@@ -5999,17 +6179,35 @@
         if (!getActiveItem()) return;
         setPreviewFullscreen(!state.previewFullscreen);
       });
+      $("prevItemBtn").addEventListener("click", async () => {
+        if (state.busy) return;
+        await navigateActiveItem(-1);
+      });
+      $("nextItemBtn").addEventListener("click", async () => {
+        if (state.busy) return;
+        await navigateActiveItem(1);
+      });
       $("detailPanelHead").addEventListener("dblclick", () => {
         if (!getActiveItem()) return;
         setPreviewFullscreen(!state.previewFullscreen);
       });
 
       document.addEventListener("keydown", (event) => {
+        if (isTypingTarget(event.target)) return;
         if (event.key === "Escape" && state.previewFullscreen) {
           setPreviewFullscreen(false);
           return;
         }
         if (event.key === "Escape") setCatalogDetailVisible(false);
+        if (event.key === "ArrowUp" || event.key === "k" || event.key === "K") {
+          event.preventDefault();
+          navigateActiveItem(-1);
+          return;
+        }
+        if (event.key === "ArrowDown" || event.key === "j" || event.key === "J") {
+          event.preventDefault();
+          navigateActiveItem(1);
+        }
       });
 
       $("runGenerateAllBtn").addEventListener("click", async () => {
