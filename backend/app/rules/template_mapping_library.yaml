@@ -96,3 +96,15 @@ templates:
         - key: location
           label: 检测/校准地点
           wide: true
+
+  r-819b:
+    template_aliases:
+      - R-819B
+      - R_819B
+      - 局部放电测试系统
+      - 局部放电检测系统
+      - 局放检测系统
+      - 局放测试系统
+    source_keywords:
+      - 局部放电
+      - 系统

@@ -16,13 +16,14 @@ DOCX_SUFFIXES = {".docx"}
 DOC_XML_PATH = "word/document.xml"
 NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 DRAWING_NS = {"a": "http://schemas.openxmlformats.org/drawingml/2006/main"}
+VML_NS = {"v": "urn:schemas-microsoft-com:vml"}
 REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 DOC_XML_RELS_PATH = "word/_rels/document.xml.rels"
 DOCX_INLINE_IMAGE_TOKEN_PREFIX = "[[DOCX_IMG|"
 DOCX_INLINE_IMAGE_TOKEN_SUFFIX = "]]"
-MAX_DOCX_INLINE_IMAGES = 12
-MAX_DOCX_INLINE_IMAGE_BYTES = 600 * 1024
+MAX_DOCX_INLINE_IMAGES = 256
+MAX_DOCX_INLINE_IMAGE_BYTES = 50 * 1024 * 1024
 DOCX_LABEL_KEYWORDS = (
     "器具名称",
     "设备名称",
@@ -209,16 +210,7 @@ def _extract_docx_text(file_path: Path) -> str:
         if line and not _is_docx_placeholder_text(line):
             lines.append(line)
 
-    deduped_lines: list[str] = []
-    seen: set[str] = set()
-    for line in lines:
-        key = _normalize_docx_token(line)
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        deduped_lines.append(line)
-
-    return "\n".join(deduped_lines)
+    return "\n".join([line for line in lines if _normalize_docx_token(line)])
 
 
 def _normalize_docx_space(value: str) -> str:
@@ -305,6 +297,12 @@ def _extract_docx_drawing_tokens(node: ET.Element, image_tokens: dict[str, str])
             continue
         seen.add(embed)
         result.append(image_tokens.get(embed, "[图片]"))
+    for imagedata in node.findall(".//v:imagedata", VML_NS):
+        rel_id = str(imagedata.attrib.get(f"{{{R_NS}}}id", "")).strip()
+        if not rel_id or rel_id in seen:
+            continue
+        seen.add(rel_id)
+        result.append(image_tokens.get(rel_id, "[图片]"))
     return result
 
 

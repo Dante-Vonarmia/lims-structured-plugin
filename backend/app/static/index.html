@@ -4120,6 +4120,29 @@
       return cleanBlockText(lines.slice(startIndex, endIndex).join("\n"));
     }
 
+    function extractAllBlocksByLine(raw, startPatterns = [], endPatterns = []) {
+      const lines = splitRawLines(raw);
+      if (!lines.length) return "";
+      const blocks = [];
+      let idx = 0;
+      while (idx < lines.length) {
+        if (!lineMatchesAny(lines[idx], startPatterns)) {
+          idx += 1;
+          continue;
+        }
+        let endIndex = lines.length;
+        for (let i = idx + 1; i < lines.length; i += 1) {
+          if (!lineMatchesAny(lines[i], endPatterns)) continue;
+          endIndex = i;
+          break;
+        }
+        const block = cleanBlockText(lines.slice(idx, endIndex).join("\n"));
+        if (block) blocks.push(block);
+        idx = endIndex < lines.length ? endIndex + 1 : lines.length;
+      }
+      return cleanBlockText(blocks.join("\n"));
+    }
+
     function parseDateFromLabelText(text, labelPattern) {
       const source = String(text || "");
       if (!source.trim()) return "";
@@ -4508,7 +4531,7 @@
             ? renderGeneralCheckWysiwygBlock(blockText, {
               readOnly: true,
               rawText: String(section.rawText || ""),
-              tableStruct: section.tableStruct || null,
+              tableStruct: null,
             })
             : renderStructuredBlockHtml(blockText, {
               forceGeneralCheckTable: !!section.forceGeneralCheckTable,
@@ -5083,6 +5106,20 @@
     }
 
     function parseGeneralCheckRowsFromBlock(blockText, forceTable = false) {
+      const isGeneralCheckNoiseLine = (line) => {
+        const t = String(line || "").trim();
+        if (!t) return true;
+        if (/^第\s*\d+\s*页\s*[\/／]\s*共\s*\d+\s*页$/i.test(t)) return true;
+        if (/^page\s*of\s*total\s*pages$/i.test(t)) return true;
+        if (/^page\s+\d+\s+of\s+\d+$/i.test(t)) return true;
+        if (/^校准证书续页专用$/i.test(t)) return true;
+        if (/^continued\s+page\s+of\s+calibration\s+certificate$/i.test(t)) return true;
+        if (/上海国缆检测/.test(t)) return true;
+        if (/shanghai\s+national\s+center\s+of\s+testing/i.test(t)) return true;
+        if (/certificate\s+series\s+number/i.test(t)) return true;
+        if (/缆专检号[:：]?/.test(t)) return true;
+        return false;
+      };
       const titleNoisePatterns = [
         /^校准结果\s*\/\s*说明(?:（续页）|\(续页\))?[:：]?$/i,
         /^results\s+of\s+calibration\s+and\s+additional\s+explanation(?:\s*\(continued\s+page\))?[:：]?$/i,
@@ -5095,6 +5132,7 @@
         .split("\n")
         .map((x) => x.trim())
         .filter(Boolean)
+        .filter((line) => !isGeneralCheckNoiseLine(line))
         .filter((line) => !titleNoisePatterns.some((pattern) => pattern.test(line)))
         .filter((line) => !noiseLinePatterns.some((pattern) => pattern.test(line)));
       if (!lines.length) return null;
@@ -5296,6 +5334,22 @@
     function trimGeneralCheckRowsForSourceReadOnly(rows) {
       const srcRows = Array.isArray(rows) ? rows : [];
       if (!srcRows.length) return [];
+      const isGeneralCheckNoiseRow = (row) => {
+        const cells = Array.isArray(row) ? row : [];
+        const text = cells.map((x) => String(x || "").trim()).join(" ").replace(/\s+/g, " ").trim();
+        if (!text) return true;
+        if (/第\s*\d+\s*页\s*[\/／]\s*共\s*\d+\s*页/i.test(text)) return true;
+        if (/page\s*of\s*total\s*pages/i.test(text)) return true;
+        if (/校准证书续页专用/i.test(text)) return true;
+        if (/continued\s+page\s+of\s+calibration\s+certificate/i.test(text)) return true;
+        if (/shanghai\s+national\s+center\s+of\s+testing/i.test(text)) return true;
+        if (/上海国缆检测股份有限公司/.test(text)) return true;
+        if (/certificate\s+series\s+number/i.test(text)) return true;
+        if (/缆专检号[:：]/.test(text)) return true;
+        return false;
+      };
+      const visibleRows = srcRows.filter((row) => !isGeneralCheckNoiseRow(row));
+      if (!visibleRows.length) return [];
       const isNoteStart = (row) => {
         const cells = Array.isArray(row) ? row : [];
         const text = cells.map((x) => String(x || "").trim()).join(" ");
@@ -5306,9 +5360,9 @@
         const text = cells.map((x) => String(x || "").trim()).join(" ");
         return /(?:以下空白|\(以下空白\)|（以下空白）)/.test(text);
       };
-      const cutIdx = srcRows.findIndex((row) => isNoteStart(row) || isBlankTail(row));
-      if (cutIdx < 0) return srcRows;
-      return srcRows.slice(0, cutIdx);
+      const cutIdx = visibleRows.findIndex((row) => isNoteStart(row) || isBlankTail(row));
+      if (cutIdx < 0) return visibleRows;
+      return visibleRows.slice(0, cutIdx);
     }
 
     function renderGeneralCheckWysiwygBlock(blockText, options = {}) {
@@ -5390,9 +5444,25 @@
     function parseGeneralCheckMultiColumnTable(blockText) {
       const directTableRows = parseTableRowsFromBlock(blockText);
       if (directTableRows && directTableRows.length >= 2) {
-        const colCount = Array.isArray(directTableRows[0]) ? directTableRows[0].length : 0;
-        if (colCount >= 3 && directTableRows.every((row) => Array.isArray(row) && row.length === colCount)) {
-          return directTableRows.map((row) => row.map((cell) => String(cell || "").trim()));
+        const isGeneralCheckNoiseRow = (row) => {
+          const text = (Array.isArray(row) ? row : []).map((x) => String(x || "").trim()).join(" ").replace(/\s+/g, " ").trim();
+          if (!text) return true;
+          if (/第\s*\d+\s*页\s*[\/／]\s*共\s*\d+\s*页/i.test(text)) return true;
+          if (/page\s*of\s*total\s*pages/i.test(text)) return true;
+          if (/page\s+\d+\s+of\s+\d+/i.test(text)) return true;
+          if (/校准证书续页专用/i.test(text)) return true;
+          if (/continued\s+page\s+of\s+calibration\s+certificate/i.test(text)) return true;
+          if (/上海国缆检测/.test(text)) return true;
+          if (/shanghai\s+national\s+center\s+of\s+testing/i.test(text)) return true;
+          if (/certificate\s+series\s+number/i.test(text)) return true;
+          if (/缆专检号[:：]?/.test(text)) return true;
+          return false;
+        };
+        const filteredDirectRows = directTableRows.filter((row) => !isGeneralCheckNoiseRow(row));
+        if (filteredDirectRows.length < 2) return null;
+        const colCount = Array.isArray(filteredDirectRows[0]) ? filteredDirectRows[0].length : 0;
+        if (colCount >= 3 && filteredDirectRows.every((row) => Array.isArray(row) && row.length === colCount)) {
+          return filteredDirectRows.map((row) => row.map((cell) => String(cell || "").trim()));
         }
       }
 
@@ -5718,24 +5788,19 @@
     function extractGeneralCheckFullBlock(raw, src = {}) {
       const text = String(raw || "");
       const srcObj = (src && typeof src === "object") ? src : {};
-      const fullBlock = extractBlockByLine(
+      const fullBlock = extractAllBlocksByLine(
         text,
         [/(?:校准结果\s*\/\s*说明|Results\s+of\s+calibration\s+and\s+additional\s+explanation)/i],
-        [/(?:以下空白|\(以下空白\)|（以下空白）)/i, /(?:校准证书续页专用|Page\s+of\s+total\s+pages)/i, /(?:检测员|校准员|核验员|审核|批准)/i],
+        [/(?:以下空白|\(以下空白\)|（以下空白）)/i],
       );
       const fromSrc = cleanBlockText(srcObj.general_check_full || "")
         || cleanBlockText(srcObj.general_check || "");
-      if (fromSrc) {
-        if (fullBlock && hasDocxImageToken(fullBlock) && !hasDocxImageToken(fromSrc)) {
-          return enrichGeneralCheckWithDocxImages(fullBlock, text);
-        }
-        return enrichGeneralCheckWithDocxImages(fromSrc, text);
-      }
       if (fullBlock) return enrichGeneralCheckWithDocxImages(fullBlock, text);
+      if (fromSrc) return enrichGeneralCheckWithDocxImages(fromSrc, text);
       const fallbackBlock = extractBlockByLine(
         text,
         [/(?:一[、.．)]\s*)?一般检查|General inspection/i],
-        [/(?:以下空白|\(以下空白\)|（以下空白）)/i, /(?:校准证书续页专用|Page\s+of\s+total\s+pages)/i, /(?:检测员|校准员|核验员|审核|批准)/i],
+        [/(?:以下空白|\(以下空白\)|（以下空白）)/i],
       );
       return enrichGeneralCheckWithDocxImages(fallbackBlock, text);
     }
@@ -5802,7 +5867,7 @@
       if (dateInfo.releaseDate && (!isCompleteDateText(f.release_date) || !String(f.release_date || "").trim())) {
         f.release_date = dateInfo.releaseDate;
       }
-      if (!String(f.general_check_full || "").trim()) {
+      if (String(rawForDate || "").trim()) {
         const full = extractGeneralCheckFullBlock(rawForDate, f);
         if (full) f.general_check_full = full;
       }
