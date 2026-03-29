@@ -307,7 +307,7 @@ def _extract_docx_drawing_tokens(node: ET.Element, image_tokens: dict[str, str])
 
 
 def _extract_docx_cell_content(tc: ET.Element, image_tokens: dict[str, str]) -> str:
-    text = _normalize_docx_space("".join([(node.text or "") for node in tc.findall(".//w:t", NS)]))
+    text = _normalize_docx_space("".join([(node.text or "") for node in tc.findall(".//{*}t")]))
     image_parts = _extract_docx_drawing_tokens(tc, image_tokens)
     if text and image_parts:
         return f"{text} {' '.join(image_parts)}".strip()
@@ -317,7 +317,7 @@ def _extract_docx_cell_content(tc: ET.Element, image_tokens: dict[str, str]) -> 
 
 
 def _extract_docx_paragraph_content(paragraph: ET.Element, image_tokens: dict[str, str]) -> str:
-    text = _normalize_docx_space("".join([(node.text or "") for node in paragraph.findall(".//w:t", NS)]))
+    text = _normalize_docx_space("".join([(node.text or "") for node in paragraph.findall(".//{*}t")]))
     image_parts = _extract_docx_drawing_tokens(paragraph, image_tokens)
     if text and image_parts:
         return f"{text} {' '.join(image_parts)}".strip()

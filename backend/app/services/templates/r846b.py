@@ -257,6 +257,63 @@ def _fill_measured_split_cells(cells: list[ET.Element], measured: str, unit: str
     return changed
 
 
+def _set_result_mark_in_row(cells: list[ET.Element], get_cell_text: Callable[[ET.Element], str], set_cell_text: Callable[[ET.Element, str], None]) -> bool:
+    for cell in cells:
+        text = get_cell_text(cell)
+        if "结果" not in text:
+            continue
+        if "√" in text:
+            return False
+        updated = re.sub(r"结果\s*[:：]?\s*$", "结果： √", text)
+        if updated == text:
+            updated = "结果： √"
+        set_cell_text(cell, updated)
+        return True
+    return False
+
+
+def _clear_section_three_table_defaults(
+    rows: list[list[ET.Element]],
+    ns: dict[str, str],
+    get_cell_text: Callable[[ET.Element], str],
+    set_cell_text: Callable[[ET.Element, str], None],
+    source_text: str,
+) -> bool:
+    # If source has no structured detail rows for section 三, clear template default rows (e.g., hardcoded 60/60/60).
+    if "\t" in str(source_text or ""):
+        return False
+    changed = False
+    start_idx = -1
+    for idx, cells in enumerate(rows):
+        row_text = normalize_space(" ".join(get_cell_text(c) for c in cells))
+        if ("往复刮漆次数" in row_text) and ("时间t(s)" in row_text):
+            start_idx = idx
+            break
+    if start_idx < 0:
+        return False
+    for idx in range(start_idx + 1, min(start_idx + 8, len(rows))):
+        cells = rows[idx]
+        if not cells:
+            continue
+        # stop when entering next section
+        row_text = normalize_space(" ".join(get_cell_text(c) for c in cells))
+        if row_text.startswith("四、"):
+            break
+        for cidx, cell in enumerate(cells):
+            current = normalize_space(get_cell_text(cell))
+            if not current:
+                continue
+            # preserve first-column repeated count only if source has explicit table values (it does not here)
+            if cidx == 0 and re.fullmatch(r"[0-9]+", current):
+                set_cell_text(cell, "")
+                changed = True
+                continue
+            if cidx > 0 and re.search(r"[0-9]", current):
+                set_cell_text(cell, "")
+                changed = True
+    return changed
+
+
 def fill_r846b_specific_sections(
     tables: list[ET.Element],
     source_text: str,
@@ -311,6 +368,15 @@ def fill_r846b_specific_sections(
             "m": measured_value,
             "unit": unit,
         }
+    source_compact = re.sub(r"\s+", "", str(source_text or ""))
+    section_mark_ready = {
+        "二": bool(section_values["二"].get("u")) or bool(section_values["二"].get("m")),
+        "三": bool(section_values["三"].get("u")) or bool(section_values["三"].get("m")),
+        "四": bool(section_values["四"].get("u")) or bool(section_values["四"].get("m")),
+        "五": bool(section_values["五"].get("u")) or bool(section_values["五"].get("m")),
+        "六": bool(section_values["六"].get("u")) or bool(section_values["六"].get("m")),
+        "七": bool(section_values["七"].get("u")),
+    }
 
     section_seven_block = section_blocks.get("七", "")
     nominal_values = _extract_load_values(source_text, "标称值", extract_value_by_regex=extract_value_by_regex) or _extract_load_values(
@@ -334,8 +400,10 @@ def fill_r846b_specific_sections(
 
     for tbl in tables:
         current_section = ""
-        for tr in tbl.findall("./w:tr", ns):
-            cells = tr.findall("./w:tc", ns)
+        row_cells = [tr.findall("./w:tc", ns) for tr in tbl.findall("./w:tr", ns)]
+        if _clear_section_three_table_defaults(row_cells, ns, get_cell_text, set_cell_text, source_text):
+            changed = True
+        for cells in row_cells:
             if not cells:
                 continue
             row_text = normalize_space(" ".join([get_cell_text(cell) for cell in cells]))
@@ -392,4 +460,21 @@ def fill_r846b_specific_sections(
                         continue
                     set_cell_text(cells[idx], value)
                     changed = True
+
+            if "结果" in row_text:
+                should_mark = False
+                if "(1)" in row_text:
+                    should_mark = "水平位置" in source_compact
+                elif "(2)" in row_text:
+                    should_mark = ("拉紧校直" in source_compact) or ("紧密接触" in source_compact)
+                elif "(3)" in row_text:
+                    should_mark = "自动停机" in source_compact
+                elif current_section in section_mark_ready:
+                    if current_section == "七":
+                        should_mark = section_mark_ready["七"] and bool(nominal_values) and bool(actual_values)
+                    else:
+                        should_mark = section_mark_ready[current_section]
+                if should_mark:
+                    marked = _set_result_mark_in_row(cells, get_cell_text, set_cell_text)
+                    changed = marked or changed
     return changed

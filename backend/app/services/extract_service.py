@@ -45,6 +45,17 @@ def extract_fields(raw_text: str) -> dict[str, str]:
         "contact_info": "",
         "measurement_items": "",
         "measurement_item_count": "",
+        "pd_charge_values_pc": "",
+        "pd_charge_avg_pc": "",
+        "pd_rise_time_values_ns": "",
+        "pd_rise_time_avg_ns": "",
+        "pd_pulse_amplitude_values_v": "",
+        "pd_pulse_amplitude_avg_v": "",
+        "pd_voltage_urel_percent": "",
+        "pd_scan_time_urel_percent": "",
+        "pd_capacitance_urel_percent": "",
+        "pd_power_tolerance_urel_percent": "",
+        "pd_voltage_calibration_urel_percent": "",
         "source_profile": "",
         "source_profile_label": "",
         "device_group_count": "0",
@@ -80,6 +91,7 @@ def extract_fields(raw_text: str) -> dict[str, str]:
     _fill_by_fallback(result, text)
     _apply_structured_pairs(result, line_pairs)
     _normalize_report_dates(result)
+    _extract_partial_discharge_fields(result, text)
     _apply_source_profile_context(result, text)
     return result
 
@@ -967,6 +979,98 @@ def _extract_measurement_items(text: str) -> list[str]:
             continue
         items.append(content)
     return items
+
+
+def _extract_partial_discharge_fields(result: dict[str, str], text: str) -> None:
+    source = str(text or "")
+    if not source:
+        return
+
+    lines = [line.strip() for line in source.split("\n") if line.strip()]
+    _fill_pd_series_if_empty(result, "pd_charge_values_pc", lines, ("电荷量", "放电量"))
+    _fill_pd_series_if_empty(result, "pd_rise_time_values_ns", lines, ("上升沿",))
+    _fill_pd_series_if_empty(result, "pd_pulse_amplitude_values_v", lines, ("脉冲幅值", "波形峰值"))
+
+    if not _clean_extracted_value(result.get("pd_voltage_urel_percent", "")):
+        result["pd_voltage_urel_percent"] = _extract_urel_percent_by_keywords(
+            source,
+            ("试验电压", "电压"),
+        )
+    if not _clean_extracted_value(result.get("pd_scan_time_urel_percent", "")):
+        result["pd_scan_time_urel_percent"] = _extract_urel_percent_by_keywords(
+            source,
+            ("扫描时间", "扫描"),
+        )
+    if not _clean_extracted_value(result.get("pd_capacitance_urel_percent", "")):
+        result["pd_capacitance_urel_percent"] = _extract_urel_percent_by_keywords(
+            source,
+            ("电容",),
+        )
+    if not _clean_extracted_value(result.get("pd_power_tolerance_urel_percent", "")):
+        result["pd_power_tolerance_urel_percent"] = _extract_urel_percent_by_keywords(
+            source,
+            ("电流容差", "电源容差", "容差"),
+        )
+    if not _clean_extracted_value(result.get("pd_voltage_calibration_urel_percent", "")):
+        result["pd_voltage_calibration_urel_percent"] = _extract_urel_percent_by_keywords(
+            source,
+            ("电压校准", "校准脉冲", "校准"),
+        )
+
+
+def _fill_pd_series_if_empty(
+    result: dict[str, str],
+    key: str,
+    lines: list[str],
+    keywords: tuple[str, ...],
+) -> None:
+    if _clean_extracted_value(result.get(key, "")):
+        return
+
+    preferred = ""
+    fallback = ""
+    for line in lines:
+        if not any(keyword in line for keyword in keywords):
+            continue
+        values = _extract_numeric_values_from_line(line)
+        if not values:
+            continue
+        joined = " ".join(values)
+        if "实测" in line and not preferred:
+            preferred = joined
+        if not fallback:
+            fallback = joined
+    result[key] = preferred or fallback
+
+
+def _extract_numeric_values_from_line(line: str) -> list[str]:
+    values = re.findall(r"[+-]?\d+(?:\.\d+)?", line or "")
+    return [str(value).strip() for value in values if str(value).strip()]
+
+
+def _extract_urel_percent_by_keywords(text: str, keywords: tuple[str, ...]) -> str:
+    source = str(text or "")
+    if not source:
+        return ""
+
+    urel_pattern = re.compile(r"Urel\s*=\s*([+-]?\d+(?:\.\d+)?)\s*%?", flags=re.IGNORECASE)
+    for line in source.split("\n"):
+        normalized = line.strip()
+        if not normalized:
+            continue
+        if not any(keyword in normalized for keyword in keywords):
+            continue
+        match = urel_pattern.search(normalized)
+        if match:
+            return _clean_extracted_value(match.group(1))
+
+    for match in re.finditer(r"Urel\s*=\s*([+-]?\d+(?:\.\d+)?)\s*%?", source, flags=re.IGNORECASE):
+        window_start = max(0, match.start() - 40)
+        window_end = min(len(source), match.end() + 40)
+        window = source[window_start:window_end]
+        if any(keyword in window for keyword in keywords):
+            return _clean_extracted_value(match.group(1))
+    return ""
 
 
 def _strip_model_tail_noise(value: str) -> str:

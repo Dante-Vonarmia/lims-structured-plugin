@@ -22,19 +22,30 @@ from .semantic_fill_lib import (
     build_series_row_value_maps_from_general_check_text,
     build_semantic_value_maps_from_general_check_text,
     detect_semantic_key_value_columns,
+    extract_humidity_from_other_calibration_info,
+    extract_location_from_other_calibration_info,
     extract_measured_value_items,
+    extract_section_measured_value,
+    extract_section_uncertainty,
+    extract_temperature_from_other_calibration_info,
     extract_text_block,
     extract_uncertainty_items,
     extract_uncertainty_u_value,
+    is_detail_general_check_sparse,
     is_reliable_result_semantic_match,
     normalize_multiline_text,
     normalize_multiline_text_preserve_tabs,
     normalize_semantic_key,
     pick_series_row_values_for_label,
     pick_semantic_value_for_key,
+    replace_measured_value,
+    replace_uncertainty_value,
     replace_measured_value_placeholder_by_items,
     replace_uncertainty_u_placeholder_by_items,
     replace_uncertainty_u_placeholder,
+    resolve_detail_general_check_for_generic_fill,
+    sanitize_location_text,
+    score_detail_general_check_text,
 )
 from .templates import fill_r846b_specific_sections
 
@@ -250,8 +261,11 @@ def fill_r846b_docx(
     if not payload:
         return False
 
-    detail_general_check = _resolve_detail_general_check_for_generic_fill(context)
-    raw_record_text = normalize_multiline_text(context.get("raw_record", ""))
+    detail_general_check = normalize_multiline_text_preserve_tabs(
+        context.get("general_check_full", ""),
+        normalize_space=normalize_space,
+    ) or normalize_multiline_text(context.get("general_check", ""), normalize_space=normalize_space)
+    raw_record_text = normalize_multiline_text(context.get("raw_record", ""), normalize_space=normalize_space)
     source_text = detail_general_check or raw_record_text
     if detail_general_check:
         payload["detail_general_check"] = detail_general_check
@@ -314,7 +328,7 @@ def fill_generic_record_docx(
     detail_general_check = _resolve_detail_general_check_for_generic_fill(context)
     if detail_general_check:
         payload["detail_general_check"] = detail_general_check
-    payload["__raw_record_text"] = normalize_multiline_text(context.get("raw_record", ""))
+    payload["__raw_record_text"] = normalize_multiline_text(context.get("raw_record", ""), normalize_space=normalize_space)
     payload["__template_name"] = template_path.name
 
     with zipfile.ZipFile(template_path, "r") as zin:
@@ -353,61 +367,23 @@ def fill_generic_record_docx(
 
 
 def _score_detail_general_check_text(text: str) -> int:
-    block = normalize_multiline_text_preserve_tabs(text or "", normalize_space=normalize_space)
-    if not block:
-        return 0
-    score = 0
-    score += len(extract_source_general_check_lines(block))
-    score += len(extract_uncertainty_items(block, normalize_space=normalize_space)) * 3
-    score += len(extract_measured_value_items(block, normalize_space=normalize_space)) * 3
-    score += sum(len(item) for item in build_semantic_value_maps_from_general_check_text(block, normalize_space=normalize_space)) * 2
-    score += sum(len(item) for item in build_series_row_value_maps_from_general_check_text(block, normalize_space=normalize_space)) * 2
-    return score
+    return score_detail_general_check_text(
+        text,
+        normalize_space=normalize_space,
+        extract_source_general_check_lines=extract_source_general_check_lines,
+    )
 
 
 def _is_detail_general_check_sparse(text: str) -> bool:
-    block = normalize_multiline_text_preserve_tabs(text or "", normalize_space=normalize_space)
-    if not block:
-        return True
-    uncertainty_items = extract_uncertainty_items(block, normalize_space=normalize_space)
-    measured_items = extract_measured_value_items(block, normalize_space=normalize_space)
-    if not uncertainty_items and not measured_items and "扩展不确定度" in block and "U=" in block:
-        return True
-    if uncertainty_items or measured_items:
-        return False
-    if re.search(r"扩展不确定度\s*U\s*=\s*(?:[:：]?\s*)?$", block):
-        return True
-    if re.search(r"扩展不确定度\s*U\s*=\s*[^\d\n]*[,，]?\s*k\s*=\s*2", block):
-        return True
-    if re.search(r"实\s*测\s*值(?:\s*[（(][^)）]*[)）])?\s*[:：]\s*[^\d\n]*$", block):
-        return True
-    numeric_count = len(re.findall(r"[+-]?\d+(?:\.\d+)?", block))
-    return numeric_count < 3
+    return is_detail_general_check_sparse(text, normalize_space=normalize_space)
 
 
 def _resolve_detail_general_check_for_generic_fill(context: dict[str, str]) -> str:
-    from_fields = normalize_multiline_text_preserve_tabs(context.get("general_check_full", ""), normalize_space=normalize_space) or normalize_multiline_text(
-        context.get("general_check", "")
-    )
-    raw_text = normalize_multiline_text(context.get("raw_record", ""), normalize_space=normalize_space)
-    from_raw = extract_text_block(
-        raw_text,
-        start_patterns=(r"(?:一[、.．)]\s*)?一般检查", r"General inspection"),
-        end_patterns=(r"备注", r"结果", r"检测员", r"校准员", r"核验员", r"(?:以下空白|\(以下空白\)|（以下空白）)"),
+    return resolve_detail_general_check_for_generic_fill(
+        context,
         normalize_space=normalize_space,
+        extract_source_general_check_lines=extract_source_general_check_lines,
     )
-    if not from_fields:
-        return from_raw
-    if not from_raw:
-        return from_fields
-    if _is_detail_general_check_sparse(from_fields):
-        return from_raw
-    fields_score = _score_detail_general_check_text(from_fields)
-    raw_score = _score_detail_general_check_text(from_raw)
-    # Prefer user-edited field source by default; fallback to raw only when field source is clearly sparse.
-    if fields_score >= 4:
-        return from_fields
-    return from_raw if raw_score > fields_score else from_fields
 
 
 def build_r801b_payload(
@@ -799,7 +775,7 @@ def build_r802b_payload(
         end_patterns=(r"一般检查", r"备注", r"结果", r"检测员", r"校准员", r"核验员"),
         normalize_space=normalize_space,
     )
-    detail_general_check = normalize_multiline_text_preserve_tabs(context.get("general_check_full", ""), normalize_space=normalize_space) or normalize_multiline_text(context.get("general_check", "")) or extract_text_block(
+    detail_general_check = normalize_multiline_text_preserve_tabs(context.get("general_check_full", ""), normalize_space=normalize_space) or normalize_multiline_text(context.get("general_check", ""), normalize_space=normalize_space) or extract_text_block(
         raw_text,
         start_patterns=(r"(?:一[、.．)]\s*)?一般检查", r"General inspection"),
         end_patterns=(r"^\s*(?:二|2)[、.．)]", r"备注", r"结果", r"检测员", r"校准员", r"核验员"),
@@ -933,12 +909,12 @@ def _append_r802b_detail_blocks(
         return
 
     sections: list[tuple[str, str]] = [
-        ("本次校准所使用的主要计量标准器具：", normalize_multiline_text(payload.get("detail_instruments", ""))),
-        ("本次校准所依据的技术规范（代号、名称）：", normalize_multiline_text(payload.get("detail_basis", ""))),
-        ("其它校准信息：", normalize_multiline_text(payload.get("detail_calibration_info", ""))),
+        ("本次校准所使用的主要计量标准器具：", normalize_multiline_text(payload.get("detail_instruments", ""), normalize_space=normalize_space)),
+        ("本次校准所依据的技术规范（代号、名称）：", normalize_multiline_text(payload.get("detail_basis", ""), normalize_space=normalize_space)),
+        ("其它校准信息：", normalize_multiline_text(payload.get("detail_calibration_info", ""), normalize_space=normalize_space)),
     ]
     if include_general_check:
-        sections.append(("一般检查：", normalize_multiline_text(payload.get("detail_general_check", ""))))
+        sections.append(("一般检查：", normalize_multiline_text(payload.get("detail_general_check", ""), normalize_space=normalize_space)))
 
     section_lines: list[str] = []
     for title, value in sections:
@@ -1238,7 +1214,7 @@ def _append_r802b_general_check_text_only(root: ET.Element, payload: dict[str, A
     body = root.find("./w:body", NS)
     if body is None:
         return
-    value = normalize_multiline_text(payload.get("detail_general_check", ""))
+    value = normalize_multiline_text(payload.get("detail_general_check", ""), normalize_space=normalize_space)
     if not value:
         return
 
@@ -1290,7 +1266,7 @@ def _find_r802b_insert_index(body: ET.Element) -> int:
 
 
 def _has_r802b_section_heading(value: str, title: str) -> bool:
-    text = normalize_multiline_text(value)
+    text = normalize_multiline_text(value, normalize_space=normalize_space)
     if not text:
         return False
     if title in text:
@@ -2044,7 +2020,7 @@ def _fill_generic_uncertainty_u_from_payload(root: ET.Element, tables: list[ET.E
     measured_items = extract_measured_value_items(detail_text, normalize_space=normalize_space)
     u_value = extract_uncertainty_u_value(detail_text, normalize_space=normalize_space)
     if not u_value and not uncertainty_items and not measured_items:
-        raw_text = normalize_multiline_text(str(payload.get("__raw_record_text", "") or ""))
+        raw_text = normalize_multiline_text(str(payload.get("__raw_record_text", "") or ""), normalize_space=normalize_space)
         if raw_text:
             uncertainty_items = extract_uncertainty_items(raw_text, normalize_space=normalize_space)
             measured_items = extract_measured_value_items(raw_text, normalize_space=normalize_space)
@@ -2113,7 +2089,7 @@ def _fill_generic_semantic_series_rows_from_payload(tables: list[ET.Element], pa
     detail_text = str(payload.get("detail_general_check", "") or "")
     source_maps = build_series_row_value_maps_from_general_check_text(detail_text, normalize_space=normalize_space)
     if not source_maps:
-        raw_text = normalize_multiline_text(str(payload.get("__raw_record_text", "") or ""))
+        raw_text = normalize_multiline_text(str(payload.get("__raw_record_text", "") or ""), normalize_space=normalize_space)
         if raw_text:
             source_maps = build_series_row_value_maps_from_general_check_text(raw_text, normalize_space=normalize_space)
     if not source_maps:
@@ -2411,69 +2387,46 @@ def _add_days(date_text: str, days: int) -> str:
 
 
 def _extract_location_from_other_calibration_info(text: str) -> str:
-    value = extract_value_by_regex(
+    return extract_location_from_other_calibration_info(
         text,
-        patterns=(
-            r"(?:其他|其它)校准信息[\s\S]{0,240}?地点[:：]?\s*([^\n|；;]+)",
-            r"(?:Calibration\s*Information|其他校准信息|其它校准信息)[\s\S]{0,240}?Location[:：]?\s*([^\n|；;]+)",
-        ),
-        flags=re.IGNORECASE | re.DOTALL,
+        extract_value_by_regex=extract_value_by_regex,
+        normalize_space=normalize_space,
     )
-    return _sanitize_location_text(value)
 
 
 def _extract_temperature_from_other_calibration_info(text: str) -> str:
-    return extract_value_by_regex(
+    return extract_temperature_from_other_calibration_info(
         text,
-        patterns=(
-            r"(?:其他|其它)校准信息[\s\S]{0,240}?温度[:：]?\s*([+-]?[0-9]+(?:\.[0-9]+)?)",
-            r"(?:Calibration\s*Information|其他校准信息|其它校准信息)[\s\S]{0,240}?Temperature[:：]?\s*([+-]?[0-9]+(?:\.[0-9]+)?)",
-        ),
-        flags=re.IGNORECASE | re.DOTALL,
+        extract_value_by_regex=extract_value_by_regex,
     )
 
 
 def _extract_humidity_from_other_calibration_info(text: str) -> str:
-    return extract_value_by_regex(
+    return extract_humidity_from_other_calibration_info(
         text,
-        patterns=(
-            r"(?:其他|其它)校准信息[\s\S]{0,240}?湿度[:：]?\s*([0-9]+(?:\.[0-9]+)?)",
-            r"(?:Calibration\s*Information|其他校准信息|其它校准信息)[\s\S]{0,240}?Humidity[:：]?\s*([0-9]+(?:\.[0-9]+)?)",
-        ),
-        flags=re.IGNORECASE | re.DOTALL,
+        extract_value_by_regex=extract_value_by_regex,
     )
 
 
 def _sanitize_location_text(value: str) -> str:
-    text = normalize_space(value)
-    if not text:
-        return ""
-    text = re.split(r"(?:温度|湿度|Temperature|Humidity)[:：]?", text, maxsplit=1)[0]
-    text = re.sub(r"[，,;；\s]+$", "", text)
-    return normalize_space(text)
+    return sanitize_location_text(value, normalize_space=normalize_space)
 
 
 def _replace_uncertainty_value(text: str, value: str, unit: str) -> str:
-    normalized_value = normalize_space(value)
-    if not normalized_value:
-        return text
-    return re.sub(
-        rf"U=\s*.*?{re.escape(unit)},k=2。",
-        f"U={normalized_value} {unit},k=2。",
+    return replace_uncertainty_value(
         text,
-        count=1,
+        value,
+        unit,
+        normalize_space=normalize_space,
     )
 
 
 def _replace_measured_value(text: str, value: str, unit: str) -> str:
-    normalized_value = normalize_space(value)
-    if not normalized_value:
-        return text
-    return re.sub(
-        rf"实测值[:：]\s*.*?{re.escape(unit)}。",
-        f"实测值：{normalized_value} {unit}。",
+    return replace_measured_value(
         text,
-        count=1,
+        value,
+        unit,
+        normalize_space=normalize_space,
     )
 
 
@@ -2513,22 +2466,20 @@ def _find_cell_index_contains_any(cells: list[ET.Element], markers: tuple[str, .
 
 
 def _extract_section_uncertainty(text: str, section_title: str, unit: str) -> str:
-    return extract_value_by_regex(
+    return extract_section_uncertainty(
         text,
-        patterns=(
-            rf"{re.escape(section_title)}[\s\S]{{0,240}}?扩展不确定度U\s*=\s*([0-9]+(?:\.[0-9]+)?)\s*{re.escape(unit)}",
-        ),
-        flags=re.IGNORECASE | re.DOTALL,
+        section_title,
+        unit,
+        extract_value_by_regex=extract_value_by_regex,
     )
 
 
 def _extract_section_measured_value(text: str, section_title: str, unit: str) -> str:
-    return extract_value_by_regex(
+    return extract_section_measured_value(
         text,
-        patterns=(
-            rf"{re.escape(section_title)}[\s\S]{{0,280}}?实测值[:：]?\s*([0-9]+(?:\.[0-9]+)?)\s*{re.escape(unit)}",
-        ),
-        flags=re.IGNORECASE | re.DOTALL,
+        section_title,
+        unit,
+        extract_value_by_regex=extract_value_by_regex,
     )
 
 

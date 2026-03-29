@@ -5,7 +5,7 @@ template_aliases:
   - "R-819B"
   - "R_819B"
 editor:
-  note: "模板专属字段配置（自动生成，可人工调整）"
+  note: "模板专属字段配置（局放模板）"
   fields:
     - key: certificate_no
       label: "序号"
@@ -40,48 +40,36 @@ editor:
     - key: general_check_full
       label: "校准结果/说明（续页）"
       wide: true
-    - key: urel_percent
-      label: "扩展不确定度 Urel (%)"
+    - key: pd_charge_values_pc
+      label: "局放电荷量序列 (pC)"
+      wide: true
+    - key: pd_charge_avg_pc
+      label: "局放电荷量平均值 (pC)"
       wide: false
-    - key: voltage_range_1
-      label: "量程1 (kV)"
+    - key: pd_rise_time_values_ns
+      label: "局放上升沿时间序列 (ns)"
+      wide: true
+    - key: pd_rise_time_avg_ns
+      label: "局放上升沿时间平均值 (ns)"
       wide: false
-    - key: voltage_indicated_values_1
-      label: "量程1 指示值(kV)"
+    - key: pd_pulse_amplitude_values_v
+      label: "局放脉冲幅值序列 (V)"
       wide: true
-    - key: voltage_actual_values_1
-      label: "量程1 实际值(kV)"
-      wide: true
-    - key: voltage_range_2
-      label: "量程2 (kV)"
+    - key: pd_pulse_amplitude_avg_v
+      label: "局放脉冲幅值平均值 (V)"
       wide: false
-    - key: voltage_indicated_values_2
-      label: "量程2 指示值(kV)"
-      wide: true
-    - key: voltage_actual_values_2
-      label: "量程2 实际值(kV)"
-      wide: true
-    - key: voltage_range_3
-      label: "量程3 (kV)"
+    - key: pd_voltage_urel_percent
+      label: "局放电压 Urel (%)"
       wide: false
-    - key: voltage_indicated_values_3
-      label: "量程3 指示值(kV)"
-      wide: true
-    - key: voltage_actual_values_3
-      label: "量程3 实际值(kV)"
-      wide: true
-    - key: linearity_ux_values
-      label: "被校系统工频高压示值 Ux(kV)"
-      wide: true
-    - key: linearity_u2_values
-      label: "变压器空载输出电压示值 U2(V)"
-      wide: true
-    - key: linearity_fi_values
-      label: "Ux 和 U2 比值 Fi"
-      wide: true
-    - key: linearity_f_avg
-      label: "Fi 平均值 F"
+    - key: pd_scan_time_urel_percent
+      label: "局放扫描时间 Urel (%)"
       wide: false
-    - key: linearity_fi_delta_percent
-      label: "Fi 与 F 的相对变化量(%)"
-      wide: true
+    - key: pd_capacitance_urel_percent
+      label: "局放电容 Urel (%)"
+      wide: false
+    - key: pd_power_tolerance_urel_percent
+      label: "局放试验电源容差 Urel (%)"
+      wide: false
+    - key: pd_voltage_calibration_urel_percent
+      label: "局放试验电压校准 Urel (%)"
+      wide: false

@@ -223,13 +223,36 @@ export function createGeneralCheckFeature(deps = {}) {
         if (/Results\s+of\s+calibration\s+and\s+additional\s+explanation/i.test(line)) return true;
         return false;
       };
-      const visibleRowsRaw = tableRowsRaw.filter((row) => !isGeneralCheckTitleRow(row));
-      const cutIdx = visibleRowsRaw.findIndex((row) => {
+      const isGeneralCheckNoiseLine = (line) => {
+        const text = String(line || "").replace(/\s+/g, " ").trim();
+        if (!text) return true;
+        if (/第\s*\d+\s*页\s*[\/／]\s*共\s*\d+\s*页/i.test(text)) return true;
+        if (/page\s*of\s*total\s*pages/i.test(text)) return true;
+        if (/page\s+\d+\s+of\s+\d+/i.test(text)) return true;
+        if (/中国合格评定国家认可委员会|No\.?\s*CNAS/i.test(text)) return true;
+        if (/本次校准所依据的技术规范|Reference documents for the calibration/i.test(text)) return true;
+        if (/本次校准所使用的主要计量标准器具|Main measurement standard instruments/i.test(text)) return true;
+        if (/(?:其它|其他)校准信息|Calibration Information/i.test(text)) return true;
+        if (/^备注[:：]?|^Remarks[:：]?/i.test(text)) return true;
+        return false;
+      };
+      const visibleRowsRaw = tableRowsRaw.filter((row) => {
+        if (isGeneralCheckTitleRow(row)) return false;
+        const line = (Array.isArray(row) ? row : (row && row.texts) || []).join(" ");
+        return !isGeneralCheckNoiseLine(line);
+      });
+      const startIdx = visibleRowsRaw.findIndex((row) => {
+        const line = (Array.isArray(row) ? row : (row && row.texts) || []).join(" ");
+        return /(?:^|[\s])(?:一[、.．)]\s*)?一般检查|General inspection/i.test(line) || /^\(\d+\)/.test(String(line || "").trim());
+      });
+      const scopedRows = startIdx >= 0 ? visibleRowsRaw.slice(startIdx) : [];
+      const cutIdx = scopedRows.findIndex((row) => {
         const line = (Array.isArray(row) ? row : []).join(" ");
         return /(?:^|\s)注[:：]?(?:\s|$)/.test(line) || /(?:以下空白|\(以下空白\)|（以下空白）)/.test(line);
       });
-      const body = (cutIdx >= 0 ? visibleRowsRaw.slice(0, cutIdx) : visibleRowsRaw)
-        .map((row) => row.map((cell) => String(cell || "")));
+      const body = (cutIdx >= 0 ? scopedRows.slice(0, cutIdx) : scopedRows)
+        .map((row) => row.map((cell) => String(cell || "")))
+        .filter((row) => row.some((cell) => String(cell || "").trim()));
       if (!body.length) return null;
       const header = ["序号/标记", "内容", ...Array.from({ length: Math.max(0, colCount - 2) }, (_, idx) => String(idx + 1))];
       return [header, ...body];
@@ -329,12 +352,34 @@ export function createGeneralCheckFeature(deps = {}) {
         if (/Results\s+of\s+calibration\s+and\s+additional\s+explanation/i.test(line)) return true;
         return false;
       };
-      const visibleRowsRaw = tableRowsRaw.filter((row) => !isGeneralCheckTitleRow(row));
-      const cutIdx = visibleRowsRaw.findIndex((row) => {
+      const isGeneralCheckNoiseLine = (line) => {
+        const text = String(line || "").replace(/\s+/g, " ").trim();
+        if (!text) return true;
+        if (/第\s*\d+\s*页\s*[\/／]\s*共\s*\d+\s*页/i.test(text)) return true;
+        if (/page\s*of\s*total\s*pages/i.test(text)) return true;
+        if (/page\s+\d+\s+of\s+\d+/i.test(text)) return true;
+        if (/中国合格评定国家认可委员会|No\.?\s*CNAS/i.test(text)) return true;
+        if (/本次校准所依据的技术规范|Reference documents for the calibration/i.test(text)) return true;
+        if (/本次校准所使用的主要计量标准器具|Main measurement standard instruments/i.test(text)) return true;
+        if (/(?:其它|其他)校准信息|Calibration Information/i.test(text)) return true;
+        if (/^备注[:：]?|^Remarks[:：]?/i.test(text)) return true;
+        return false;
+      };
+      const visibleRowsRaw = tableRowsRaw.filter((row) => {
+        if (isGeneralCheckTitleRow(row)) return false;
+        const line = (row.texts || []).join(" ");
+        return !isGeneralCheckNoiseLine(line);
+      });
+      const startIdx = visibleRowsRaw.findIndex((row) => {
+        const line = (row.texts || []).join(" ");
+        return /(?:^|[\s])(?:一[、.．)]\s*)?一般检查|General inspection/i.test(line) || /^\(\d+\)/.test(String(line || "").trim());
+      });
+      const scopedRows = startIdx >= 0 ? visibleRowsRaw.slice(startIdx) : [];
+      const cutIdx = scopedRows.findIndex((row) => {
         const line = (row.texts || []).join(" ");
         return /(?:^|\s)注[:：]?(?:\s|$)/.test(line) || /(?:以下空白|\(以下空白\)|（以下空白）)/.test(line);
       });
-      const tableRows = (cutIdx >= 0 ? visibleRowsRaw.slice(0, cutIdx) : visibleRowsRaw).map((x) => x.html);
+      const tableRows = (cutIdx >= 0 ? scopedRows.slice(0, cutIdx) : scopedRows).map((x) => x.html);
       return `
         <div class="source-recog-block source-recog-block-formatted">
           <table class="source-recog-block-table">
@@ -471,7 +516,9 @@ export function createGeneralCheckFeature(deps = {}) {
           if (/缆专检号[:：]?/.test(text)) return true;
           return false;
         };
-        const filteredDirectRows = directTableRows.filter((row) => !isGeneralCheckNoiseRow(row));
+        const filteredDirectRows = directTableRows
+          .filter((row) => !isGeneralCheckNoiseRow(row))
+          .filter((row) => (Array.isArray(row) ? row : []).some((cell) => String(cell || "").trim()));
         if (filteredDirectRows.length < 2) return null;
         const colCount = Array.isArray(filteredDirectRows[0]) ? filteredDirectRows[0].length : 0;
         if (colCount >= 3 && filteredDirectRows.every((row) => Array.isArray(row) && row.length === colCount)) {
@@ -894,6 +941,41 @@ export function createGeneralCheckFeature(deps = {}) {
     function extractGeneralCheckFullBlock(raw, src = {}) {
       const text = String(raw || "");
       const srcObj = (src && typeof src === "object") ? src : {};
+      function sanitizeGeneralCheckFullBlock(blockText) {
+        const rawText = String(blockText || "").replace(/\r/g, "");
+        if (!rawText.trim()) return "";
+        const startMatch = /(?:一[、.．)]\s*)?一般检查(?:\s*[（(]\s*\*\s*[）)])?|General inspection/i.exec(rawText);
+        if (!startMatch) return "";
+        const startPos = Math.max(0, Number(startMatch.index || 0));
+        let cropped = rawText.slice(startPos);
+        const stopPattern = /(?:^|\n)\s*(?:备注[:：]?|Remarks[:：]?|检测员|校准员|核验员|(?:以下空白|\(以下空白\)|（以下空白）))/i;
+        const stopMatch = stopPattern.exec(cropped);
+        if (stopMatch && Number(stopMatch.index || 0) > 0) {
+          cropped = cropped.slice(0, Number(stopMatch.index || 0));
+        }
+        const lines = cropped
+          .split("\n")
+          .map((x) => String(x || "").trim())
+          .filter(Boolean);
+        if (!lines.length) return "";
+        const noisePatterns = [
+          /中国合格评定国家认可委员会|No\.?\s*CNAS/i,
+          /本次校准所依据的技术规范|Reference documents for the calibration/i,
+          /本次校准所使用的主要计量标准器具|Main measurement standard instruments/i,
+          /(?:其它|其他)校准信息|Calibration Information/i,
+          /^备注[:：]?|^Remarks[:：]?/i,
+        ];
+        const cleaned = [];
+        let prevKey = "";
+        for (const line of lines) {
+          if (noisePatterns.some((pattern) => pattern.test(line)) && !/(?:一[、.．)]\s*)?一般检查|General inspection/i.test(line)) continue;
+          const key = line.replace(/\s+/g, " ").toLowerCase();
+          if (key && key === prevKey) continue;
+          cleaned.push(line);
+          prevKey = key;
+        }
+        return cleaned.join("\n");
+      }
       const fullBlock = extractAllBlocksByLine(
         text,
         [/(?:校准结果\s*\/\s*说明|Results\s+of\s+calibration\s+and\s+additional\s+explanation)/i],
@@ -901,14 +983,14 @@ export function createGeneralCheckFeature(deps = {}) {
       );
       const fromSrc = cleanBlockText(srcObj.general_check_full || "")
         || cleanBlockText(srcObj.general_check || "");
-      if (fullBlock) return enrichGeneralCheckWithDocxImages(fullBlock, text);
-      if (fromSrc) return enrichGeneralCheckWithDocxImages(fromSrc, text);
+      if (fromSrc) return enrichGeneralCheckWithDocxImages(sanitizeGeneralCheckFullBlock(fromSrc), text);
+      if (fullBlock) return enrichGeneralCheckWithDocxImages(sanitizeGeneralCheckFullBlock(fullBlock), text);
       const fallbackBlock = extractBlockByLine(
         text,
         [/(?:一[、.．)]\s*)?一般检查|General inspection/i],
         [/(?:以下空白|\(以下空白\)|（以下空白）)/i],
       );
-      return enrichGeneralCheckWithDocxImages(fallbackBlock, text);
+      return enrichGeneralCheckWithDocxImages(sanitizeGeneralCheckFullBlock(fallbackBlock), text);
     }
 
     function maybeCopyGeneralCheckForBlankTemplate(item) {

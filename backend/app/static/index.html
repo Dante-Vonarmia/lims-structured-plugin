@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>证书模板与原始记录批量工具</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
   <link rel="stylesheet" href="/static/css/app.css" />
 </head>
@@ -59,7 +60,7 @@
     <div class="main">
       <section class="panel list-panel">
         <div class="head">
-          <span>批量列表</span>
+          <span>任务列表</span>
           <span id="activeFileText" class="tag">当前：未选择文件</span>
         </div>
         <div class="list-tools">
@@ -88,14 +89,14 @@
             <option value="asc">升序</option>
             <option value="desc">降序</option>
           </select>
-          <button id="selectVisibleBtn" type="button" class="small-btn"><i class="fa-solid fa-check-double btn-icon" aria-hidden="true"></i><span class="btn-text">全选当前筛选</span></button>
+          <button id="selectVisibleBtn" type="button" class="small-btn"><i class="fa-solid fa-check-double btn-icon" aria-hidden="true"></i><span class="btn-text">全选</span></button>
           <button id="clearSelectedBtn" type="button" class="small-btn"><i class="fa-solid fa-eraser btn-icon" aria-hidden="true"></i><span class="btn-text">清空勾选</span></button>
           <button id="removeSelectedBtn" type="button" class="small-btn"><i class="fa-solid fa-trash btn-icon" aria-hidden="true"></i><span class="btn-text">移除选中</span></button>
           <span id="selectedCountText" class="hint">已选：0</span>
         </div>
         <div class="body" id="queueList"></div>
       </section>
-      <div class="panel-splitter hidden" id="listDetailSplitter" title="拖动调整上方批量列表高度">
+      <div class="panel-splitter hidden" id="listDetailSplitter" title="拖动调整上方任务列表高度">
         <div class="panel-splitter-handle">↕</div>
       </div>
     </div>

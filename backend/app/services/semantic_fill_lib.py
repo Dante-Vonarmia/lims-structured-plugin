@@ -650,3 +650,193 @@ def pick_semantic_value_for_key(source_maps: list[dict[str, str]], key: str, nor
         if key in mapping and normalize_space(mapping.get(key, "")):
             return normalize_space(mapping[key])
     return ""
+
+
+def score_detail_general_check_text(
+    text: str,
+    normalize_space: Callable[[str], str],
+    extract_source_general_check_lines: Callable[[str], list[str]],
+) -> int:
+    block = normalize_multiline_text_preserve_tabs(text or "", normalize_space=normalize_space)
+    if not block:
+        return 0
+    score = 0
+    score += len(extract_source_general_check_lines(block))
+    score += len(extract_uncertainty_items(block, normalize_space=normalize_space)) * 3
+    score += len(extract_measured_value_items(block, normalize_space=normalize_space)) * 3
+    score += sum(len(item) for item in build_semantic_value_maps_from_general_check_text(block, normalize_space=normalize_space)) * 2
+    score += sum(len(item) for item in build_series_row_value_maps_from_general_check_text(block, normalize_space=normalize_space)) * 2
+    return score
+
+
+def is_detail_general_check_sparse(text: str, normalize_space: Callable[[str], str]) -> bool:
+    block = normalize_multiline_text_preserve_tabs(text or "", normalize_space=normalize_space)
+    if not block:
+        return True
+    uncertainty_items = extract_uncertainty_items(block, normalize_space=normalize_space)
+    measured_items = extract_measured_value_items(block, normalize_space=normalize_space)
+    if not uncertainty_items and not measured_items and "扩展不确定度" in block and "U=" in block:
+        return True
+    if uncertainty_items or measured_items:
+        return False
+    if re.search(r"扩展不确定度\s*U\s*=\s*(?:[:：]?\s*)?$", block):
+        return True
+    if re.search(r"扩展不确定度\s*U\s*=\s*[^\d\n]*[,，]?\s*k\s*=\s*2", block):
+        return True
+    if re.search(r"实\s*测\s*值(?:\s*[（(][^)）]*[)）])?\s*[:：]\s*[^\d\n]*$", block):
+        return True
+    numeric_count = len(re.findall(r"[+-]?\d+(?:\.\d+)?", block))
+    return numeric_count < 3
+
+
+def resolve_detail_general_check_for_generic_fill(
+    context: dict[str, str],
+    normalize_space: Callable[[str], str],
+    extract_source_general_check_lines: Callable[[str], list[str]],
+) -> str:
+    from_fields = normalize_multiline_text_preserve_tabs(context.get("general_check_full", ""), normalize_space=normalize_space) or normalize_multiline_text(
+        context.get("general_check", ""), normalize_space=normalize_space
+    )
+    raw_text = normalize_multiline_text(context.get("raw_record", ""), normalize_space=normalize_space)
+    from_raw = extract_text_block(
+        raw_text,
+        start_patterns=(r"(?:一[、.．)]\s*)?一般检查", r"General inspection"),
+        end_patterns=(r"备注", r"结果", r"检测员", r"校准员", r"核验员", r"(?:以下空白|\(以下空白\)|（以下空白）)"),
+        normalize_space=normalize_space,
+    )
+    if not from_fields:
+        return from_raw
+    if not from_raw:
+        return from_fields
+    if is_detail_general_check_sparse(from_fields, normalize_space=normalize_space):
+        return from_raw
+    fields_score = score_detail_general_check_text(
+        from_fields,
+        normalize_space=normalize_space,
+        extract_source_general_check_lines=extract_source_general_check_lines,
+    )
+    raw_score = score_detail_general_check_text(
+        from_raw,
+        normalize_space=normalize_space,
+        extract_source_general_check_lines=extract_source_general_check_lines,
+    )
+    if fields_score >= 4:
+        return from_fields
+    return from_raw if raw_score > fields_score else from_fields
+
+
+def sanitize_location_text(value: str, normalize_space: Callable[[str], str]) -> str:
+    text = normalize_space(value)
+    if not text:
+        return ""
+    text = re.split(r"(?:温度|湿度|Temperature|Humidity)[:：]?", text, maxsplit=1)[0]
+    text = re.sub(r"[，,;；\s]+$", "", text)
+    return normalize_space(text)
+
+
+def extract_location_from_other_calibration_info(
+    text: str,
+    extract_value_by_regex: Callable[..., str],
+    normalize_space: Callable[[str], str],
+) -> str:
+    value = extract_value_by_regex(
+        text,
+        patterns=(
+            r"(?:其他|其它)校准信息[\s\S]{0,240}?地点[:：]?\s*([^\n|；;]+)",
+            r"(?:Calibration\s*Information|其他校准信息|其它校准信息)[\s\S]{0,240}?Location[:：]?\s*([^\n|；;]+)",
+        ),
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    return sanitize_location_text(value, normalize_space=normalize_space)
+
+
+def extract_temperature_from_other_calibration_info(
+    text: str,
+    extract_value_by_regex: Callable[..., str],
+) -> str:
+    return extract_value_by_regex(
+        text,
+        patterns=(
+            r"(?:其他|其它)校准信息[\s\S]{0,240}?温度[:：]?\s*([+-]?[0-9]+(?:\.[0-9]+)?)",
+            r"(?:Calibration\s*Information|其他校准信息|其它校准信息)[\s\S]{0,240}?Temperature[:：]?\s*([+-]?[0-9]+(?:\.[0-9]+)?)",
+        ),
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+
+def extract_humidity_from_other_calibration_info(
+    text: str,
+    extract_value_by_regex: Callable[..., str],
+) -> str:
+    return extract_value_by_regex(
+        text,
+        patterns=(
+            r"(?:其他|其它)校准信息[\s\S]{0,240}?湿度[:：]?\s*([0-9]+(?:\.[0-9]+)?)",
+            r"(?:Calibration\s*Information|其他校准信息|其它校准信息)[\s\S]{0,240}?Humidity[:：]?\s*([0-9]+(?:\.[0-9]+)?)",
+        ),
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+
+def replace_uncertainty_value(
+    text: str,
+    value: str,
+    unit: str,
+    normalize_space: Callable[[str], str],
+) -> str:
+    normalized_value = normalize_space(value)
+    if not normalized_value:
+        return text
+    return re.sub(
+        rf"U=\s*.*?{re.escape(unit)},k=2。",
+        f"U={normalized_value} {unit},k=2。",
+        text,
+        count=1,
+    )
+
+
+def replace_measured_value(
+    text: str,
+    value: str,
+    unit: str,
+    normalize_space: Callable[[str], str],
+) -> str:
+    normalized_value = normalize_space(value)
+    if not normalized_value:
+        return text
+    return re.sub(
+        rf"实测值[:：]\s*.*?{re.escape(unit)}。",
+        f"实测值：{normalized_value} {unit}。",
+        text,
+        count=1,
+    )
+
+
+def extract_section_uncertainty(
+    text: str,
+    section_title: str,
+    unit: str,
+    extract_value_by_regex: Callable[..., str],
+) -> str:
+    return extract_value_by_regex(
+        text,
+        patterns=(
+            rf"{re.escape(section_title)}[\s\S]{{0,240}}?扩展不确定度U\s*=\s*([0-9]+(?:\.[0-9]+)?)\s*{re.escape(unit)}",
+        ),
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+
+def extract_section_measured_value(
+    text: str,
+    section_title: str,
+    unit: str,
+    extract_value_by_regex: Callable[..., str],
+) -> str:
+    return extract_value_by_regex(
+        text,
+        patterns=(
+            rf"{re.escape(section_title)}[\s\S]{{0,280}}?实测值[:：]?\s*([0-9]+(?:\.[0-9]+)?)\s*{re.escape(unit)}",
+        ),
+        flags=re.IGNORECASE | re.DOTALL,
+    )

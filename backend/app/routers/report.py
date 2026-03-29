@@ -830,20 +830,46 @@ def _extract_general_check_structure_from_docx(raw_bytes: bytes) -> dict[str, An
     except Exception:
         return None
 
-    best: dict[str, Any] | None = None
-    best_score = -1
+    candidates: list[dict[str, Any]] = []
     for tbl in root.findall(".//{*}tbl"):
         model = _build_docx_table_model(tbl)
         if not model:
             continue
         score = _score_general_check_table(model)
-        if score <= best_score:
+        if score <= 0:
             continue
-        best_score = score
-        best = model
-    if not best or best_score <= 0:
+        candidates.append(model)
+    if not candidates:
         return None
-    return best
+    if len(candidates) == 1:
+        return candidates[0]
+    return _merge_docx_table_models(candidates)
+
+
+def _merge_docx_table_models(models: list[dict[str, Any]]) -> dict[str, Any] | None:
+    valid_models = [m for m in models if isinstance(m, dict) and isinstance(m.get("cells"), list)]
+    if not valid_models:
+        return None
+
+    merged_cells: list[dict[str, Any]] = []
+    row_offset = 0
+    max_cols = 0
+    for model in valid_models:
+        rows = int(model.get("rows", 0) or 0)
+        cols = int(model.get("cols", 0) or 0)
+        cells = model.get("cells", []) if isinstance(model.get("cells", []), list) else []
+        max_cols = max(max_cols, cols)
+        for raw_cell in cells:
+            if not isinstance(raw_cell, dict):
+                continue
+            cell = dict(raw_cell)
+            cell["r"] = int(cell.get("r", 0) or 0) + row_offset
+            merged_cells.append(cell)
+        row_offset += rows
+
+    if not merged_cells or row_offset <= 0 or max_cols <= 0:
+        return None
+    return {"rows": row_offset, "cols": max_cols, "cells": merged_cells}
 
 
 def _build_docx_table_model(tbl: ET.Element) -> dict[str, Any] | None:
