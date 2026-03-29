@@ -299,6 +299,7 @@ def submit_template_feedback(request: TemplateFeedbackRequest) -> TemplateFeedba
             device_model=request.device_model or "",
             device_code=request.device_code or "",
             manufacturer=request.manufacturer or "",
+            save_pending=bool(request.save_pending),
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

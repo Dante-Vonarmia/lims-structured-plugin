@@ -138,6 +138,7 @@ class TemplateFeedbackRequest(BaseModel):
     device_model: Optional[str] = None
     device_code: Optional[str] = None
     manufacturer: Optional[str] = None
+    save_pending: bool = True
 
 
 class TemplateFeedbackResponse(BaseModel):

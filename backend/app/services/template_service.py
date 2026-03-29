@@ -385,7 +385,7 @@ def _build_name_hints(raw_text: str, file_name: str | None, device_name: str = "
                 continue
             _push(value)
 
-    if file_name:
+    if file_name and not str(device_name or "").strip():
         stem = Path(file_name).stem
         stem = re.sub(r"(?i)^r[-_ ]?\d{3}[a-z]\s*", "", stem).strip()
         _push(stem)
@@ -412,7 +412,7 @@ def _clean_name_hint(value: str) -> str:
     text = str(value or "").strip()
     if not text:
         return ""
-    text = re.sub(r"^\d+\s*", "", text)
+    text = re.sub(r"^\d{2,}\s*", "", text)
     text = re.sub(r"(?i)\bcnas\b", "", text)
     text = re.sub(r"[-_ ]*\d+$", "", text)
     if "|" in text:
@@ -437,7 +437,6 @@ def _normalize_name_for_fuzzy(value: str) -> str:
         .replace("金属扭转", "线材扭转")
         .replace("扁线弯曲", "扁线回弹")
         .replace("扁线回弹角", "扁线回弹")
-        .replace("立绕试验仪", "绕组线卷绕试验仪")
         .replace("缠绕能力试验仪", "线材卷绕试验机")
         .replace("低温箱", "低温试验箱")
         .replace("干燥箱", "试验箱")
@@ -463,6 +462,8 @@ def _normalize_name_for_fuzzy(value: str) -> str:
     )
     if text in {"卷绕", "卷绕试验仪"}:
         text = "线材卷绕试验机"
+    if text in {"立绕试验仪", "立绕"}:
+        text = "绕组线卷绕试验仪"
     text = re.sub(r"[（）()【】\[\]{}《》“”\"'、,，.:：;；/\\|_+-]", "", text)
     return text
 

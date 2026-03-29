@@ -81,6 +81,54 @@ class NonFormulaTemplateMatchTDD(unittest.TestCase):
                             msg=f"Expected strict match failed for case={file_name}, by={matched_by}",
                         )
 
+    def test_device_identity_mismatch_must_not_fall_back_to_filename(self) -> None:
+        templates = list_available_templates()
+        with tempfile.TemporaryDirectory() as td:
+            defaults_file = Path(td) / "template_feedback_defaults.yaml"
+            defaults_file.write_text("version: 1\nentries: []\n", encoding="utf-8")
+            with patch("app.services.template_feedback_service.DEFAULTS_FILE", defaults_file):
+                matched, matched_by = match_template_name(
+                    raw_text="器具名称: 热延伸试验箱\n器具编号: 12040DA15\n",
+                    file_name="005 自然通风热老化试验箱-1.docx",
+                    device_name="热延伸试验箱",
+                    device_code="12040DA15",
+                    templates=templates,
+                )
+                self.assertIsNone(matched, msg=f"should be blank fallback, got={matched} by={matched_by}")
+
+    def test_default_binding_code_hit_but_name_mismatch_must_not_match(self) -> None:
+        templates = list_available_templates()
+        with tempfile.TemporaryDirectory() as td:
+            defaults_file = Path(td) / "template_feedback_defaults.yaml"
+            defaults_file.write_text(
+                "\n".join(
+                    [
+                        "version: 1",
+                        "entries:",
+                        "  - id: e1",
+                        "    updated_at: '2026-03-29T13:00:00'",
+                        "    template_name: R-822B 扁线回弹试验仪.docx",
+                        "    device_name: 扁线回弹试验仪",
+                        "    device_code: '2301021'",
+                        "    device_name_norm: 扁线回弹试验仪",
+                        "    device_code_norm: '2301021'",
+                        "    source_aliases:",
+                        "      - 扁线回弹试验仪",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            with patch("app.services.template_feedback_service.DEFAULTS_FILE", defaults_file):
+                matched, matched_by = match_template_name(
+                    raw_text="器具名称: 扁线立绕试验仪\n器具编号: 2301021\n",
+                    file_name="2 立绕试验仪CNAS.docx",
+                    device_name="扁线立绕试验仪",
+                    device_code="2301021",
+                    templates=templates,
+                )
+                self.assertIsNone(matched, msg=f"name mismatch should blank, got={matched} by={matched_by}")
+
 
 if __name__ == "__main__":
     unittest.main()

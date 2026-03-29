@@ -48,6 +48,7 @@ def build_template_feedback_entry(
     device_model: str = "",
     device_code: str = "",
     manufacturer: str = "",
+    save_pending: bool = True,
 ) -> dict[str, Any]:
     normalized_template_name = str(template_name or "").strip()
     if not normalized_template_name:
@@ -78,7 +79,8 @@ def build_template_feedback_entry(
             "source_keywords": keywords,
         },
     }
-    _append_pending_entry(entry)
+    if save_pending:
+        _append_pending_entry(entry)
     _upsert_default_mapping(
         template_name=normalized_template_name,
         raw_text=raw_text,
@@ -146,6 +148,7 @@ def match_template_name_by_feedback_defaults(
 
     name_norm = _normalize_for_match(device_name)
     code_norm = _normalize_device_code(device_code)
+    has_identity_input = bool(name_norm or code_norm)
     candidates: list[tuple[int, str, dict[str, Any]]] = []
     for entry in entries:
         if not isinstance(entry, dict):
@@ -166,12 +169,10 @@ def match_template_name_by_feedback_defaults(
                 continue
             score += 100
         if name_norm and entry_name_norm:
-            if name_norm == entry_name_norm:
-                score += 40
-            elif code_norm and entry_code_norm and code_norm == entry_code_norm:
-                score += 10
-            else:
+            if name_norm != entry_name_norm:
+                # When both sides have device identity, mismatch must not auto-hit.
                 continue
+            score += 40
 
         aliases = entry.get("source_aliases", [])
         if not isinstance(aliases, list):
@@ -183,6 +184,8 @@ def match_template_name_by_feedback_defaults(
                 continue
             normalized_aliases.append(normalized_alias)
         if score <= 0:
+            if has_identity_input:
+                continue
             if not normalized_aliases:
                 continue
             if any(alias in source for alias in normalized_aliases):

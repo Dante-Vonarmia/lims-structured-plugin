@@ -63,6 +63,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
         recognizedFields: createEmptyFields(),
         templateName: "",
         matchedBy: "",
+        templateUserSelected: false,
         status: "pending",
         message: "待处理",
         reportId: "",
@@ -1041,6 +1042,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
           device_model: String(fields.device_model || ""),
           device_code: String(fields.device_code || ""),
           manufacturer: String(fields.manufacturer || ""),
+          save_pending: false,
         });
       } catch (error) {
         appendLog(`默认模板保存失败：${error.message || "unknown"}`);
@@ -1081,6 +1083,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
 
       item.templateName = matchedTemplate || "";
       item.matchedBy = matchedBy || "";
+      item.templateUserSelected = false;
       item.status = "ready";
       if (matchedTemplate) {
         const validation = validateItemForGeneration(item, "certificate_template");
@@ -1296,6 +1299,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
           recognizedFields: { ...fields },
           templateName: "",
           matchedBy: "",
+          templateUserSelected: false,
           status: "ready",
           message: buildCategoryMessage({ category, fields }, "已按多器具分组拆分，待匹配模板"),
           reportId: "",
@@ -1334,6 +1338,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
           recognizedFields: { ...fields },
           templateName,
           matchedBy: templateName ? "excel:auto" : "",
+          templateUserSelected: false,
           status: "ready",
           message: templateName
             ? `记录${rowNumber} 识别完成（形态:${resolveSourceProfileLabel({ fields }) || "Excel行"}），模板已匹配`
@@ -1393,7 +1398,9 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
       item.reportId = data.report_id;
       item.reportDownloadUrl = data.download_url;
       item.reportFileName = item.templateName || "report.docx";
-      await persistTemplateDefaultMapping(item, item.templateName);
+      if (item.templateUserSelected) {
+        await persistTemplateDefaultMapping(item, item.templateName);
+      }
       if (incompleteSummary) {
         item.status = "incomplete";
         item.message = buildCategoryMessage(item, `已生成（字段不全：${incompleteSummary}）`);
@@ -1528,6 +1535,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
             recognizedFields: { ...mergedFields },
             templateName: "",
             matchedBy: "",
+            templateUserSelected: false,
             status: "ready",
             message: buildCategoryMessage({ category, fields: mergedFields }, "识别完成，待匹配模板"),
             reportId: "",
@@ -1582,6 +1590,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
       renderQueue();
       item.templateName = "";
       item.matchedBy = "";
+      item.templateUserSelected = false;
       await applyAutoTemplateMatch(item, { force: true });
       renderQueue();
       renderTemplateSelect();
@@ -1720,6 +1729,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
             item.category = inferCategory(item);
             item.templateName = "";
             item.matchedBy = "";
+            item.templateUserSelected = false;
             await applyAutoTemplateMatch(item, { force: true });
           }
         } catch (error) {
@@ -4924,6 +4934,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
           if (!commit) return;
           $("templateName").value = "";
           item.templateName = "";
+          item.templateUserSelected = false;
           item.reportId = "";
           item.reportDownloadUrl = "";
           item.reportFileName = "";
@@ -4939,6 +4950,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
         if (item.templateName === selected) return;
         $("templateName").value = selected;
         item.templateName = selected;
+        item.templateUserSelected = true;
         ensureTemplateEditorSchema(item.templateName, item.id || "");
         maybeCopyGeneralCheckForBlankTemplate(item);
         item.reportId = "";
@@ -4979,6 +4991,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
         $("templateName").value = blankName;
         $("templateSearch").value = blankName;
         item.templateName = blankName;
+        item.templateUserSelected = true;
         maybeCopyGeneralCheckForBlankTemplate(item);
         item.reportId = "";
         item.reportDownloadUrl = "";
