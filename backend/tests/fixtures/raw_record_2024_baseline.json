@@ -1,0 +1,792 @@
+[
+  {
+    "file_name": "R-801B 原始记录首页.docx",
+    "file_size": 21510,
+    "table_count": 2,
+    "text_length": 1228,
+    "has_general_check_keyword": false,
+    "general_check_length": 0,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-802B 空白.docx",
+    "file_size": 16716,
+    "table_count": 2,
+    "text_length": 172,
+    "has_general_check_keyword": false,
+    "general_check_length": 0,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-803B 低温冲击试验装置.docx",
+    "file_size": 19190,
+    "table_count": 2,
+    "text_length": 717,
+    "has_general_check_keyword": true,
+    "general_check_length": 48,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-804B 曲挠试验装置.docx",
+    "file_size": 22303,
+    "table_count": 4,
+    "text_length": 822,
+    "has_general_check_keyword": true,
+    "general_check_length": 33,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-805B 耐磨试验装置.docx",
+    "file_size": 19378,
+    "table_count": 2,
+    "text_length": 620,
+    "has_general_check_keyword": true,
+    "general_check_length": 47,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-807B 自然通风热老化试验箱.docx",
+    "file_size": 21071,
+    "table_count": 1,
+    "text_length": 819,
+    "has_general_check_keyword": true,
+    "general_check_length": 19,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-808B 试验箱.docx",
+    "file_size": 19880,
+    "table_count": 2,
+    "text_length": 612,
+    "has_general_check_keyword": true,
+    "general_check_length": 18,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-809B 氧弹、空气弹老化试验箱.docx",
+    "file_size": 20060,
+    "table_count": 2,
+    "text_length": 662,
+    "has_general_check_keyword": true,
+    "general_check_length": 35,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-810B 工频、直流火花试验机.docx",
+    "file_size": 19745,
+    "table_count": 2,
+    "text_length": 750,
+    "has_general_check_keyword": true,
+    "general_check_length": 46,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-811B 伸长试验仪.docx",
+    "file_size": 19712,
+    "table_count": 2,
+    "text_length": 560,
+    "has_general_check_keyword": true,
+    "general_check_length": 23,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-812B 回弹角试验仪.docx",
+    "file_size": 20227,
+    "table_count": 2,
+    "text_length": 740,
+    "has_general_check_keyword": true,
+    "general_check_length": 30,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-813B 急拉断试验仪.docx",
+    "file_size": 18910,
+    "table_count": 2,
+    "text_length": 432,
+    "has_general_check_keyword": true,
+    "general_check_length": 34,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-814B 单向刮漆试验仪.docx",
+    "file_size": 22785,
+    "table_count": 4,
+    "text_length": 1041,
+    "has_general_check_keyword": true,
+    "general_check_length": 22,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-815B 耐溶剂试验仪.docx",
+    "file_size": 18231,
+    "table_count": 2,
+    "text_length": 409,
+    "has_general_check_keyword": true,
+    "general_check_length": 17,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-816B 击穿电压试验仪.docx",
+    "file_size": 22754,
+    "table_count": 4,
+    "text_length": 893,
+    "has_general_check_keyword": true,
+    "general_check_length": 24,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-817B 低压漆膜连续性试验仪.docx",
+    "file_size": 19054,
+    "table_count": 2,
+    "text_length": 637,
+    "has_general_check_keyword": true,
+    "general_check_length": 52,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-818B 高压漆膜连续性试验仪.docx",
+    "file_size": 23388,
+    "table_count": 4,
+    "text_length": 1304,
+    "has_general_check_keyword": true,
+    "general_check_length": 60,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-819B 局部放电测试系统.docx",
+    "file_size": 30479,
+    "table_count": 8,
+    "text_length": 2414,
+    "has_general_check_keyword": true,
+    "general_check_length": 98,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-821B 电线电缆电压试验装置.docx",
+    "file_size": 18872,
+    "table_count": 2,
+    "text_length": 512,
+    "has_general_check_keyword": true,
+    "general_check_length": 39,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-822B 扁线回弹试验仪.docx",
+    "file_size": 17755,
+    "table_count": 2,
+    "text_length": 363,
+    "has_general_check_keyword": true,
+    "general_check_length": 23,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-823B 单根绝缘电线电缆垂直燃烧试验装置.docx",
+    "file_size": 19022,
+    "table_count": 2,
+    "text_length": 764,
+    "has_general_check_keyword": true,
+    "general_check_length": 40,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-824B 剥离试验仪.docx",
+    "file_size": 19645,
+    "table_count": 2,
+    "text_length": 560,
+    "has_general_check_keyword": true,
+    "general_check_length": 32,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-825B 软化击穿试验仪.docx",
+    "file_size": 19997,
+    "table_count": 2,
+    "text_length": 878,
+    "has_general_check_keyword": true,
+    "general_check_length": 20,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-826B 恒温水浴.docx",
+    "file_size": 20211,
+    "table_count": 2,
+    "text_length": 676,
+    "has_general_check_keyword": true,
+    "general_check_length": 18,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-827B 低温试验箱.docx",
+    "file_size": 19987,
+    "table_count": 2,
+    "text_length": 640,
+    "has_general_check_keyword": true,
+    "general_check_length": 19,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-828B 低温拉伸试验机.docx",
+    "file_size": 18664,
+    "table_count": 3,
+    "text_length": 468,
+    "has_general_check_keyword": true,
+    "general_check_length": 23,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-829B 数字温度指示调节仪.docx",
+    "file_size": 18338,
+    "table_count": 2,
+    "text_length": 427,
+    "has_general_check_keyword": true,
+    "general_check_length": 51,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-830B 直流低电阻表.docx",
+    "file_size": 18732,
+    "table_count": 2,
+    "text_length": 487,
+    "has_general_check_keyword": true,
+    "general_check_length": 16,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-831B 测量显微镜.docx",
+    "file_size": 19645,
+    "table_count": 2,
+    "text_length": 537,
+    "has_general_check_keyword": true,
+    "general_check_length": 13,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-832B 熔融指数试验装置.docx",
+    "file_size": 18336,
+    "table_count": 2,
+    "text_length": 563,
+    "has_general_check_keyword": false,
+    "general_check_length": 0,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-833B 直流电桥.docx",
+    "file_size": 18813,
+    "table_count": 2,
+    "text_length": 426,
+    "has_general_check_keyword": true,
+    "general_check_length": 16,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-835B 火花机人工击穿装置.docx",
+    "file_size": 22657,
+    "table_count": 3,
+    "text_length": 1079,
+    "has_general_check_keyword": true,
+    "general_check_length": 50,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-836B 漆包线测试仪器检测仪.docx",
+    "file_size": 19058,
+    "table_count": 2,
+    "text_length": 581,
+    "has_general_check_keyword": false,
+    "general_check_length": 0,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-837B 分压器测量系统核查记录.docx",
+    "file_size": 19159,
+    "table_count": 2,
+    "text_length": 502,
+    "has_general_check_keyword": false,
+    "general_check_length": 0,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-838B 火花机人工击穿装置核查记录.docx",
+    "file_size": 19178,
+    "table_count": 2,
+    "text_length": 636,
+    "has_general_check_keyword": false,
+    "general_check_length": 0,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-839B 漆包线测试仪器检测仪核查记录.docx",
+    "file_size": 20163,
+    "table_count": 2,
+    "text_length": 785,
+    "has_general_check_keyword": false,
+    "general_check_length": 0,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-840B 数字万用表核查记录.docx",
+    "file_size": 19513,
+    "table_count": 2,
+    "text_length": 547,
+    "has_general_check_keyword": false,
+    "general_check_length": 0,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-841B 高绝缘电阻测量仪（高阻计）.docx",
+    "file_size": 19170,
+    "table_count": 2,
+    "text_length": 351,
+    "has_general_check_keyword": true,
+    "general_check_length": 20,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-842B 电缆或光缆耐火特性试验装置.docx",
+    "file_size": 109662,
+    "table_count": 48,
+    "text_length": 17187,
+    "has_general_check_keyword": true,
+    "general_check_length": 81,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-843B 工作用廉金属热电偶.docx",
+    "file_size": 18786,
+    "table_count": 2,
+    "text_length": 362,
+    "has_general_check_keyword": false,
+    "general_check_length": 0,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-844B 投影仪.docx",
+    "file_size": 21286,
+    "table_count": 2,
+    "text_length": 729,
+    "has_general_check_keyword": false,
+    "general_check_length": 0,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-845B 焊锡试验仪.docx",
+    "file_size": 18640,
+    "table_count": 2,
+    "text_length": 523,
+    "has_general_check_keyword": true,
+    "general_check_length": 48,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-846B 往复刮漆试验仪.docx",
+    "file_size": 21163,
+    "table_count": 2,
+    "text_length": 786,
+    "has_general_check_keyword": true,
+    "general_check_length": 22,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-847B 静摩擦系数试验仪.docx",
+    "file_size": 20960,
+    "table_count": 1,
+    "text_length": 758,
+    "has_general_check_keyword": true,
+    "general_check_length": 22,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-848B 动摩擦系数试验仪.docx",
+    "file_size": 20318,
+    "table_count": 1,
+    "text_length": 723,
+    "has_general_check_keyword": true,
+    "general_check_length": 22,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-849B 耐冷冻剂试验装置.docx",
+    "file_size": 18802,
+    "table_count": 2,
+    "text_length": 611,
+    "has_general_check_keyword": true,
+    "general_check_length": 21,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-850B 成束燃烧试验装置.docx",
+    "file_size": 20190,
+    "table_count": 2,
+    "text_length": 1017,
+    "has_general_check_keyword": true,
+    "general_check_length": 24,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-851B 低温卷绕试验机.docx",
+    "file_size": 19997,
+    "table_count": 2,
+    "text_length": 692,
+    "has_general_check_keyword": true,
+    "general_check_length": 47,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-852B 高温压力试验装置.docx",
+    "file_size": 19117,
+    "table_count": 2,
+    "text_length": 472,
+    "has_general_check_keyword": true,
+    "general_check_length": 46,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-853B 强迫通风热老化试验箱.docx",
+    "file_size": 23464,
+    "table_count": 3,
+    "text_length": 1040,
+    "has_general_check_keyword": true,
+    "general_check_length": 19,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-854B 炭黑含量试验装置.docx",
+    "file_size": 19608,
+    "table_count": 2,
+    "text_length": 784,
+    "has_general_check_keyword": true,
+    "general_check_length": 29,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-855B 烟密度试验装置.docx",
+    "file_size": 19745,
+    "table_count": 2,
+    "text_length": 850,
+    "has_general_check_keyword": true,
+    "general_check_length": 86,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-856B 绝缘耐刮磨试验仪.docx",
+    "file_size": 20067,
+    "table_count": 2,
+    "text_length": 810,
+    "has_general_check_keyword": true,
+    "general_check_length": 34,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-857B 单根铜芯绝缘细电线电缆垂直燃烧试验装置.docx",
+    "file_size": 18637,
+    "table_count": 2,
+    "text_length": 590,
+    "has_general_check_keyword": true,
+    "general_check_length": 50,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-858B 高频脉冲耐电晕试验仪.docx",
+    "file_size": 24689,
+    "table_count": 6,
+    "text_length": 1340,
+    "has_general_check_keyword": true,
+    "general_check_length": 25,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-859B 工频高电压测量系统.docx",
+    "file_size": 19608,
+    "table_count": 2,
+    "text_length": 652,
+    "has_general_check_keyword": true,
+    "general_check_length": 39,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-860B 直流高电压测量系统.docx",
+    "file_size": 19675,
+    "table_count": 2,
+    "text_length": 661,
+    "has_general_check_keyword": true,
+    "general_check_length": 39,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-861B 高频火花试验机.docx",
+    "file_size": 19845,
+    "table_count": 2,
+    "text_length": 740,
+    "has_general_check_keyword": true,
+    "general_check_length": 46,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-862B 电缆加热循环试验系统.docx",
+    "file_size": 19148,
+    "table_count": 2,
+    "text_length": 551,
+    "has_general_check_keyword": true,
+    "general_check_length": 61,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-863B 冲击电压测量系统.docx",
+    "file_size": 21961,
+    "table_count": 4,
+    "text_length": 812,
+    "has_general_check_keyword": true,
+    "general_check_length": 86,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-864B 电桥夹具.docx",
+    "file_size": 18500,
+    "table_count": 2,
+    "text_length": 516,
+    "has_general_check_keyword": true,
+    "general_check_length": 35,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-865B 电线电缆全自动结构尺寸测量装置.docx",
+    "file_size": 27166,
+    "table_count": 4,
+    "text_length": 1132,
+    "has_general_check_keyword": true,
+    "general_check_length": 41,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-866B 电热强制通风试验箱、热态电压试验仪.docx",
+    "file_size": 22386,
+    "table_count": 4,
+    "text_length": 923,
+    "has_general_check_keyword": true,
+    "general_check_length": 19,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-867B 直流电阻试验装置（低电阻表）.docx",
+    "file_size": 19233,
+    "table_count": 2,
+    "text_length": 518,
+    "has_general_check_keyword": true,
+    "general_check_length": 35,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-868B 直流电阻试验装置（电桥）.docx",
+    "file_size": 19410,
+    "table_count": 2,
+    "text_length": 557,
+    "has_general_check_keyword": true,
+    "general_check_length": 35,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-869B 煤矿用电缆负载燃烧试验机.docx",
+    "file_size": 19752,
+    "table_count": 2,
+    "text_length": 716,
+    "has_general_check_keyword": true,
+    "general_check_length": 68,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-870B 卤酸释出气体测定试验装置.docx",
+    "file_size": 19883,
+    "table_count": 2,
+    "text_length": 857,
+    "has_general_check_keyword": false,
+    "general_check_length": 0,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-871B 线材卷绕试验机.docx",
+    "file_size": 18224,
+    "table_count": 2,
+    "text_length": 373,
+    "has_general_check_keyword": true,
+    "general_check_length": 25,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-872B 线材扭转试验机.docx",
+    "file_size": 18601,
+    "table_count": 2,
+    "text_length": 470,
+    "has_general_check_keyword": true,
+    "general_check_length": 19,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-873B 盐水针孔.docx",
+    "file_size": 17859,
+    "table_count": 2,
+    "text_length": 357,
+    "has_general_check_keyword": false,
+    "general_check_length": 0,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-874B 绕组线卷绕试验仪.docx",
+    "file_size": 18311,
+    "table_count": 2,
+    "text_length": 403,
+    "has_general_check_keyword": true,
+    "general_check_length": 24,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-875B 交流通用分压器测量系统.docx",
+    "file_size": 18806,
+    "table_count": 2,
+    "text_length": 497,
+    "has_general_check_keyword": true,
+    "general_check_length": 48,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-876B 直流通用分压器测量系统.docx",
+    "file_size": 19375,
+    "table_count": 2,
+    "text_length": 561,
+    "has_general_check_keyword": true,
+    "general_check_length": 48,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-877B 冲击电压通用分压器测量系统.docx",
+    "file_size": 21512,
+    "table_count": 4,
+    "text_length": 852,
+    "has_general_check_keyword": true,
+    "general_check_length": 48,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-878B 工频大电流测量系统.docx",
+    "file_size": 19026,
+    "table_count": 2,
+    "text_length": 431,
+    "has_general_check_keyword": true,
+    "general_check_length": 50,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-879B 绝缘油耐压测试仪.docx",
+    "file_size": 19898,
+    "table_count": 2,
+    "text_length": 589,
+    "has_general_check_keyword": true,
+    "general_check_length": 43,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-880B 直流高压发生器.docx",
+    "file_size": 20215,
+    "table_count": 2,
+    "text_length": 584,
+    "has_general_check_keyword": true,
+    "general_check_length": 42,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-881B 盐雾试验箱.docx",
+    "file_size": 74611,
+    "table_count": 2,
+    "text_length": 713,
+    "has_general_check_keyword": true,
+    "general_check_length": 53,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  },
+  {
+    "file_name": "R-882B 屏蔽室.docx",
+    "file_size": 71460,
+    "table_count": 5,
+    "text_length": 1651,
+    "has_general_check_keyword": false,
+    "general_check_length": 0,
+    "uncertainty_items_count": 0,
+    "measured_items_count": 0
+  }
+]

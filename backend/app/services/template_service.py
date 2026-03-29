@@ -10,6 +10,7 @@ from ..config import OUTPUT_DIR, TEMPLATE_DIR
 from .field_dictionary import apply_field_dictionary
 from .docx_fill_service import (
     fill_generic_record_docx,
+    fill_r846b_docx,
     fill_r802b_docx,
     build_r803b_editor_fields,
     fill_r801b_docx,
@@ -40,6 +41,7 @@ FIXED_DOCX_HANDLERS: dict[
     "r801b": fill_r801b_docx,
     "r803b": fill_r803b_docx,
     "r825b": fill_r825b_docx,
+    "r846b": fill_r846b_docx,
 }
 
 
@@ -74,7 +76,8 @@ def render_report(
 
     output_path = OUTPUT_DIR / _build_output_file_name(report_id, template_path.name)
 
-    handler_key = resolve_handler_key(template_name) or _infer_fixed_handler_key(template_name)
+    inferred_handler_key = _infer_fixed_handler_key(template_name)
+    handler_key = inferred_handler_key or resolve_handler_key(template_name)
     handler = FIXED_DOCX_HANDLERS.get(handler_key or "")
     if handler:
         if handler(
@@ -215,6 +218,8 @@ def _infer_fixed_handler_key(template_name: str) -> str | None:
         return "r803b"
     if re.search(r"r[-_ ]?801b", normalized, flags=re.IGNORECASE):
         return "r801b"
+    if re.search(r"r[-_ ]?846b", normalized, flags=re.IGNORECASE):
+        return "r846b"
     return None
 
 
