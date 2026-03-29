@@ -121,6 +121,8 @@ class ExcelPreviewResponse(BaseModel):
 class TemplateMatchRequest(BaseModel):
     raw_text: str = ""
     file_name: Optional[str] = None
+    device_name: Optional[str] = None
+    device_code: Optional[str] = None
 
 
 class TemplateMatchResponse(BaseModel):

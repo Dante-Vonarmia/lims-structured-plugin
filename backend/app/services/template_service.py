@@ -2,7 +2,6 @@ from pathlib import Path
 import re
 import shutil
 from datetime import datetime, timedelta
-from difflib import SequenceMatcher
 from typing import Callable
 from typing import Iterable
 from uuid import uuid4
@@ -18,10 +17,9 @@ from .docx_fill_service import (
     fill_r825b_docx,
 )
 from .template_mapping_library_service import (
-    match_mapping_code_by_source_alias,
-    match_mapping_code_by_keywords,
     resolve_handler_key,
 )
+from .template_feedback_service import match_template_name_by_feedback_defaults
 
 try:
     from jinja2 import Template
@@ -142,6 +140,8 @@ def match_template_name(
     raw_text: str,
     file_name: str | None,
     templates: Iterable[str],
+    device_name: str = "",
+    device_code: str = "",
 ) -> tuple[str | None, str | None]:
     template_list = list(templates)
     if not template_list:
@@ -151,46 +151,23 @@ def match_template_name(
     if not normalized_source:
         return None, None
 
-    name_hints = _build_name_hints(raw_text=raw_text, file_name=file_name)
-    explicit_device_name = _extract_primary_device_name(raw_text or "")
-    template_code = _extract_template_code(normalized_source)
-    if template_code:
-        candidates = _match_by_code(template_code, template_list)
-        if len(candidates) == 1:
-            return candidates[0], f"code:{template_code}"
-        if candidates:
-            matched_by_name = _match_by_name_hints(name_hints, candidates)
-            if matched_by_name:
-                return matched_by_name, f"code+name:{template_code}"
+    matched_by_feedback = match_template_name_by_feedback_defaults(
+        normalized_source=normalized_source,
+        device_name=device_name,
+        device_code=device_code,
+        templates=template_list,
+    )
+    if matched_by_feedback:
+        return matched_by_feedback, "feedback:default"
 
-    # If base-info device name is available, prioritize name-based match and
-    # do not let continuation-page keywords hijack template selection.
-    if explicit_device_name:
-        matched_by_name = _match_by_name_hints(name_hints, template_list)
-        if matched_by_name:
-            return matched_by_name, "name:explicit"
-
-    alias_code = match_mapping_code_by_source_alias(normalized_source)
-    if alias_code:
-        candidates = _match_by_code(alias_code, template_list)
-        if candidates:
-            matched_by_name = _match_by_name_hints(name_hints, candidates)
-            if matched_by_name:
-                return matched_by_name, f"alias+name:{alias_code}"
-            return _prefer_docx(candidates), f"alias:{alias_code}"
-
-    library_code = match_mapping_code_by_keywords(normalized_source)
-    if library_code:
-        candidates = _match_by_code(library_code, template_list)
-        if candidates:
-            matched_by_name = _match_by_name_hints(name_hints, candidates)
-            if matched_by_name:
-                return matched_by_name, f"library+name:{library_code}"
-            return _prefer_docx(candidates), f"library:{library_code}"
-
+    name_hints = _build_name_hints(
+        raw_text=raw_text,
+        file_name=file_name,
+        device_name=device_name,
+    )
     matched_by_name = _match_by_name_hints(name_hints, template_list)
     if matched_by_name:
-        return matched_by_name, "name:fuzzy"
+        return matched_by_name, "name:strict"
 
     return None, None
 
@@ -382,10 +359,9 @@ def _add_days(date_text: str, days: int) -> str:
     return f"{target.year:04d}年{target.month:02d}月{target.day:02d}日"
 
 
-def _build_name_hints(raw_text: str, file_name: str | None) -> list[str]:
+def _build_name_hints(raw_text: str, file_name: str | None, device_name: str = "") -> list[str]:
     hints: list[str] = []
     seen: set[str] = set()
-    explicit_name_hints: list[str] = []
 
     def _push(value: str) -> None:
         cleaned = _clean_name_hint(value)
@@ -397,6 +373,8 @@ def _build_name_hints(raw_text: str, file_name: str | None) -> list[str]:
         seen.add(normalized)
         hints.append(cleaned)
 
+    _push(device_name)
+
     for pattern in (
         r"(?mi)^\s*(?:器具名称|设备名称|仪器名称)[:：]?\s*([^\n|]+)",
         r"(?mi)^\s*(?:device|instrument)\s*name[:：]?\s*([^\n|]+)",
@@ -406,28 +384,6 @@ def _build_name_hints(raw_text: str, file_name: str | None) -> list[str]:
             if "计量标准器具名称" in value:
                 continue
             _push(value)
-            cleaned = _clean_name_hint(value)
-            if cleaned:
-                explicit_name_hints.append(cleaned)
-
-    # If explicit device-name fields exist, trust only the first one from base info.
-    if explicit_name_hints:
-        first = explicit_name_hints[0]
-        return [first] if first else hints
-
-    for line in (raw_text or "").splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        # Exclude basis/reference lines to avoid matching templates by
-        # standard titles (e.g., "...第14部分：焊锡试验仪") instead of device name.
-        if re.search(r"(?:JB/T|GB/T|IEC|ISO)\s*\d", stripped, flags=re.IGNORECASE):
-            continue
-        if re.search(r"(检定方法|校准规范|技术规范|reference documents|第\s*\d+\s*部分)", stripped, flags=re.IGNORECASE):
-            continue
-        if not re.search(r"(试验|老化|冲击|击穿|燃烧|卷绕|扭转|火花|局放|耐压|绝缘|电桥|测量)", stripped):
-            continue
-        _push(stripped)
 
     if file_name:
         stem = Path(file_name).stem
@@ -524,40 +480,15 @@ def _match_by_name_hints(hints: list[str], templates: list[str]) -> str | None:
     if not template_pairs:
         return None
 
-    contains_scores: dict[str, int] = {}
+    exact_hits: list[str] = []
     for template_name, (_, template_core) in template_pairs.items():
         for hint_full, hint_core in hint_pairs:
-            for left, right in ((hint_core, template_core), (hint_full, template_core)):
-                if not left or not right:
-                    continue
-                if left in right or right in left:
-                    contains_scores[template_name] = max(
-                        contains_scores.get(template_name, 0),
-                        min(len(left), len(right)),
-                    )
-    if contains_scores:
-        ranked_contains = sorted(contains_scores.items(), key=lambda item: (-item[1], item[0]))
-        if len(ranked_contains) == 1:
-            return ranked_contains[0][0]
-        if ranked_contains[0][1] > ranked_contains[1][1]:
-            return ranked_contains[0][0]
-
-    fuzzy_scores: list[tuple[float, str]] = []
-    for template_name, (_, template_core) in template_pairs.items():
-        best = 0.0
-        for hint_full, hint_core in hint_pairs:
-            best = max(
-                best,
-                SequenceMatcher(None, hint_core, template_core).ratio(),
-                SequenceMatcher(None, hint_full, template_core).ratio(),
-            )
-        fuzzy_scores.append((best, template_name))
-    fuzzy_scores.sort(key=lambda item: (-item[0], item[1]))
-    if not fuzzy_scores:
-        return None
-
-    top_score, top_name = fuzzy_scores[0]
-    second_score = fuzzy_scores[1][0] if len(fuzzy_scores) > 1 else 0.0
-    if top_score >= 0.60 and (top_score - second_score >= 0.06 or len(fuzzy_scores) == 1):
-        return top_name
+            if not hint_core or not template_core:
+                continue
+            if hint_core == template_core or hint_full == template_core:
+                exact_hits.append(template_name)
+                break
+    exact_hits = sorted(set(exact_hits))
+    if len(exact_hits) == 1:
+        return exact_hits[0]
     return None

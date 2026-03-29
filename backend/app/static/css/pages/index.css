@@ -55,6 +55,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .log-panel-title {
@@ -69,6 +71,10 @@
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .toolbar {
@@ -1295,10 +1301,9 @@ tr:hover { background: #f2f7ff; }
 }
 
 .source-form-item.slot-field {
-  border: 1px solid #e2dbbe;
-  background: #fffdf2;
-  padding: 6px;
-  border-radius: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .source-form-item.is-problem span {
@@ -1306,8 +1311,8 @@ tr:hover { background: #f2f7ff; }
 }
 
 .source-form-item.slot-field.is-problem {
-  border-color: #e5bcbc;
-  background: #fff4f4;
+  background: transparent;
+  border: 0;
 }
 
 .source-form-item.wide {
@@ -1336,8 +1341,7 @@ tr:hover { background: #f2f7ff; }
 .source-form-item.slot-field input,
 .source-form-item.slot-field select,
 .source-form-item.slot-field textarea {
-  background: #fffef8;
-  border-color: #d8cda3;
+  background: #fff;
 }
 
 .source-form-item input.is-problem,
@@ -1550,6 +1554,8 @@ tr:hover { background: #f2f7ff; }
   padding: 6px 8px;
   color: #3a4d67;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   height: 62px;
   overflow: auto;
   font-size: 12px;

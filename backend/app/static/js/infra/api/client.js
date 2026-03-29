@@ -71,11 +71,16 @@ export async function runGeneralCheckStructureExtractApi(fileId) {
   });
 }
 
-export async function runTemplateMatchApi(rawText, fileName) {
+export async function runTemplateMatchApi(rawText, fileName, extra = {}) {
   return fetchJson("/api/templates/match", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ raw_text: rawText || "", file_name: fileName || "" }),
+    body: JSON.stringify({
+      raw_text: rawText || "",
+      file_name: fileName || "",
+      device_name: (extra && extra.device_name) || "",
+      device_code: (extra && extra.device_code) || "",
+    }),
   });
 }
 

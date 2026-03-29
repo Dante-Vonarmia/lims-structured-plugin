@@ -281,6 +281,8 @@ def match_templates(request: TemplateMatchRequest) -> TemplateMatchResponse:
     matched_template, matched_by = match_template_name(
         raw_text=request.raw_text,
         file_name=request.file_name,
+        device_name=request.device_name or "",
+        device_code=request.device_code or "",
         templates=templates,
     )
     return TemplateMatchResponse(matched_template=matched_template, matched_by=matched_by)

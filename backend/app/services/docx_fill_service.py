@@ -986,11 +986,16 @@ def _copy_docx_image_dependencies_for_table(
 
 def _collect_embed_relationship_ids(node: ET.Element) -> set[str]:
     result: set[str] = set()
-    key = f"{{{R_NS}}}embed"
+    keys = (
+        f"{{{R_NS}}}embed",
+        f"{{{R_NS}}}link",
+        f"{{{R_NS}}}id",
+    )
     for elem in node.iter():
-        value = str(elem.attrib.get(key, "")).strip()
-        if value:
-            result.add(value)
+        for key in keys:
+            value = str(elem.attrib.get(key, "")).strip()
+            if value:
+                result.add(value)
     return result
 
 
@@ -1024,11 +1029,16 @@ def _next_available_media_path(existing_media_paths: set[str], ext: str) -> str:
 def _remap_table_embed_rids(table_element: ET.Element, mapping: dict[str, str]) -> None:
     if not mapping:
         return
-    key = f"{{{R_NS}}}embed"
+    keys = (
+        f"{{{R_NS}}}embed",
+        f"{{{R_NS}}}link",
+        f"{{{R_NS}}}id",
+    )
     for elem in table_element.iter():
-        old = str(elem.attrib.get(key, "")).strip()
-        if old and old in mapping:
-            elem.set(key, mapping[old])
+        for key in keys:
+            old = str(elem.attrib.get(key, "")).strip()
+            if old and old in mapping:
+                elem.set(key, mapping[old])
 
 
 def _ensure_content_types_for_image_exts(content_types_xml: bytes, exts: set[str]) -> bytes:

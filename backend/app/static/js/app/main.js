@@ -584,15 +584,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
       const datalist = $("templateOptions");
       const search = $("templateSearch");
       const blankBtn = $("useBlankTemplateBtn");
-      const candidates = resolveTemplateCandidates(item);
-      const sourceTemplates = candidates.length ? candidates : state.templates;
-      if (item && !item.templateName && candidates.length === 1) {
-        item.templateName = candidates[0];
-        const validation = validateItemForGeneration(item, "certificate_template");
-        if (!validation.ok) applyIncompleteState(item, validation);
-        else item.message = buildCategoryMessage(item, "唯一候选模板已命中");
-        if (item.status === "ready" || item.status === "incomplete") renderQueue();
-      }
+      const sourceTemplates = state.templates;
       select.innerHTML = '<option value="">请选择模板</option>';
       if (datalist) datalist.innerHTML = "";
       sourceTemplates.forEach((name) => {
@@ -611,7 +603,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
       if (search) search.value = value;
       if (blankBtn) {
         const blankName = resolveBlankTemplateName();
-        const shouldShow = !!item && !value && !candidates.length && !!blankName;
+        const shouldShow = !!item && !value && !!blankName;
         blankBtn.style.display = shouldShow ? "inline-block" : "none";
         blankBtn.disabled = state.busy || !item || !blankName;
       }
@@ -871,8 +863,12 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
       return true;
     }
 
-    async function runTemplateMatch(rawText, fileName) {
-      return runTemplateMatchApi(rawText, fileName);
+    async function runTemplateMatch(rawText, fileName, extra = {}) {
+      return runTemplateMatchApi(rawText, fileName, extra);
+    }
+
+    async function runTemplateFeedback(payload) {
+      return runTemplateFeedbackApi(payload);
     }
 
     async function runExcelInspect(fileId, defaultTemplateName) {
@@ -1008,57 +1004,6 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
       item.message = buildCategoryMessage(item, `待补全：${validation.summary}`);
     }
 
-    function normalizeTemplateKeyword(value) {
-      return String(value || "")
-        .toLowerCase()
-        .replace(/\s+/g, "")
-        .replace(/[（）()【】\[\]{}]/g, "");
-    }
-
-    function buildTemplateHints(item) {
-      if (!item) return [];
-      const fields = item.fields || {};
-      const raw = [
-        item.category || "",
-        item.recordName || "",
-        fields.device_name || "",
-        fields.use_department || "",
-      ];
-      const merged = normalizeTemplateKeyword(raw.join("|"));
-      if (!merged) return [];
-
-      const hints = new Set();
-      const normalized = merged
-        .replace(/软击穿/g, "软化击穿")
-        .replace(/软化击穿试验仪/g, "软化击穿")
-        .replace(/伸长率试验仪/g, "伸长试验仪")
-        .replace(/伸长率/g, "伸长")
-        .replace(/高温试验箱/g, "高温箱");
-      hints.add(normalized);
-
-      const generic = /(试验仪|试验机|试验装置|试验系统|系统|设备|仪器|装置|记录|报告|模板|原始)/g;
-      const compact = normalized.replace(generic, "");
-      if (compact && compact.length >= 2) hints.add(compact);
-
-      normalized
-        .split(/[|,，、;；]+/)
-        .map((x) => x.trim().replace(generic, ""))
-        .filter((x) => x.length >= 2)
-        .forEach((x) => hints.add(x));
-      return Array.from(hints).filter(Boolean);
-    }
-
-    function resolveTemplateCandidates(item) {
-      if (!item || !state.templates.length) return [];
-      const hints = buildTemplateHints(item);
-      if (!hints.length) return [];
-      const matched = state.templates.filter((name) => {
-        const normalizedName = normalizeTemplateKeyword(name);
-        return hints.some((hint) => hint && (normalizedName.includes(hint) || hint.includes(normalizedName)));
-      });
-      return Array.from(new Set(matched));
-    }
-
     function getTemplateMatchRawText(item) {
       if (!item) return "";
       const fields = item.fields || {};
@@ -1082,6 +1027,26 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
       ].filter(Boolean).join("\n");
     }
 
+    async function persistTemplateDefaultMapping(item, templateName) {
+      if (!item) return;
+      const normalizedTemplate = String(templateName || "").trim();
+      if (!normalizedTemplate) return;
+      const fields = item.fields || {};
+      try {
+        await runTemplateFeedback({
+          template_name: normalizedTemplate,
+          raw_text: getTemplateMatchRawText(item),
+          file_name: String(item.fileName || ""),
+          device_name: String(fields.device_name || ""),
+          device_model: String(fields.device_model || ""),
+          device_code: String(fields.device_code || ""),
+          manufacturer: String(fields.manufacturer || ""),
+        });
+      } catch (error) {
+        appendLog(`默认模板保存失败：${error.message || "unknown"}`);
+      }
+    }
+
     async function applyAutoTemplateMatch(item, { force = false } = {}) {
       if (!item || isExcelItem(item)) return false;
       if (!force && item.templateName) return true;
@@ -1093,7 +1058,11 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
         ? String(item.fields.device_name || "").trim()
         : (item.fileName || "");
       try {
-        const data = await runTemplateMatch(rawText, matchFileNameHint);
+        const fields = (item && item.fields) || {};
+        const data = await runTemplateMatch(rawText, matchFileNameHint, {
+          device_name: String(fields.device_name || ""),
+          device_code: String(fields.device_code || ""),
+        });
         if (data && data.matched_template && state.templates.includes(data.matched_template)) {
           matchedTemplate = data.matched_template;
           matchedBy = data.matched_by || "";
@@ -1103,10 +1072,10 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
       }
 
       if (!matchedTemplate) {
-        const candidates = resolveTemplateCandidates(item);
-        if (candidates.length === 1) {
-          matchedTemplate = candidates[0];
-          matchedBy = "hint:unique";
+        const blankName = resolveBlankTemplateName();
+        if (blankName) {
+          matchedTemplate = blankName;
+          matchedBy = "fallback:blank";
         }
       }
 
@@ -1424,6 +1393,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
       item.reportId = data.report_id;
       item.reportDownloadUrl = data.download_url;
       item.reportFileName = item.templateName || "report.docx";
+      await persistTemplateDefaultMapping(item, item.templateName);
       if (incompleteSummary) {
         item.status = "incomplete";
         item.message = buildCategoryMessage(item, `已生成（字段不全：${incompleteSummary}）`);
@@ -4305,6 +4275,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
       const root = $("targetPreview");
       if (!root) return;
       const docRoot = root.querySelector(".docx") || root;
+      const isBlankTemplate = /空白/i.test(String((item && item.templateName) || ""));
       docRoot.querySelectorAll(".preview-slot-filled,.preview-slot-missing,.preview-slot-cell").forEach((el) => {
         el.classList.remove("preview-slot-filled", "preview-slot-missing", "preview-slot-cell");
       });
@@ -4313,7 +4284,8 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
         if (el.closest(".preview-slot-filled, .preview-slot-missing")) return;
         const text = normalizePreviewText(el.textContent);
         if (!text || text.length > 160) return;
-        const cls = classifyPreviewSlotText(text);
+        let cls = classifyPreviewSlotText(text);
+        if (isBlankTemplate && cls === "missing") cls = "filled";
         if (cls === "filled") el.classList.add("preview-slot-filled");
         if (cls === "missing") el.classList.add("preview-slot-missing");
       });
@@ -4324,6 +4296,12 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
       const templateName = String((item && item.templateName) || "");
       if (/r[-_ ]?872b|扭转/i.test(templateName)) {
         highlightR872Section2Table(docRoot);
+      }
+      if (isBlankTemplate) {
+        docRoot.querySelectorAll(".preview-slot-missing, .preview-slot-cell").forEach((el) => {
+          el.classList.remove("preview-slot-missing", "preview-slot-cell");
+          el.classList.add("preview-slot-filled");
+        });
       }
     }
 
