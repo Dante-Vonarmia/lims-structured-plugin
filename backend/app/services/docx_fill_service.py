@@ -17,6 +17,14 @@ from .fixed_template_rule_engine import (
 )
 from .r872_result_rules import fill_r872_requirement_text, should_mark_r872_result
 from .result_check_matcher import extract_source_general_check_lines, match_best_source_line
+from .semantic_fill_lib import (
+    build_semantic_value_maps_from_general_check_text,
+    detect_semantic_key_value_columns,
+    extract_uncertainty_u_value,
+    normalize_multiline_text_preserve_tabs,
+    normalize_semantic_key,
+    replace_uncertainty_u_placeholder,
+)
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -228,7 +236,7 @@ def fill_generic_record_docx(
     payload = build_r825b_payload(context=context, source_file_path=source_file_path)
     if not payload:
         return False
-    detail_general_check = normalize_multiline_text(context.get("general_check_full", "")) or normalize_multiline_text(
+    detail_general_check = normalize_multiline_text_preserve_tabs(context.get("general_check_full", ""), normalize_space=normalize_space) or normalize_multiline_text(
         context.get("general_check", "")
     )
     if not detail_general_check:
@@ -256,7 +264,9 @@ def fill_generic_record_docx(
             changed = True
         else:
             changed = _fill_generic_base_labels_in_tables(tables, payload)
-    if _should_semantic_fill_result_checks(template_path=template_path):
+        changed = _fill_generic_semantic_value_matrices_from_payload(tables, payload) or changed
+        changed = _fill_generic_uncertainty_u_from_payload(root, tables, payload) or changed
+    if extract_source_general_check_lines(str(payload.get("detail_general_check", ""))):
         changed = _fill_generic_result_checks_by_semantics(tables, payload) or changed
     elif _should_auto_fill_result_checks(template_path=template_path, payload=payload):
         changed = _fill_generic_result_checks_in_tables(tables) or changed
@@ -661,7 +671,7 @@ def build_r802b_payload(
         start_patterns=(r"(?:其它|其他)校准信息", r"Calibration Information"),
         end_patterns=(r"一般检查", r"备注", r"结果", r"检测员", r"校准员", r"核验员"),
     )
-    detail_general_check = normalize_multiline_text(context.get("general_check_full", "")) or normalize_multiline_text(context.get("general_check", "")) or _extract_text_block(
+    detail_general_check = normalize_multiline_text_preserve_tabs(context.get("general_check_full", ""), normalize_space=normalize_space) or normalize_multiline_text(context.get("general_check", "")) or _extract_text_block(
         raw_text,
         start_patterns=(r"(?:一[、.．)]\s*)?一般检查", r"General inspection"),
         end_patterns=(r"^\s*(?:二|2)[、.．)]", r"备注", r"结果", r"检测员", r"校准员", r"核验员"),
@@ -1884,6 +1894,94 @@ def _fill_generic_result_checks_in_tables(tables: list[ET.Element]) -> bool:
     return changed
 
 
+def _fill_generic_semantic_value_matrices_from_payload(tables: list[ET.Element], payload: dict[str, Any]) -> bool:
+    detail_text = str(payload.get("detail_general_check", "") or "")
+    source_maps = build_semantic_value_maps_from_general_check_text(detail_text, normalize_space=normalize_space)
+    if not source_maps:
+        return False
+
+    changed = False
+    for tbl in tables:
+        rows = tbl.findall("./w:tr", NS)
+        if not rows:
+            continue
+        header_row_idx = -1
+        key_col_idx = -1
+        value_col_idx = -1
+        for ri, tr in enumerate(rows):
+            cells = tr.findall("./w:tc", NS)
+            if not cells:
+                continue
+            texts = [normalize_space(get_cell_text(cell)) for cell in cells]
+            key_col_idx, value_col_idx = detect_semantic_key_value_columns(texts)
+            if key_col_idx >= 0 and value_col_idx >= 0:
+                header_row_idx = ri
+                break
+        if header_row_idx < 0 or key_col_idx < 0 or value_col_idx < 0:
+            continue
+
+        key_col_carry = ""
+        for ri in range(header_row_idx + 1, len(rows)):
+            cells = rows[ri].findall("./w:tc", NS)
+            if not cells:
+                continue
+            if key_col_idx >= len(cells) or value_col_idx >= len(cells):
+                continue
+            key_text = normalize_space(get_cell_text(cells[key_col_idx]))
+            if key_text:
+                key_col_carry = key_text
+            else:
+                key_text = key_col_carry
+            if not key_text:
+                continue
+            key = normalize_semantic_key(key_text, normalize_space=normalize_space)
+            if not key:
+                continue
+            fill_value = _pick_semantic_value_for_key(source_maps, key)
+            if not fill_value:
+                continue
+            current_value = normalize_space(get_cell_text(cells[value_col_idx]))
+            if current_value == fill_value:
+                continue
+            set_cell_text(cells[value_col_idx], fill_value)
+            changed = True
+    return changed
+
+
+def _fill_generic_uncertainty_u_from_payload(root: ET.Element, tables: list[ET.Element], payload: dict[str, Any]) -> bool:
+    detail_text = str(payload.get("detail_general_check", "") or "")
+    u_value = extract_uncertainty_u_value(detail_text, normalize_space=normalize_space)
+    if not u_value:
+        return False
+    changed = False
+    for paragraph in root.findall(".//w:p", NS):
+        current = normalize_space("".join([(node.text or "") for node in paragraph.findall(".//w:t", NS)]))
+        if not current:
+            continue
+        updated = replace_uncertainty_u_placeholder(current, u_value, normalize_space=normalize_space)
+        if updated != current:
+            _set_paragraph_text(paragraph, updated)
+            changed = True
+    for tbl in tables:
+        for tr in tbl.findall("./w:tr", NS):
+            for tc in tr.findall("./w:tc", NS):
+                current = get_cell_text(tc)
+                if not current:
+                    continue
+                updated = replace_uncertainty_u_placeholder(current, u_value, normalize_space=normalize_space)
+                if updated != current:
+                    set_cell_text(tc, updated)
+                    changed = True
+    return changed
+
+
+def _pick_semantic_value_for_key(source_maps: list[dict[str, str]], key: str) -> str:
+    for mapping in source_maps:
+        if key in mapping and normalize_space(mapping.get(key, "")):
+            return normalize_space(mapping[key])
+    return ""
+
+
 def _fill_generic_result_checks_by_semantics(tables: list[ET.Element], payload: dict[str, Any]) -> bool:
     source_lines = extract_source_general_check_lines(str(payload.get("detail_general_check", "")))
     if not source_lines:
@@ -1914,6 +2012,10 @@ def _fill_generic_result_checks_by_semantics(tables: list[ET.Element], payload: 
                 used_indexes=used_source_indexes,
                 threshold=0.30,
             )
+            if matched_index >= 0:
+                source_line = source_lines[matched_index]
+                if not _is_reliable_result_semantic_match(target_requirement, source_line):
+                    matched_index = -1
             for result_cell in result_cells:
                 if matched_index >= 0:
                     set_cell_text(result_cell, "结果：√")
@@ -1924,6 +2026,30 @@ def _fill_generic_result_checks_by_semantics(tables: list[ET.Element], payload: 
             if matched_index >= 0:
                 used_source_indexes.add(matched_index)
     return changed
+
+
+def _is_reliable_result_semantic_match(target_text: str, source_line: str) -> bool:
+    target = normalize_space(target_text)
+    source = normalize_space(source_line)
+    if not target or not source:
+        return False
+    anchor_groups = [
+        {"电阻", "Ω", "欧姆"},
+        {"夹具", "夹头"},
+        {"距离", "间距"},
+        {"宽度", "刀口"},
+        {"平行", "互相平行"},
+    ]
+    target_hits: set[int] = set()
+    source_hits: set[int] = set()
+    for idx, group in enumerate(anchor_groups):
+        if any(token in target for token in group):
+            target_hits.add(idx)
+        if any(token in source for token in group):
+            source_hits.add(idx)
+    if target_hits:
+        return bool(target_hits & source_hits)
+    return True
 
 
 def _fill_r872_result_checks_by_rules(tables: list[ET.Element], source_lines: list[str]) -> bool:
