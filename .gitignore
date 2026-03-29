@@ -5,3 +5,5 @@ __pycache__/
 backend/outputs/
 data/uploads/
 data/outputs/
+backend/app/rules/template_feedback_defaults.yaml
+backend/app/rules/template_feedback_pending.yaml

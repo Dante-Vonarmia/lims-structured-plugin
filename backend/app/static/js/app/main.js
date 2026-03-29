@@ -429,6 +429,33 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
       return getSelectedItems().filter((x) => !isExcelItem(x));
     }
 
+    const MULTI_EDIT_MIXED_PLACEHOLDER = "（多值）";
+    const MULTI_EDIT_DISABLED_FIELD_KEYS = new Set(["measurement_items", "general_check_full"]);
+
+    function isTargetMultiEditMode() {
+      return getSelectedNormalItems().length > 1;
+    }
+
+    function getSharedFieldValue(items, key) {
+      const list = Array.isArray(items) ? items : [];
+      if (!list.length) return "";
+      const firstItem = list[0] || {};
+      const firstValue = String(((firstItem.fields || {})[key] || ""));
+      for (let i = 1; i < list.length; i += 1) {
+        const cur = list[i] || {};
+        const curValue = String(((cur.fields || {})[key] || ""));
+        if (curValue !== firstValue) return null;
+      }
+      return firstValue;
+    }
+
+    function refreshTargetFieldFormBySelection() {
+      const active = getActiveItem();
+      if (!active) return;
+      renderTargetFieldForm(active);
+      applyTargetFieldProblemStyles(active);
+    }
+
     function updateSelectedCountText(visibleItems = null) {
       const selected = getSelectedItems().length;
       const visible = Array.isArray(visibleItems) ? visibleItems.length : getFilteredSortedQueue().length;
@@ -519,6 +546,12 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
     function updateSourceDeviceNameText(item) {
       const el = $("sourceDeviceNameText");
       if (!el) return;
+      const selectedNormalItems = getSelectedNormalItems();
+      if (selectedNormalItems.length > 1) {
+        el.textContent = `器具名称：已选 ${selectedNormalItems.length} 条`;
+        el.title = `已选 ${selectedNormalItems.length} 条记录`;
+        return;
+      }
       const fields = (item && item.fields) || {};
       const name = String(fields.device_name || "").trim();
       el.textContent = `器具名称：${name || "-"}`;
@@ -3993,11 +4026,38 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
         el.innerHTML = '<div class="placeholder">识别字段未加载</div>';
         return;
       }
+      const selectedNormalItems = getSelectedNormalItems();
+      const isMultiMode = selectedNormalItems.length > 1;
+      const mergedSections = () => {
+        const allSections = selectedNormalItems.map((selectedItem) => {
+          const src = (selectedItem.recognizedFields && typeof selectedItem.recognizedFields === "object")
+            ? selectedItem.recognizedFields
+            : (selectedItem.fields || {});
+          const problemKeys = getProblemFieldKeys(selectedItem);
+          return buildFocusSections(selectedItem, src, problemKeys, false);
+        });
+        const base = Array.isArray(allSections[0]) ? allSections[0] : [];
+        return base.map((section, sectionIndex) => {
+          const rows = Array.isArray(section.rows) ? section.rows.map((row, rowIndex) => {
+            const values = allSections.map((sections) => String((((sections[sectionIndex] || {}).rows || [])[rowIndex] || {}).value || ""));
+            const same = values.every((v) => v === values[0]);
+            return { ...row, value: same ? values[0] : MULTI_EDIT_MIXED_PLACEHOLDER };
+          }) : [];
+          const sectionBlock = String(section.block || "");
+          let block = sectionBlock;
+          if (sectionBlock.trim()) {
+            const blocks = allSections.map((sections) => String((sections[sectionIndex] && sections[sectionIndex].block) || ""));
+            const sameBlock = blocks.every((v) => v === blocks[0]);
+            block = sameBlock ? blocks[0] : MULTI_EDIT_MIXED_PLACEHOLDER;
+          }
+          return { ...section, rows, block };
+        });
+      };
       const src = (item.recognizedFields && typeof item.recognizedFields === "object")
         ? item.recognizedFields
         : (item.fields || {});
-      const problemKeys = getProblemFieldKeys(item);
-      const sections = buildFocusSections(item, src, problemKeys, false);
+      const problemKeys = isMultiMode ? new Set() : getProblemFieldKeys(item);
+      const sections = isMultiMode ? mergedSections() : buildFocusSections(item, src, problemKeys, false);
       if (!sections.length) {
         el.innerHTML = '<div class="placeholder">识别字段为空</div>';
         return;
@@ -4005,7 +4065,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
       el.innerHTML = renderFocusSectionsHtml(sections, problemKeys, {
         collapsible: true,
         collapseState: state.sourceFieldGroupCollapsed,
-        scope: `source:${item.id || item.fileName || ""}`,
+        scope: isMultiMode ? `source:multi:${selectedNormalItems.length}` : `source:${item.id || item.fileName || ""}`,
       });
     }
 
@@ -4014,37 +4074,74 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
         $("targetFieldForm").innerHTML = '<div class="placeholder">字段表单未加载</div>';
         return;
       }
+      const selectedNormalItems = getSelectedNormalItems();
+      const isMultiMode = selectedNormalItems.length > 1;
+      const multiItems = isMultiMode ? selectedNormalItems : [item];
       if (!item.fields) item.fields = createEmptyFields();
       const f = item.fields || {};
-      const rawForDate = String(f.raw_record || item.rawText || "");
-      const dateInfo = extractCalibrationInfoFields(rawForDate, f);
-      if (dateInfo.receiveDate && (!isCompleteDateText(f.receive_date) || !String(f.receive_date || "").trim())) {
-        f.receive_date = dateInfo.receiveDate;
+      if (!isMultiMode) {
+        const rawForDate = String(f.raw_record || item.rawText || "");
+        const dateInfo = extractCalibrationInfoFields(rawForDate, f);
+        if (dateInfo.receiveDate && (!isCompleteDateText(f.receive_date) || !String(f.receive_date || "").trim())) {
+          f.receive_date = dateInfo.receiveDate;
+        }
+        if (dateInfo.calibrationDate && (!isCompleteDateText(f.calibration_date) || !String(f.calibration_date || "").trim())) {
+          f.calibration_date = dateInfo.calibrationDate;
+        }
+        if (dateInfo.releaseDate && (!isCompleteDateText(f.release_date) || !String(f.release_date || "").trim())) {
+          f.release_date = dateInfo.releaseDate;
+        }
+        if (String(rawForDate || "").trim()) {
+          const full = extractGeneralCheckFullBlock(rawForDate, f);
+          if (full) f.general_check_full = full;
+        }
+        if (!String(f.general_check || "").trim() && String(f.general_check_full || "").trim()) {
+          f.general_check = String(f.general_check_full || "").trim();
+        }
+        if (!String(f.measurement_items || "").trim() || shouldRebuildMeasurementItemsFromRaw(f.measurement_items, item)) {
+          const normalized = normalizeMeasurementItemsText(item, f);
+          if (normalized) f.measurement_items = normalized;
+        }
       }
-      if (dateInfo.calibrationDate && (!isCompleteDateText(f.calibration_date) || !String(f.calibration_date || "").trim())) {
-        f.calibration_date = dateInfo.calibrationDate;
-      }
-      if (dateInfo.releaseDate && (!isCompleteDateText(f.release_date) || !String(f.release_date || "").trim())) {
-        f.release_date = dateInfo.releaseDate;
-      }
-      if (String(rawForDate || "").trim()) {
-        const full = extractGeneralCheckFullBlock(rawForDate, f);
-        if (full) f.general_check_full = full;
-      }
-      if (!String(f.general_check || "").trim() && String(f.general_check_full || "").trim()) {
-        f.general_check = String(f.general_check_full || "").trim();
-      }
-      if (!String(f.measurement_items || "").trim() || shouldRebuildMeasurementItemsFromRaw(f.measurement_items, item)) {
-        const normalized = normalizeMeasurementItemsText(item, f);
-        if (normalized) f.measurement_items = normalized;
-      }
-      const { note, loading } = resolveTargetFormFields(item, f);
-      const problemKeys = getProblemFieldKeys(item);
-      const rowInfo = item.recordName || item.fileName || "未命名记录";
+      const resolved = resolveTargetFormFields(item, f);
+      const note = resolved && resolved.note ? resolved.note : "";
+      const loading = !!(resolved && resolved.loading);
+      const problemKeys = isMultiMode ? new Set() : getProblemFieldKeys(item);
+      const rowInfo = isMultiMode
+        ? `多选编辑（已选 ${multiItems.length} 条记录）`
+        : (item.recordName || item.fileName || "未命名记录");
+      const noteTextBase = isMultiMode ? "相同值直接显示，不同值显示“（多值）”；修改将应用到所有已选记录。" : "";
+      const getFieldView = (fieldKey) => {
+        if (isMultiMode) {
+          const merged = getSharedFieldValue(multiItems, fieldKey);
+          if (merged === null) return { value: "", mixed: true };
+          return { value: String(merged || ""), mixed: false };
+        }
+        return { value: String(f[fieldKey] || ""), mixed: false };
+      };
       const renderFieldControl = (field) => {
-        const value = String(f[field.key] || "");
+        const fieldView = getFieldView(field.key);
+        const value = String(fieldView.value || "");
+        const isMixed = !!fieldView.mixed;
         const isProblem = problemKeys.has(field.key);
+        const isMultiDisabled = isMultiMode && MULTI_EDIT_DISABLED_FIELD_KEYS.has(field.key);
+        if (isMultiDisabled) {
+          return `
+            <label class="source-form-item slot-field wide multi-edit-disabled-field">
+              <span>${escapeHtml(field.label)}</span>
+              <div class="source-recog-block multi-edit-disabled-note">多选模式下不可编辑</div>
+            </label>
+          `;
+        }
         if (field.key === "basis_standard") {
+          if (isMultiMode) {
+            return `
+              <label class="source-form-item slot-field wide ${isProblem ? "is-problem" : ""}">
+                <span>${escapeHtml(field.label)}</span>
+                <input type="text" class="${isProblem ? "is-problem" : ""}" data-field="${escapeAttr(field.key)}" value="${escapeAttr(value)}" placeholder="${isMixed ? MULTI_EDIT_MIXED_PLACEHOLDER : ""}" />
+              </label>
+            `;
+          }
           const codeRegex = /([A-Za-z]{1,5}\s*\/\s*T\s*\d+(?:\.\d+)?-\d{4})/ig;
           const normalizeCode = (code) => String(code || "")
             .replace(/\s+/g, " ")
@@ -4081,6 +4178,14 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
           `;
         }
         if (field.key === "measurement_items") {
+          if (isMultiMode) {
+            return `
+              <label class="source-form-item slot-field wide multi-edit-disabled-field">
+                <span>${escapeHtml(field.label)}</span>
+                <div class="source-recog-block multi-edit-disabled-note">多选模式下不可编辑</div>
+              </label>
+            `;
+          }
           let tableRows = parseTableRowsFromBlock(String(f.measurement_items || ""));
           if (!tableRows || tableRows.length < 2) {
             const normalized = normalizeMeasurementItemsText(item, f);
@@ -4135,6 +4240,15 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
           `;
         }
         if (field.key === "general_check_full") {
+          if (isMultiMode) {
+            return `
+              <label class="source-form-item slot-field wide multi-edit-disabled-field">
+                <span>${escapeHtml(field.label)}</span>
+                <div class="source-recog-block multi-edit-disabled-note">多选模式下不可编辑</div>
+              </label>
+            `;
+          }
+          const rawForDate = String(f.raw_record || item.rawText || "");
           return `
             <label class="source-form-item slot-field wide ${isProblem ? "is-problem" : ""}">
               ${renderGeneralCheckWysiwygBlock(String(f.general_check_full || ""), { readOnly: false, rawText: rawForDate })}
@@ -4146,33 +4260,40 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
           return `
             <label class="source-form-item slot-field wide ${isProblem ? "is-problem" : ""}">
               <span>${escapeHtml(field.label)}</span>
-              <textarea class="${isProblem ? "is-problem" : ""}" data-field="${escapeAttr(field.key)}" rows="${rows}">${escapeHtml(value)}</textarea>
+              <textarea class="${isProblem ? "is-problem" : ""}" data-field="${escapeAttr(field.key)}" rows="${rows}" placeholder="${isMixed ? MULTI_EDIT_MIXED_PLACEHOLDER : ""}">${escapeHtml(value)}</textarea>
             </label>
           `;
         }
         return `
           <label class="source-form-item slot-field ${isProblem ? "is-problem" : ""}">
             <span>${escapeHtml(field.label)}</span>
-            <input type="text" class="${isProblem ? "is-problem" : ""}" data-field="${escapeAttr(field.key)}" value="${escapeAttr(value)}" />
+            <input type="text" class="${isProblem ? "is-problem" : ""}" data-field="${escapeAttr(field.key)}" value="${escapeAttr(value)}" placeholder="${isMixed ? MULTI_EDIT_MIXED_PLACEHOLDER : ""}" />
           </label>
         `;
       };
 
-      const groupedHtml = TARGET_EDIT_GROUPS.map((group) => {
+      const targetGroupScope = `target:${item.id || item.fileName || ""}`;
+      const groupedHtml = TARGET_EDIT_GROUPS.map((group, index) => {
         const fieldsInGroup = Array.isArray(group.fields) ? group.fields : [];
         const controlsHtml = fieldsInGroup.map((field) => renderFieldControl(field)).join("");
         if (!controlsHtml) return "";
+        const groupTitle = String(group.title || "");
+        const groupKey = `${targetGroupScope}:${index}:${groupTitle}`;
+        const collapsed = !!state.targetFieldGroupCollapsed[groupKey];
+        const toggleHtml = `<button type="button" class="source-recog-group-toggle" data-group-toggle="1" data-group-key="${escapeAttr(groupKey)}" aria-expanded="${collapsed ? "false" : "true"}" title="${collapsed ? "展开" : "收起"}">${collapsed ? "▶" : "▼"}</button>`;
         return `
-          <div class="source-recog-group">
+          <div class="source-recog-group ${collapsed ? "is-collapsed" : ""}">
             <div class="source-recog-group-title">
-              <span class="source-recog-group-title-text">${escapeHtml(group.title || "")}</span>
+              ${toggleHtml}
+              <span class="source-recog-group-title-text">${escapeHtml(groupTitle)}</span>
             </div>
-            <div class="source-form-grid">${controlsHtml}</div>
+            ${collapsed ? "" : `<div class="source-form-grid">${controlsHtml}</div>`}
           </div>
         `;
       }).join("");
 
       const noteParts = [];
+      if (noteTextBase) noteParts.push(noteTextBase);
       if (loading) noteParts.push("模板字段加载中...");
       if (note) noteParts.push(note);
       const noteText = noteParts.join(" ");
@@ -4190,6 +4311,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
     function applyTargetFieldProblemStyles(item) {
       const root = $("targetFieldForm");
       if (!root || !item || !item.fields) return;
+      if (isTargetMultiEditMode()) return;
       const resolved = resolveTargetFormFields(item, item.fields || {});
       const formFields = (resolved && Array.isArray(resolved.fields)) ? resolved.fields : [];
       const problemKeys = getProblemFieldKeys(item, formFields);
@@ -4210,6 +4332,11 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
     async function renderSourcePreview(item) {
       if (!item) {
         setPreviewPlaceholder("sourcePreview", "证书模板预览未加载");
+        return;
+      }
+      const selectedNormalItems = getSelectedNormalItems();
+      if (selectedNormalItems.length > 1) {
+        setPreviewPlaceholder("sourcePreview", `证书模板预览：已选 ${selectedNormalItems.length} 条记录`);
         return;
       }
       try {
@@ -4283,6 +4410,11 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
     async function renderTargetPreview(item) {
       if (!item) {
         setPreviewPlaceholder("targetPreview", "原始记录预览未加载");
+        return;
+      }
+      const selectedNormalItems = getSelectedNormalItems();
+      if (selectedNormalItems.length > 1) {
+        setPreviewPlaceholder("targetPreview", `原始记录预览：已选 ${selectedNormalItems.length} 条记录`);
         return;
       }
       try {
@@ -4413,6 +4545,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
         setPreviewPlaceholder("targetPreview", "原始记录预览未加载");
         return;
       }
+      updateSourceDeviceNameText(item);
       renderSourceFieldList(item);
       renderTargetFieldForm(item);
       await renderSourcePreview(item);
@@ -4624,6 +4757,11 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
           else state.selectedIds.delete(id);
           updateSelectedCountText();
           refreshActionButtons();
+          refreshTargetFieldFormBySelection();
+          renderSourceFieldList(getActiveItem());
+          renderSourcePreview(getActiveItem());
+          renderTargetPreview(getActiveItem());
+          updateSourceDeviceNameText(getActiveItem());
           return;
         }
         if (target.matches("#selectAllVisible")) {
@@ -4633,6 +4771,11 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
             else state.selectedIds.delete(item.id);
           });
           renderQueue();
+          refreshTargetFieldFormBySelection();
+          renderSourceFieldList(getActiveItem());
+          renderSourcePreview(getActiveItem());
+          renderTargetPreview(getActiveItem());
+          updateSourceDeviceNameText(getActiveItem());
         }
       });
 
@@ -4788,6 +4931,8 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
         const item = getActiveItem();
         if (!item) return;
         if (!item.fields) item.fields = createEmptyFields();
+        const editTargets = isTargetMultiEditMode() ? getSelectedNormalItems() : [item];
+        const isMultiMode = editTargets.length > 1;
         const readControlValue = () => {
           if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
             return String(target.value || "");
@@ -4803,6 +4948,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
           return true;
         };
         if (key === "basis_standard_item") {
+          if (isMultiMode) return;
           const normalizeCode = (code) => String(code || "")
             .replace(/\s+/g, " ")
             .replace(/\s*\/\s*/g, "/")
@@ -4821,6 +4967,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
           return;
         }
         if (key === "measurement_item_cell") {
+          if (isMultiMode) return;
           const rowIdx = Number.parseInt(String(target.getAttribute("data-row") || "-1"), 10);
           const colIdx = Number.parseInt(String(target.getAttribute("data-col") || "-1"), 10);
           const tableRows = parseTableRowsFromBlock(String(item.fields.measurement_items || ""));
@@ -4849,6 +4996,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
           return;
         }
         if (key === "general_check_cell") {
+          if (isMultiMode) return;
           const rowIdx = Number.parseInt(String(target.getAttribute("data-row") || "-1"), 10);
           const colIdx = Number.parseInt(String(target.getAttribute("data-col") || "-1"), 10);
           const nextCellValue = readControlValue();
@@ -4875,43 +5023,47 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
           return;
         }
         const value = readControlValue();
-        item.fields[key] = value;
-        if (["receive_date", "calibration_date", "release_date"].includes(key)) {
-          const inferred = inferDateTriplet({
-            receiveDate: String(item.fields.receive_date || ""),
-            calibrationDate: String(item.fields.calibration_date || ""),
-            releaseDate: String(item.fields.release_date || ""),
-          });
-          if (!isCompleteDateText(item.fields.receive_date || "") && inferred.receiveDate) {
-            item.fields.receive_date = inferred.receiveDate;
+        if (isMultiMode && MULTI_EDIT_DISABLED_FIELD_KEYS.has(key)) return;
+        editTargets.forEach((targetItem) => {
+          if (!targetItem.fields) targetItem.fields = createEmptyFields();
+          targetItem.fields[key] = value;
+          if (["receive_date", "calibration_date", "release_date"].includes(key)) {
+            const inferred = inferDateTriplet({
+              receiveDate: String(targetItem.fields.receive_date || ""),
+              calibrationDate: String(targetItem.fields.calibration_date || ""),
+              releaseDate: String(targetItem.fields.release_date || ""),
+            });
+            if (!isCompleteDateText(targetItem.fields.receive_date || "") && inferred.receiveDate) {
+              targetItem.fields.receive_date = inferred.receiveDate;
+            }
+            if (!isCompleteDateText(targetItem.fields.calibration_date || "") && inferred.calibrationDate) {
+              targetItem.fields.calibration_date = inferred.calibrationDate;
+            }
+            if (!isCompleteDateText(targetItem.fields.release_date || "") && inferred.releaseDate) {
+              targetItem.fields.release_date = inferred.releaseDate;
+            }
           }
-          if (!isCompleteDateText(item.fields.calibration_date || "") && inferred.calibrationDate) {
-            item.fields.calibration_date = inferred.calibrationDate;
+          if (key === "general_check_full") {
+            targetItem.fields.general_check = cleanBlockText(targetItem.fields.general_check_full || "");
           }
-          if (!isCompleteDateText(item.fields.release_date || "") && inferred.releaseDate) {
-            item.fields.release_date = inferred.releaseDate;
+          if (key === "raw_record") targetItem.rawText = value;
+          if (key === "raw_record") maybeCopyGeneralCheckForBlankTemplate(targetItem);
+          if (key === "measurement_items" && !(targetItem.fields.measurement_item_count || "").trim()) {
+            const count = String(value).split("\n").map((x) => x.trim()).filter(Boolean).length;
+            targetItem.fields.measurement_item_count = count > 0 ? String(count) : "";
           }
-        }
-        if (key === "general_check_full") {
-          item.fields.general_check = cleanBlockText(item.fields.general_check_full || "");
-        }
-        if (key === "raw_record") item.rawText = value;
-        if (key === "raw_record") maybeCopyGeneralCheckForBlankTemplate(item);
-        if (key === "measurement_items" && !(item.fields.measurement_item_count || "").trim()) {
-          const count = String(value).split("\n").map((x) => x.trim()).filter(Boolean).length;
-          item.fields.measurement_item_count = count > 0 ? String(count) : "";
-        }
-        if (["device_name", "device_model", "device_code"].includes(key)) {
-          item.category = inferCategory(item);
-        }
-        if (item.templateName) {
-          const validation = validateItemForGeneration(item, "certificate_template");
-          if (!validation.ok) applyIncompleteState(item, validation);
-          else if (item.status === "incomplete") {
-            item.status = "ready";
-            item.message = buildCategoryMessage(item, "字段已补全，可生成");
+          if (["device_name", "device_model", "device_code"].includes(key)) {
+            targetItem.category = inferCategory(targetItem);
           }
-        }
+          if (targetItem.templateName) {
+            const validation = validateItemForGeneration(targetItem, "certificate_template");
+            if (!validation.ok) applyIncompleteState(targetItem, validation);
+            else if (targetItem.status === "incomplete") {
+              targetItem.status = "ready";
+              targetItem.message = buildCategoryMessage(targetItem, "字段已补全，可生成");
+            }
+          }
+        });
         applyTargetFieldProblemStyles(item);
         renderQueue();
       };
@@ -4920,6 +5072,17 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
       $("targetFieldForm").addEventListener("click", (event) => {
         const target = event.target;
         if (!(target instanceof HTMLElement)) return;
+        const toggleBtn = target.closest("[data-group-toggle]");
+        if (toggleBtn instanceof HTMLElement) {
+          const groupKey = String(toggleBtn.getAttribute("data-group-key") || "").trim();
+          if (!groupKey) return;
+          const item = getActiveItem();
+          if (!item) return;
+          state.targetFieldGroupCollapsed[groupKey] = !state.targetFieldGroupCollapsed[groupKey];
+          renderTargetFieldForm(item);
+          applyTargetFieldProblemStyles(item);
+          return;
+        }
         const action = String(target.getAttribute("data-action") || "").trim();
         if (!action) return;
         const item = getActiveItem();
@@ -5266,11 +5429,21 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
         if (state.busy) return;
         getFilteredSortedQueue().forEach((item) => state.selectedIds.add(item.id));
         renderQueue();
+        refreshTargetFieldFormBySelection();
+        renderSourceFieldList(getActiveItem());
+        renderSourcePreview(getActiveItem());
+        renderTargetPreview(getActiveItem());
+        updateSourceDeviceNameText(getActiveItem());
       });
       $("clearSelectedBtn").addEventListener("click", () => {
         if (state.busy) return;
         state.selectedIds.clear();
         renderQueue();
+        refreshTargetFieldFormBySelection();
+        renderSourceFieldList(getActiveItem());
+        renderSourcePreview(getActiveItem());
+        renderTargetPreview(getActiveItem());
+        updateSourceDeviceNameText(getActiveItem());
       });
       $("removeSelectedBtn").addEventListener("click", async () => {
         if (state.busy) return;

@@ -19,6 +19,7 @@ export function createInitialState() {
     sourceViewMode: "preview",
     rightViewMode: "preview",
     sourceFieldGroupCollapsed: {},
+    targetFieldGroupCollapsed: {},
     excelPreviewSheetByFileId: {},
     editorSchemaByTemplate: {},
   };

@@ -1360,6 +1360,12 @@ tr:hover { background: #f2f7ff; }
   background: #fff;
 }
 
+.multi-edit-disabled-field .source-recog-block.multi-edit-disabled-note {
+  color: #6b7f98;
+  background: #f2f6fb;
+  border-color: #c9d6e6;
+}
+
 .source-form-item input.is-problem,
 .source-form-item select.is-problem,
 .source-form-item textarea.is-problem {
