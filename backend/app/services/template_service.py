@@ -412,10 +412,12 @@ def _clean_name_hint(value: str) -> str:
     text = str(value or "").strip()
     if not text:
         return ""
+    text = re.sub(r"^\d+\s*", "", text)
+    text = re.sub(r"(?i)\bcnas\b", "", text)
+    text = re.sub(r"[-_ ]*\d+$", "", text)
     if "|" in text:
         text = text.split("|", 1)[0].strip()
     text = re.sub(r"^(?:器具名称|设备名称|仪器名称|instrument\s*name|device\s*name)[:：]?\s*", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"[（(][^）)]{0,16}[）)]", "", text)
     text = re.sub(r"\s+", " ", text).strip()
     if len(text) < 2:
         return ""
@@ -426,12 +428,41 @@ def _normalize_name_for_fuzzy(value: str) -> str:
     text = _normalize_for_match(value)
     text = re.sub(r"(?i)^r[-_ ]?\d{3}[a-z]", "", text)
     text = re.sub(r"\.docx$|\.html$", "", text)
+    text = text.replace("cnas", "")
     text = (
         text.replace("软击穿", "软化击穿")
         .replace("伸长率试验仪", "伸长试验仪")
         .replace("伸长率", "伸长")
         .replace("高温试验箱", "高温箱")
+        .replace("金属扭转", "线材扭转")
+        .replace("扁线弯曲", "扁线回弹")
+        .replace("扁线回弹角", "扁线回弹")
+        .replace("立绕试验仪", "绕组线卷绕试验仪")
+        .replace("缠绕能力试验仪", "线材卷绕试验机")
+        .replace("低温箱", "低温试验箱")
+        .replace("干燥箱", "试验箱")
+        .replace("希波火花机", "火花机人工击穿装置")
+        .replace("介损", "局部放电")
+        .replace("5kv高压台", "电线电缆电压试验装置")
+        .replace("热态电压试验箱", "电热强制通风试验箱热态电压试验仪")
+        .replace("低应力拉伸仪", "低温拉伸试验机")
+        .replace("摩擦系数仪", "静摩擦系数试验仪")
+        .replace("往复弯折试验仪", "曲挠试验装置")
+        .replace("耐氟试验仪", "耐溶剂试验仪")
+        .replace("自动回弹角试验仪（1.60以上）", "扁线回弹试验仪")
+        .replace("自动回弹角试验仪(1.60以上)", "扁线回弹试验仪")
+        .replace("自动回弹角试验仪（160以上）", "扁线回弹试验仪")
+        .replace("自动回弹角试验仪(160以上)", "扁线回弹试验仪")
+        .replace("自动回弹角试验仪160以上", "扁线回弹试验仪")
+        .replace("耐溶剂试验仪（温场）", "耐溶剂试验仪")
+        .replace("耐溶剂试验仪(温场)", "耐溶剂试验仪")
+        .replace("耐溶剂试验仪（力值）", "耐溶剂试验仪")
+        .replace("耐溶剂试验仪(力值)", "耐溶剂试验仪")
+        .replace("耐溶剂试验仪温场", "耐溶剂试验仪")
+        .replace("耐溶剂试验仪力值", "耐溶剂试验仪")
     )
+    if text in {"卷绕", "卷绕试验仪"}:
+        text = "线材卷绕试验机"
     text = re.sub(r"[（）()【】\[\]{}《》“”\"'、,，.:：;；/\\|_+-]", "", text)
     return text
 
@@ -452,6 +483,7 @@ def _normalize_name_core(value: str) -> str:
         "设备",
         "仪器",
         "装置",
+        "测试",
     ):
         text = text.replace(token, "")
     return text
@@ -491,4 +523,8 @@ def _match_by_name_hints(hints: list[str], templates: list[str]) -> str | None:
     exact_hits = sorted(set(exact_hits))
     if len(exact_hits) == 1:
         return exact_hits[0]
+    if len(exact_hits) > 1:
+        non_check = [name for name in exact_hits if "核查记录" not in str(name)]
+        if len(non_check) == 1:
+            return non_check[0]
     return None
