@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>证书模板与原始记录批量工具</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
   <link rel="stylesheet" href="/static/css/app.css" />
 </head>
 <body>
@@ -17,10 +18,10 @@
             <div class="toolbar-group compact">
               <div class="toolbar-group-title">常规操作</div>
               <div class="toolbar-row">
-                <button id="uploadBtn" class="primary" type="button">上传</button>
-                <button id="refreshAllRecognitionBtn" class="icon-btn" type="button" title="刷新全部识别">↻</button>
-                <button id="clearQueueBtn" class="icon-btn" type="button" title="清空列表">⌫</button>
-                <button id="runExcelBatchBtn" type="button" hidden>Excel批量生成</button>
+                <button id="uploadBtn" class="primary" type="button"><i class="fa-solid fa-upload btn-icon" aria-hidden="true"></i><span class="btn-text">上传</span></button>
+                <button id="refreshAllRecognitionBtn" class="icon-btn" type="button" title="刷新全部识别"><i class="fa-solid fa-rotate-right" aria-hidden="true"></i></button>
+                <button id="clearQueueBtn" class="icon-btn" type="button" title="清空列表"><i class="fa-solid fa-trash-can" aria-hidden="true"></i></button>
+                <button id="runExcelBatchBtn" type="button" hidden><i class="fa-solid fa-file-excel btn-icon" aria-hidden="true"></i><span class="btn-text">Excel批量生成</span></button>
               </div>
             </div>
             <div class="toolbar-group catalog-compact">
@@ -29,9 +30,9 @@
                 <span class="catalog-ready-hint" id="catalogReadyHint">○ 待装填</span>
               </div>
               <div class="toolbar-row no-wrap">
-                <button id="uploadInstrumentCatalogBtn" type="button">装填计量标准器具目录</button>
-                <button id="clearInstrumentCatalogBtn" type="button">重置</button>
-                <button id="viewInstrumentCatalogDetailBtn" type="button">查看识别明细</button>
+                <button id="uploadInstrumentCatalogBtn" type="button"><i class="fa-solid fa-book btn-icon" aria-hidden="true"></i><span class="btn-text">装填计量标准器具目录</span></button>
+                <button id="clearInstrumentCatalogBtn" type="button"><i class="fa-solid fa-rotate-left btn-icon" aria-hidden="true"></i><span class="btn-text">重置</span></button>
+                <button id="viewInstrumentCatalogDetailBtn" type="button"><i class="fa-solid fa-list-check btn-icon" aria-hidden="true"></i><span class="btn-text">查看识别明细</span></button>
               </div>
             </div>
           </div>
@@ -62,8 +63,8 @@
           <span id="activeFileText" class="tag">当前：未选择文件</span>
         </div>
         <div class="list-tools">
-          <button id="runGenerateAllBtn" type="button" class="small-btn">批量生成选中</button>
-          <button id="runBatchBtn" type="button" class="small-btn">批量导出选中</button>
+          <button id="runGenerateAllBtn" type="button" class="small-btn"><i class="fa-solid fa-gears btn-icon" aria-hidden="true"></i><span class="btn-text">批量生成选中</span></button>
+          <button id="runBatchBtn" type="button" class="small-btn"><i class="fa-solid fa-file-export btn-icon" aria-hidden="true"></i><span class="btn-text">批量导出选中</span></button>
           <input id="filterKeyword" type="text" placeholder="筛选关键词（名称/型号/编号/厂商）" />
           <select id="filterStatus" hidden>
             <option value="">状态：全部</option>
@@ -87,9 +88,9 @@
             <option value="asc">升序</option>
             <option value="desc">降序</option>
           </select>
-          <button id="selectVisibleBtn" type="button" class="small-btn">全选当前筛选</button>
-          <button id="clearSelectedBtn" type="button" class="small-btn">清空勾选</button>
-          <button id="removeSelectedBtn" type="button" class="small-btn">移除选中</button>
+          <button id="selectVisibleBtn" type="button" class="small-btn"><i class="fa-solid fa-check-double btn-icon" aria-hidden="true"></i><span class="btn-text">全选当前筛选</span></button>
+          <button id="clearSelectedBtn" type="button" class="small-btn"><i class="fa-solid fa-eraser btn-icon" aria-hidden="true"></i><span class="btn-text">清空勾选</span></button>
+          <button id="removeSelectedBtn" type="button" class="small-btn"><i class="fa-solid fa-trash btn-icon" aria-hidden="true"></i><span class="btn-text">移除选中</span></button>
           <span id="selectedCountText" class="hint">已选：0</span>
         </div>
         <div class="body" id="queueList"></div>
@@ -105,8 +106,8 @@
           单条检查
           <span class="detail-panel-head-hint">（双击预览全屏，Esc退出）</span>
           <span class="detail-nav">
-            <button id="prevItemBtn" type="button" class="small-btn" title="上一条">上一个</button>
-            <button id="nextItemBtn" type="button" class="small-btn" title="下一条">下一个</button>
+            <button id="prevItemBtn" type="button" class="small-btn" title="上一条"><i class="fa-solid fa-chevron-left btn-icon" aria-hidden="true"></i><span class="btn-text">上一个</span></button>
+            <button id="nextItemBtn" type="button" class="small-btn" title="下一条"><i class="fa-solid fa-chevron-right btn-icon" aria-hidden="true"></i><span class="btn-text">下一个</span></button>
           </span>
         </span>
       </div>
@@ -117,8 +118,8 @@
               <span>证书模板（来源）</span>
               <span id="sourceDeviceNameText" class="pane-head-device">器具名称：-</span>
               <span class="source-tab-switch">
-                <button id="sourceViewPreviewBtn" type="button" class="source-tab-btn is-active">证书模板预览</button>
-                <button id="sourceViewFormBtn" type="button" class="source-tab-btn">字段识别</button>
+                <button id="sourceViewPreviewBtn" type="button" class="source-tab-btn is-active"><i class="fa-solid fa-file-lines btn-icon" aria-hidden="true"></i><span class="btn-text">证书模板预览</span></button>
+                <button id="sourceViewFormBtn" type="button" class="source-tab-btn"><i class="fa-solid fa-list-ul btn-icon" aria-hidden="true"></i><span class="btn-text">字段识别</span></button>
               </span>
             </div>
             <div id="sourcePreviewPanel" class="source-tab-panel is-active">
@@ -134,8 +135,8 @@
           <div class="preview-pane target-pane">
             <div class="target-actions">
               <span class="right-tab-switch">
-                <button id="rightTabPreviewBtn" type="button" class="right-tab-btn is-active">原始记录预览</button>
-                <button id="rightTabFieldBtn" type="button" class="right-tab-btn">字段编辑</button>
+                <button id="rightTabPreviewBtn" type="button" class="right-tab-btn is-active"><i class="fa-solid fa-eye btn-icon" aria-hidden="true"></i><span class="btn-text">原始记录预览</span></button>
+                <button id="rightTabFieldBtn" type="button" class="right-tab-btn"><i class="fa-solid fa-pen-to-square btn-icon" aria-hidden="true"></i><span class="btn-text">字段编辑</span></button>
               </span>
               <span class="target-generate-group">
                 <span class="target-actions-label">生成类型</span>
@@ -143,9 +144,9 @@
                   <option value="certificate_template">原始记录</option>
                   <option value="source_file">修改证书</option>
                 </select>
-                <button id="generatePreviewBtn" class="primary" type="button">生成当前</button>
-                <button id="downloadCurrentBtn" type="button">导出当前</button>
-                <button id="togglePreviewFullscreenBtn" type="button">预览全屏</button>
+                <button id="generatePreviewBtn" class="primary" type="button"><i class="fa-solid fa-play btn-icon" aria-hidden="true"></i><span class="btn-text">生成当前</span></button>
+                <button id="downloadCurrentBtn" type="button"><i class="fa-solid fa-download btn-icon" aria-hidden="true"></i><span class="btn-text">导出当前</span></button>
+                <button id="togglePreviewFullscreenBtn" type="button"><i class="fa-solid fa-expand btn-icon" aria-hidden="true"></i><span class="btn-text">预览全屏</span></button>
               </span>
             </div>
             <div id="rightFieldPanel" class="right-tab-panel">
@@ -156,10 +157,10 @@
             </div>
             <div id="rightPreviewPanel" class="right-tab-panel is-active">
               <div class="pane-head">
-                <span>原始记录模板</span>
+                <span id="targetPaneTitle">原始记录模板</span>
                 <input id="templateSearch" type="text" list="templateOptions" placeholder="搜索并选择模板" />
-                <button id="useBlankTemplateBtn" type="button" class="pane-hint-btn">未命中？用空白模板</button>
-                <button id="templateFeedbackBtn" type="button" class="pane-hint-btn">纠错入库</button>
+                <button id="useBlankTemplateBtn" type="button" class="pane-hint-btn"><i class="fa-solid fa-file-circle-plus btn-icon" aria-hidden="true"></i><span class="btn-text">未命中？用空白模板</span></button>
+                <button id="templateFeedbackBtn" type="button" class="pane-hint-btn"><i class="fa-solid fa-wrench btn-icon" aria-hidden="true"></i><span class="btn-text">纠错入库</span></button>
                 <datalist id="templateOptions"></datalist>
                 <datalist id="measurementCatalogNameOptions"></datalist>
                 <select id="templateName" hidden></select>
@@ -178,7 +179,7 @@
     <div class="catalog-detail-box">
       <div class="catalog-detail-head">
         <span id="catalogDetailTitle">计量标准器具目录识别明细</span>
-        <button id="closeCatalogDetailBtn" type="button">关闭</button>
+        <button id="closeCatalogDetailBtn" type="button"><i class="fa-solid fa-xmark btn-icon" aria-hidden="true"></i><span class="btn-text">关闭</span></button>
       </div>
       <div class="catalog-detail-table-wrap">
         <div id="catalogDetailContent"><div class="placeholder">暂无识别数据</div></div>

@@ -99,6 +99,7 @@ def fill_r803b_docx(
         return False
 
     _fill_r803b_record_table(record_table, payload)
+    _fill_r803b_result_checks(record_table)
     _fill_page_number_placeholders_in_root(root)
 
     _preserve_original_namespaces(root, original_namespaces)

@@ -277,6 +277,42 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
       return mode === "source_file" ? "source_file" : "certificate_template";
     }
 
+    function setButtonText(btn, text) {
+      if (!btn) return;
+      const textEl = btn.querySelector(".btn-text");
+      if (textEl) {
+        textEl.textContent = text;
+        return;
+      }
+      btn.textContent = text;
+    }
+
+    function setFullscreenButtonUi(isFullscreen) {
+      const btn = $("togglePreviewFullscreenBtn");
+      if (!btn) return;
+      setButtonText(btn, isFullscreen ? "退出全屏" : "预览全屏");
+      const icon = btn.querySelector(".btn-icon");
+      if (!icon) return;
+      icon.classList.remove("fa-expand", "fa-compress");
+      icon.classList.add(isFullscreen ? "fa-compress" : "fa-expand");
+    }
+
+    function syncGenerateModeUiText() {
+      const isModifyCertificate = getGenerateMode() === "source_file";
+      const previewTabBtn = $("rightTabPreviewBtn");
+      if (previewTabBtn) {
+        setButtonText(previewTabBtn, isModifyCertificate ? "证书预览" : "原始记录预览");
+      }
+      const targetPaneTitle = $("targetPaneTitle");
+      if (targetPaneTitle) {
+        targetPaneTitle.textContent = isModifyCertificate ? "证书模板（来源）" : "原始记录模板";
+      }
+      const templateSearch = $("templateSearch");
+      if (templateSearch) {
+        templateSearch.placeholder = isModifyCertificate ? "浏览并选择证书模板" : "搜索并选择模板";
+      }
+    }
+
     function readListColumnValue(item, key) {
       const f = item.fields || {};
       if (key === "recordName") return String(item.recordName || "");
@@ -643,9 +679,10 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
       const canNext = !state.busy && visible.length > 1 && activeIndex >= 0 && activeIndex < visible.length - 1;
       $("prevItemBtn").disabled = !canPrev;
       $("nextItemBtn").disabled = !canNext;
-      $("togglePreviewFullscreenBtn").textContent = state.previewFullscreen ? "退出全屏" : "预览全屏";
+      setFullscreenButtonUi(state.previewFullscreen);
       refreshSourceViewButtons();
       refreshRightViewTabs();
+      syncGenerateModeUiText();
     }
 
     function renderCatalogReadyHint() {
@@ -797,7 +834,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
       state.instrumentCatalogTokenSet = tokenSet;
       state.instrumentCatalogFileName = String(fileName || "").trim();
       const uploadBtn = $("uploadInstrumentCatalogBtn");
-      if (uploadBtn) uploadBtn.textContent = deduped.length ? "重装计量标准器具目录" : "装填计量标准器具目录";
+      if (uploadBtn) setButtonText(uploadBtn, deduped.length ? "重装计量标准器具目录" : "装填计量标准器具目录");
       renderCatalogReadyHint();
       renderMeasurementCatalogNameOptions();
       const active = getActiveItem();
@@ -2094,13 +2131,6 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
       templateRequired.forEach((key) => {
         if (!hasMeaningfulValue(fields[key])) problemKeys.add(key);
       });
-      const resolved = resolveTargetFormFields(item, fields);
-      const schemaFields = (resolved && Array.isArray(resolved.fields)) ? resolved.fields : [];
-      schemaFields.forEach((field) => {
-        const key = String((field && field.key) || "").trim();
-        if (!key) return;
-        if (!hasMeaningfulValue(fields[key])) problemKeys.add(key);
-      });
 
       return problemKeys;
     }
@@ -2362,12 +2392,15 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
       );
       const sections = [];
       const mainRows = [
-        { key: "device_name", label: "器具名称", value: String(normalizedSrc.device_name || "").trim() },
-        { key: "device_model", label: "型号", value: String(normalizedSrc.device_model || "").trim() },
-        { key: "device_code", label: "器具编号", value: String(normalizedSrc.device_code || "").trim() },
-        { key: "manufacturer", label: "生产厂商", value: String(normalizedSrc.manufacturer || "").trim() },
-      ];
-      sections.push({ title: "主要信息", rows: mainRows });
+        { key: "certificate_no", label: "缆专检号:", value: String(normalizedSrc.certificate_no || "").trim() },
+        { key: "client_name", label: "委托单位:", value: String(normalizedSrc.client_name || normalizedSrc.unit_name || "").trim() },
+        { key: "address", label: "地址:", value: String(normalizedSrc.address || "").trim() },
+        { key: "device_name", label: "器具名称:", value: String(normalizedSrc.device_name || "").trim() },
+        { key: "manufacturer", label: "制造厂/商:", value: String(normalizedSrc.manufacturer || "").trim() },
+        { key: "device_model", label: "型号/规格:", value: String(normalizedSrc.device_model || "").trim() },
+        { key: "device_code", label: "器具编号:", value: String(normalizedSrc.device_code || "").trim() },
+      ].filter((row) => !!normalizeOptionalBlank(row.value));
+      if (mainRows.length) sections.push({ title: "主要信息", rows: mainRows });
 
       const calibrationInfo = extractCalibrationInfoFields(raw, normalizedSrc);
       normalizedSrc.receive_date = calibrationInfo.receiveDate || normalizedSrc.receive_date || "";
@@ -2392,14 +2425,23 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
         [/(?:本次校准所使用的主要计量标准器具|主要计量标准器具|Main measurement standard instruments)/i],
         [/(?:本次校准所依据的技术规范|检测\/校准依据|校准依据)/i, /(?:其它|其他)校准信息|Calibration Information/i, /(?:一般检查|General inspection)/i, /^备注[:：]?/i],
       );
-      if (instrumentBlock) {
-        const normalizedInstrument = normalizeMeasurementItemsText(
-          { recognizedFields: normalizedSrc, rawText: raw, fields: normalizedSrc },
-          normalizedSrc,
-        );
+      const normalizedInstrument = normalizeMeasurementItemsText(
+        { recognizedFields: normalizedSrc, rawText: raw, fields: normalizedSrc },
+        normalizedSrc,
+      );
+      const measurementItemsRaw = String(normalizedSrc.measurement_items || "").trim();
+      const measurementItemsRows = measurementItemsRaw ? parseTableRowsFromBlock(measurementItemsRaw) : null;
+      const safeMeasurementItems = (measurementItemsRows && measurementItemsRows.length >= 2) ? measurementItemsRaw : "";
+      const instrumentText = String(
+        normalizedInstrument
+        || instrumentBlock
+        || safeMeasurementItems
+        || "",
+      ).trim();
+      if (instrumentText) {
         sections.push({
           title: "本次校准所使用的主要计量标准器具",
-          block: normalizedInstrument || instrumentBlock,
+          block: instrumentText,
         });
       }
 
@@ -2438,6 +2480,10 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
           "device_model",
           "device_code",
           "manufacturer",
+          "client_name",
+          "unit_name",
+          "address",
+          "certificate_no",
           "basis_standard",
           "calibration_basis",
           "location",
@@ -3490,6 +3536,99 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
       // Rebuild dynamic tables from two-column "序号/内容" lines.
       const twoColRows = parseGeneralCheckRowsFromBlock(blockText, true);
       if (!twoColRows || !twoColRows.length) return null;
+      const parseSequentialHeaderDataTable = (rows) => {
+        const rawTexts = (Array.isArray(rows) ? rows : [])
+          .map((row) => String((row && row[1]) || "").trim())
+          .filter(Boolean);
+        if (rawTexts.length < 10) return null;
+
+        const texts = [];
+        for (let i = 0; i < rawTexts.length; i += 1) {
+          const current = String(rawTexts[i] || "").trim();
+          const next = String(rawTexts[i + 1] || "").trim();
+          const currentCompact = current.replace(/\s+/g, "");
+          const nextCompact = next.replace(/\s+/g, "");
+          const currentIsStart = /^[A-Za-z]?\d+$/.test(currentCompact);
+          const nextIsStart = /^[A-Za-z]?\d+$/.test(nextCompact);
+          if (
+            next
+            && !currentIsStart
+            && !nextIsStart
+            && !/[()（）]/.test(current)
+            && /[()（）]/.test(next)
+            && current.length <= 24
+          ) {
+            texts.push(`${current}${next}`);
+            i += 1;
+            continue;
+          }
+          texts.push(current);
+        }
+
+        const isStop = (text) => /^(?:注[:：]?|\(以下空白\)|（以下空白）|以下空白|检测员|校准员|核验员|结果[:：]?)/.test(String(text || "").trim());
+        const looksLikeRowStart = (text) => /^[A-Za-z]?\d+$/.test(String(text || "").trim().replace(/\s+/g, ""));
+        const norm = (text) => String(text || "").replace(/\s+/g, "").replace(/[：:，,。.;；]/g, "").toLowerCase();
+        const sameHeader = (a, b) => {
+          if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+          let matched = 0;
+          for (let i = 0; i < a.length; i += 1) {
+            if (norm(a[i]) === norm(b[i])) matched += 1;
+          }
+          return matched >= Math.max(2, a.length - 1);
+        };
+        const isLikelyHeaderToken = (text) => {
+          const value = String(text || "").trim();
+          if (!value) return false;
+          if (isStop(value)) return false;
+          if (looksLikeRowStart(value)) return false;
+          return true;
+        };
+        const hasMetricLikeHeader = (header) => {
+          const h = Array.isArray(header) ? header : [];
+          const hasComplex = h.some((x) => /[()（）]|[A-Za-z]+\d*|功率|效能|误差|不确定度|结果|测量|标准|实际|频率|位置|参数/.test(String(x || "")));
+          const hasShortLead = h.slice(0, 2).some((x) => String(x || "").trim().length <= 4);
+          return hasComplex && hasShortLead;
+        };
+
+        for (let i = 0; i <= texts.length - 6; i += 1) {
+          if (!isLikelyHeaderToken(texts[i])) continue;
+          const header = [];
+          let j = i;
+          while (j < texts.length && header.length < 8) {
+            const token = String(texts[j] || "").trim();
+            if (!isLikelyHeaderToken(token)) break;
+            header.push(token);
+            j += 1;
+            if (header.length >= 3 && j < texts.length && looksLikeRowStart(texts[j])) break;
+          }
+          if (header.length < 3 || header.length > 6) continue;
+          if (!hasMetricLikeHeader(header)) continue;
+
+          const colCount = header.length;
+          const dataRows = [];
+          let cursor = j;
+          while (cursor + colCount - 1 < texts.length) {
+            const first = String(texts[cursor] || "").trim();
+            if (!first || isStop(first)) break;
+            const maybeHeader = texts.slice(cursor, cursor + colCount);
+            if (maybeHeader.length === colCount && sameHeader(maybeHeader, header)) {
+              cursor += colCount;
+              continue;
+            }
+            if (!looksLikeRowStart(first)) break;
+            const row = texts.slice(cursor, cursor + colCount).map((x) => String(x || "").trim());
+            if (row.length !== colCount || row.some((x) => !x || isStop(x))) break;
+            dataRows.push(row);
+            cursor += colCount;
+          }
+          if (dataRows.length >= 2) {
+            return [header, ...dataRows];
+          }
+        }
+        return null;
+      };
+      const sequentialTableRows = parseSequentialHeaderDataTable(twoColRows);
+      if (sequentialTableRows) return sequentialTableRows;
       const isValueHeader = (text) => /^(?:标\s*称\s*值|实\s*际\s*值|显\s*示\s*值|实\s*测\s*值)\s*(?:\([^)]*\))?\s*[:：]?$/i.test(String(text || "").trim());
       const isGenericHeader = (text) => /[:：]\s*$/.test(String(text || "").trim());
       const isNumberCell = (text) => /^[+-]?\d+(?:\.\d+)?$/.test(String(text || "").trim());
@@ -3858,7 +3997,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
         ? item.recognizedFields
         : (item.fields || {});
       const problemKeys = getProblemFieldKeys(item);
-      const sections = buildFocusSections(item, src, problemKeys, true);
+      const sections = buildFocusSections(item, src, problemKeys, false);
       if (!sections.length) {
         el.innerHTML = '<div class="placeholder">识别字段为空</div>';
         return;
@@ -3899,8 +4038,8 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
         const normalized = normalizeMeasurementItemsText(item, f);
         if (normalized) f.measurement_items = normalized;
       }
-      const { fields: formFields, note, loading } = resolveTargetFormFields(item, f);
-      const problemKeys = getProblemFieldKeys(item, formFields);
+      const { note, loading } = resolveTargetFormFields(item, f);
+      const problemKeys = getProblemFieldKeys(item);
       const rowInfo = item.recordName || item.fileName || "未命名记录";
       const renderFieldControl = (field) => {
         const value = String(f[field.key] || "");
@@ -4019,29 +4158,19 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
         `;
       };
 
-      const usingSchemaFields = !!(item && item.templateName && Array.isArray(formFields) && formFields.length > TARGET_BASIC_FORM_FIELDS.length);
-      const groupedHtml = usingSchemaFields
-        ? (`
+      const groupedHtml = TARGET_EDIT_GROUPS.map((group) => {
+        const fieldsInGroup = Array.isArray(group.fields) ? group.fields : [];
+        const controlsHtml = fieldsInGroup.map((field) => renderFieldControl(field)).join("");
+        if (!controlsHtml) return "";
+        return `
           <div class="source-recog-group">
             <div class="source-recog-group-title">
-              <span class="source-recog-group-title-text">模板字段</span>
+              <span class="source-recog-group-title-text">${escapeHtml(group.title || "")}</span>
             </div>
-            <div class="source-form-grid">${formFields.map((field) => renderFieldControl(field)).join("")}</div>
+            <div class="source-form-grid">${controlsHtml}</div>
           </div>
-        `)
-        : TARGET_EDIT_GROUPS.map((group) => {
-          const fieldsInGroup = Array.isArray(group.fields) ? group.fields : [];
-          const controlsHtml = fieldsInGroup.map((field) => renderFieldControl(field)).join("");
-          if (!controlsHtml) return "";
-          return `
-            <div class="source-recog-group">
-              <div class="source-recog-group-title">
-                <span class="source-recog-group-title-text">${escapeHtml(group.title || "")}</span>
-              </div>
-              <div class="source-form-grid">${controlsHtml}</div>
-            </div>
-          `;
-        }).join("");
+        `;
+      }).join("");
 
       const noteParts = [];
       if (loading) noteParts.push("模板字段加载中...");
@@ -4252,40 +4381,11 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
       return "";
     }
 
-    function highlightR872Section2Table(docRoot) {
-      if (!docRoot) return;
-      const tables = Array.from(docRoot.querySelectorAll("table"));
-      const table = tables.find((tbl) => {
-        const head = normalizePreviewText(tbl.textContent || "");
-        return (
-          head.includes("扭转圈数") &&
-          (head.includes("时间(s)") || head.includes("时间")) &&
-          head.includes("扭转速度")
-        );
-      });
-      if (!table) return;
-      const rows = Array.from(table.querySelectorAll("tr"));
-      rows.forEach((tr, rowIdx) => {
-        const cells = Array.from(tr.querySelectorAll("td, th"));
-        cells.forEach((cell, colIdx) => {
-          if (rowIdx === 0) return;
-          if (colIdx === 0) return;
-          const text = normalizePreviewText(cell.textContent).replace(/[\u00a0\u200b]/g, "").trim();
-          if (!text) {
-            cell.classList.add("preview-slot-missing", "preview-slot-cell");
-          } else if (/\d/.test(text)) {
-            cell.classList.add("preview-slot-filled", "preview-slot-cell");
-          }
-        });
-      });
-    }
-
     function applyTargetPreviewSlotHighlights(item) {
       if (!item || !item.reportDownloadUrl) return;
       const root = $("targetPreview");
       if (!root) return;
       const docRoot = root.querySelector(".docx") || root;
-      const isBlankTemplate = /空白/i.test(String((item && item.templateName) || ""));
       docRoot.querySelectorAll(".preview-slot-filled,.preview-slot-missing,.preview-slot-cell").forEach((el) => {
         el.classList.remove("preview-slot-filled", "preview-slot-missing", "preview-slot-cell");
       });
@@ -4294,8 +4394,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
         if (el.closest(".preview-slot-filled, .preview-slot-missing")) return;
         const text = normalizePreviewText(el.textContent);
         if (!text || text.length > 160) return;
-        let cls = classifyPreviewSlotText(text);
-        if (isBlankTemplate && cls === "missing") cls = "filled";
+        const cls = classifyPreviewSlotText(text);
         if (cls === "filled") el.classList.add("preview-slot-filled");
         if (cls === "missing") el.classList.add("preview-slot-missing");
       });
@@ -4303,16 +4402,6 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
       docRoot.querySelectorAll(".preview-slot-filled .preview-slot-filled, .preview-slot-missing .preview-slot-missing, .preview-slot-filled .preview-slot-missing, .preview-slot-missing .preview-slot-filled").forEach((el) => {
         el.classList.remove("preview-slot-filled", "preview-slot-missing");
       });
-      const templateName = String((item && item.templateName) || "");
-      if (/r[-_ ]?872b|扭转/i.test(templateName)) {
-        highlightR872Section2Table(docRoot);
-      }
-      if (isBlankTemplate) {
-        docRoot.querySelectorAll(".preview-slot-missing, .preview-slot-cell").forEach((el) => {
-          el.classList.remove("preview-slot-missing", "preview-slot-cell");
-          el.classList.add("preview-slot-filled");
-        });
-      }
     }
 
     async function renderPreviews() {
@@ -5104,6 +5193,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
           setLoading(true, generateMode === "source_file" ? `导出证书模板来源文件：${item.fileName}` : `生成原始记录中：${item.fileName}`);
           await generateItem(item, generateMode);
           await renderPreviews();
+          setRightViewMode("preview");
           setStatus(generateMode === "source_file" ? `已导出证书模板来源文件：${item.fileName}` : `已生成原始记录：${item.fileName}`);
         } catch (error) {
           if (item.status !== "incomplete") {
@@ -5150,6 +5240,10 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
         } finally {
           setLoading(false);
         }
+      });
+
+      $("generateModeSelect").addEventListener("change", () => {
+        syncGenerateModeUiText();
       });
 
       $("filterKeyword").addEventListener("input", () => {

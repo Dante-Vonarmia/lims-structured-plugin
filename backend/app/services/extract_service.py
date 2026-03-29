@@ -27,6 +27,7 @@ def extract_fields(raw_text: str) -> dict[str, str]:
         "device_model": "",
         "device_code": "",
         "manufacturer": "",
+        "basis_mode": "",
         "basis_standard": "",
         "basis_standard_items": [],
         "unit_name": "",
@@ -279,6 +280,8 @@ def _fill_by_fallback(result: dict[str, str], text: str) -> None:
         result["basis_standard"] = _extract_basis_standard_value(text)
     if not result.get("basis_standard_items"):
         result["basis_standard_items"] = _extract_basis_standard_items(text)
+    if not result.get("basis_mode"):
+        result["basis_mode"] = _extract_basis_mode(text)
 
     items = _extract_measurement_items(text)
     if items:
@@ -597,6 +600,30 @@ def _extract_basis_standard_value(text: str) -> str:
     if not codes:
         return ""
     return "\n".join(codes)
+
+
+def _extract_basis_mode(text: str) -> str:
+    source = str(text or "")
+    if not source:
+        return ""
+    compact = re.sub(r"\s+", "", source)
+
+    if re.search(r"(?:☑|√|✔|■)校准|校准(?:☑|√|✔|■)", compact):
+        return "校准"
+    if re.search(r"(?:☑|√|✔|■)检测|检测(?:☑|√|✔|■)", compact):
+        return "检测"
+
+    has_calibration = ("校准依据" in compact) or ("校准地点" in compact)
+    has_detection = ("检测依据" in compact) or ("检测地点" in compact)
+    if has_calibration and not has_detection:
+        return "校准"
+    if has_detection and not has_calibration:
+        return "检测"
+    if "校准结果" in compact:
+        return "校准"
+    if "检测结果" in compact:
+        return "检测"
+    return ""
 
 
 def _extract_location_value(text: str, calibration_info_block: str) -> str:

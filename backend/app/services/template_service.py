@@ -303,6 +303,13 @@ def _normalize_context_aliases(context: dict[str, str] | None) -> dict[str, str]
             "检测/校准依据",
             "技术规范代号",
         ),
+        "basis_mode": (
+            "calibration_mode",
+            "检测/校准类型",
+            "依据类型（检测/校准）",
+            "依据类型",
+            "检测校准类型",
+        ),
         "location": (
             "校准地点",
             "检测地点",
