@@ -1,0 +1,87 @@
+code: r-876b
+template_name: "R-876B 直流通用分压器测量系统.docx"
+template_aliases:
+  - "R-876B 直流通用分压器测量系统.docx"
+  - "R-876B"
+  - "R_876B"
+editor:
+  note: "模板专属字段配置（自动生成，可人工调整）"
+  fields:
+    - key: certificate_no
+      label: "序号"
+      wide: false
+    - key: device_name
+      label: "器具名称"
+      wide: false
+    - key: manufacturer
+      label: "制造厂/商"
+      wide: false
+    - key: device_model
+      label: "型号/规格"
+      wide: false
+    - key: device_code
+      label: "器具编号"
+      wide: false
+    - key: basis_mode
+      label: "依据类型（检测/校准）"
+      wide: false
+    - key: basis_standard
+      label: "检测/校准依据"
+      wide: true
+    - key: location
+      label: "检测/校准地点"
+      wide: true
+    - key: temperature
+      label: "温度 (℃)"
+      wide: false
+    - key: humidity
+      label: "湿度 (%RH)"
+      wide: false
+    - key: general_check_full
+      label: "校准结果/说明（续页）"
+      wide: true
+    - key: urel_percent
+      label: "扩展不确定度 Urel (%)"
+      wide: false
+    - key: voltage_range_1
+      label: "量程1 (kV)"
+      wide: false
+    - key: voltage_indicated_values_1
+      label: "量程1 指示值(kV)"
+      wide: true
+    - key: voltage_actual_values_1
+      label: "量程1 实际值(kV)"
+      wide: true
+    - key: voltage_range_2
+      label: "量程2 (kV)"
+      wide: false
+    - key: voltage_indicated_values_2
+      label: "量程2 指示值(kV)"
+      wide: true
+    - key: voltage_actual_values_2
+      label: "量程2 实际值(kV)"
+      wide: true
+    - key: voltage_range_3
+      label: "量程3 (kV)"
+      wide: false
+    - key: voltage_indicated_values_3
+      label: "量程3 指示值(kV)"
+      wide: true
+    - key: voltage_actual_values_3
+      label: "量程3 实际值(kV)"
+      wide: true
+    - key: linearity_ux_values
+      label: "被校系统工频高压示值 Ux(kV)"
+      wide: true
+    - key: linearity_u2_values
+      label: "变压器空载输出电压示值 U2(V)"
+      wide: true
+    - key: linearity_fi_values
+      label: "Ux 和 U2 比值 Fi"
+      wide: true
+    - key: linearity_f_avg
+      label: "Fi 平均值 F"
+      wide: false
+    - key: linearity_fi_delta_percent
+      label: "Fi 与 F 的相对变化量(%)"
+      wide: true

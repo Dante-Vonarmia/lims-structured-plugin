@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from .template_profile_service import load_template_profiles
+from .template_schema import infer_editor_schema
 
 RULES_FILE = Path(__file__).resolve().parents[1] / "rules" / "template_mapping_library.yaml"
 
@@ -11,13 +13,16 @@ RULES_FILE = Path(__file__).resolve().parents[1] / "rules" / "template_mapping_l
 @lru_cache(maxsize=1)
 def load_template_mapping_library() -> dict[str, Any]:
     if not RULES_FILE.exists():
-        return {"templates": {}}
-    with RULES_FILE.open("r", encoding="utf-8") as f:
-        data = yaml.safe_load(f) or {}
+        data = {}
+    else:
+        with RULES_FILE.open("r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
     templates = data.get("templates", {})
     if not isinstance(templates, dict):
         templates = {}
-    return {"templates": templates}
+    generated_profiles = load_template_profiles()
+    merged = {**generated_profiles, **templates}
+    return {"templates": merged}
 
 
 def resolve_handler_key(template_name: str) -> str | None:
@@ -32,9 +37,11 @@ def resolve_handler_key(template_name: str) -> str | None:
 
 def get_editor_schema(template_name: str) -> dict[str, Any] | None:
     config = _find_profile_by_template_name(template_name)
-    if not config:
-        return None
-    return _normalize_editor_schema(config.get("editor"))
+    if config:
+        schema = _normalize_editor_schema(config.get("editor"))
+        if schema:
+            return schema
+    return infer_editor_schema(template_name)
 
 
 def get_editor_schemas(template_names: list[str]) -> dict[str, dict[str, Any]]:
@@ -58,9 +65,23 @@ def _find_profile_by_template_name(template_name: str) -> dict[str, Any] | None:
 
 def match_mapping_code_by_keywords(normalized_source: str) -> str | None:
     for code, config in _iter_profiles():
-        keywords = config.get("source_keywords", []) or []
-        normalized_keywords = [_normalize_for_match(keyword) for keyword in keywords]
-        if normalized_keywords and all(keyword in normalized_source for keyword in normalized_keywords):
+        keywords_all = config.get("source_keywords", []) or []
+        normalized_keywords_all = [_normalize_for_match(keyword) for keyword in keywords_all if _normalize_for_match(keyword)]
+        if normalized_keywords_all and all(keyword in normalized_source for keyword in normalized_keywords_all):
+            return code
+
+        keywords_any = config.get("source_keywords_any", []) or []
+        normalized_keywords_any = [_normalize_for_match(keyword) for keyword in keywords_any if _normalize_for_match(keyword)]
+        if normalized_keywords_any and any(keyword in normalized_source for keyword in normalized_keywords_any):
+            return code
+    return None
+
+
+def match_mapping_code_by_source_alias(normalized_source: str) -> str | None:
+    for code, config in _iter_profiles():
+        aliases = config.get("source_aliases", []) or []
+        normalized_aliases = [_normalize_for_match(alias) for alias in aliases if _normalize_for_match(alias)]
+        if normalized_aliases and any(alias in normalized_source for alias in normalized_aliases):
             return code
     return None
 

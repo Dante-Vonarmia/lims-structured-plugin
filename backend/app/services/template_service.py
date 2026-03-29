@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from ..config import OUTPUT_DIR, TEMPLATE_DIR
 from .field_dictionary import apply_field_dictionary
-from .fixed_template_mapping_service import (
+from .docx_fill_service import (
     fill_generic_record_docx,
     fill_r802b_docx,
     build_r803b_editor_fields,
@@ -18,6 +18,7 @@ from .fixed_template_mapping_service import (
     fill_r825b_docx,
 )
 from .template_mapping_library_service import (
+    match_mapping_code_by_source_alias,
     match_mapping_code_by_keywords,
     resolve_handler_key,
 )
@@ -53,7 +54,7 @@ def render_report(
     context: dict[str, str],
     source_file_path: Path | None = None,
 ) -> tuple[str, Path]:
-    context = apply_field_dictionary(context)
+    context = apply_field_dictionary(context, template_name=template_name)
     template_path = TEMPLATE_DIR / template_name
     if not template_path.exists():
         raise FileNotFoundError(f"Template not found: {template_name}")
@@ -168,6 +169,15 @@ def match_template_name(
         matched_by_name = _match_by_name_hints(name_hints, template_list)
         if matched_by_name:
             return matched_by_name, "name:explicit"
+
+    alias_code = match_mapping_code_by_source_alias(normalized_source)
+    if alias_code:
+        candidates = _match_by_code(alias_code, template_list)
+        if candidates:
+            matched_by_name = _match_by_name_hints(name_hints, candidates)
+            if matched_by_name:
+                return matched_by_name, f"alias+name:{alias_code}"
+            return _prefer_docx(candidates), f"alias:{alias_code}"
 
     library_code = match_mapping_code_by_keywords(normalized_source)
     if library_code:

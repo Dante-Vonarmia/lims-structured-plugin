@@ -1294,8 +1294,20 @@ tr:hover { background: #f2f7ff; }
   gap: 4px;
 }
 
+.source-form-item.slot-field {
+  border: 1px solid #e2dbbe;
+  background: #fffdf2;
+  padding: 6px;
+  border-radius: 2px;
+}
+
 .source-form-item.is-problem span {
   color: #9b2d2d;
+}
+
+.source-form-item.slot-field.is-problem {
+  border-color: #e5bcbc;
+  background: #fff4f4;
 }
 
 .source-form-item.wide {
@@ -1319,6 +1331,13 @@ tr:hover { background: #f2f7ff; }
   color: var(--text);
   font-size: 12px;
   font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+}
+
+.source-form-item.slot-field input,
+.source-form-item.slot-field select,
+.source-form-item.slot-field textarea {
+  background: #fffef8;
+  border-color: #d8cda3;
 }
 
 .source-form-item input.is-problem,
@@ -1384,6 +1403,21 @@ tr:hover { background: #f2f7ff; }
   color: #8d1f1f;
   background: #ffdede;
   border: 1px solid #e3a4a4;
+}
+
+#targetPreview .preview-slot-filled {
+  background: rgba(188, 239, 203, 0.42);
+  border-radius: 2px;
+}
+
+#targetPreview .preview-slot-missing {
+  background: rgba(255, 206, 206, 0.34);
+  border-radius: 2px;
+}
+
+#targetPreview td.preview-slot-cell,
+#targetPreview th.preview-slot-cell {
+  box-shadow: inset 0 0 0 9999px rgba(255, 206, 206, 0.35);
 }
 
 .measurement-table {

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import LOCAL_DOCUMENT_LIBRARY_FILE, RAW_RECORD_DIR, TEMPLATE_DIR, UPLOAD_DIR
-from .fixed_template_mapping_service import build_r825b_payload, read_docx_tables
+from .docx_fill_service import build_r825b_payload, read_docx_tables
 
 BASIC_FIELDS: tuple[str, ...] = (
     "device_name",

@@ -620,7 +620,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
     function refreshActionButtons() {
       const item = getActiveItem();
       const selectedNormalItems = getSelectedNormalItems();
-      const canGenerateSelected = selectedNormalItems.some((x) => ["ready", "generated", "incomplete"].includes(x.status));
+      const canGenerateSelected = selectedNormalItems.length > 0;
       const canExportSelected = selectedNormalItems.some((x) => !!x.reportDownloadUrl);
       $("uploadBtn").disabled = state.busy;
       $("uploadInstrumentCatalogBtn").disabled = state.busy;
@@ -1770,31 +1770,60 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
     }
 
     async function generateAllReady(targetIds = null) {
-      const selectedSet = targetIds && targetIds.length ? new Set(targetIds) : null;
+      const hasExplicitSelection = Array.isArray(targetIds);
+      const selectedSet = hasExplicitSelection ? new Set(targetIds.filter(Boolean)) : null;
+      if (hasExplicitSelection && !selectedSet.size) {
+        const reason = "请先勾选要批量生成的记录";
+        setStatus(reason);
+        appendLog(reason);
+        return { generated: 0, skipped: 0, failed: 0, total: 0 };
+      }
       const targets = state.queue.filter((x) => {
         if (isExcelItem(x)) return false;
         if (selectedSet && !selectedSet.has(x.id)) return false;
-        return x.status === "ready" || x.status === "generated" || x.status === "incomplete";
+        return true;
       });
       if (!targets.length) {
-        setStatus("没有可生成项");
-        return;
+        const reason = hasExplicitSelection ? "所选记录均不可批量生成（可能全是 Excel 记录）" : "没有可生成项";
+        setStatus(reason);
+        appendLog(reason);
+        return { generated: 0, skipped: 0, failed: 0, total: 0 };
       }
+      let generated = 0;
+      let skipped = 0;
+      let failed = 0;
       for (const item of targets) {
         state.activeId = item.id;
         renderQueue();
         renderTemplateSelect();
         try {
+          // Batch mode should be tolerant: try to prepare each item instead of
+          // silently skipping when status is not already ready.
+          if (item.status === "pending") {
+            setLoading(true, `预处理中：${item.fileName}`);
+            await processItem(item);
+            setLoading(false);
+          }
+          if (!item.templateName) {
+            await applyAutoTemplateMatch(item, { force: true });
+          }
+          const validation = validateItemForGeneration(item, "certificate_template");
+          if (!validation.ok) {
+            applyIncompleteState(item, validation);
+            appendLog(`跳过（待补全） ${item.fileName}：${item.message || "字段未满足生成条件"}`);
+            skipped += 1;
+            continue;
+          }
           setLoading(true, `生成中：${item.fileName}`);
           await generateItem(item);
           appendLog(`生成完成：${item.fileName}`);
+          generated += 1;
         } catch (error) {
-          if (item.status !== "incomplete") {
-            item.status = "error";
-            item.message = error.message || "生成失败";
-          }
+          item.status = "error";
+          item.message = error.message || "生成失败";
           renderQueue();
           appendLog(`生成失败 ${item.fileName}：${item.message}`);
+          failed += 1;
         } finally {
           setLoading(false);
         }
@@ -1806,7 +1835,10 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
         if (!current || current.status !== "generated") state.selectedIds.delete(id);
       }
       renderQueue();
-      setStatus("批量生成完成");
+      const summary = `批量生成完成：成功${generated}，跳过${skipped}，失败${failed}`;
+      setStatus(summary);
+      appendLog(summary);
+      return { generated, skipped, failed, total: targets.length };
     }
 
     async function triggerDownload(url, name) {
@@ -3920,7 +3952,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
             </div>
           `).join("");
           return `
-            <label class="source-form-item wide ${isProblem ? "is-problem" : ""}">
+            <label class="source-form-item slot-field wide ${isProblem ? "is-problem" : ""}">
               <span>${escapeHtml(field.label)}</span>
               <div class="basis-items-wrap">
                 ${rows}
@@ -3968,7 +4000,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
             </tr>
           `).join("");
           return `
-            <label class="source-form-item wide ${isProblem ? "is-problem" : ""}">
+            <label class="source-form-item slot-field wide ${isProblem ? "is-problem" : ""}">
               <span>${escapeHtml(field.label)}</span>
               <div class="measurement-toolbar">
                 <button type="button" class="btn ghost" data-action="match-measurement-items" ${hasCatalog ? "" : "disabled"}>一键目录配对</button>
@@ -3985,7 +4017,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
         }
         if (field.key === "general_check_full") {
           return `
-            <label class="source-form-item wide ${isProblem ? "is-problem" : ""}">
+            <label class="source-form-item slot-field wide ${isProblem ? "is-problem" : ""}">
               ${renderGeneralCheckWysiwygBlock(String(f.general_check_full || ""), { readOnly: false, rawText: rawForDate })}
             </label>
           `;
@@ -3993,14 +4025,14 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
         if (field.multiline) {
           const rows = Number(field.rows || 3);
           return `
-            <label class="source-form-item wide ${isProblem ? "is-problem" : ""}">
+            <label class="source-form-item slot-field wide ${isProblem ? "is-problem" : ""}">
               <span>${escapeHtml(field.label)}</span>
               <textarea class="${isProblem ? "is-problem" : ""}" data-field="${escapeAttr(field.key)}" rows="${rows}">${escapeHtml(value)}</textarea>
             </label>
           `;
         }
         return `
-          <label class="source-form-item ${isProblem ? "is-problem" : ""}">
+          <label class="source-form-item slot-field ${isProblem ? "is-problem" : ""}">
             <span>${escapeHtml(field.label)}</span>
             <input type="text" class="${isProblem ? "is-problem" : ""}" data-field="${escapeAttr(field.key)}" value="${escapeAttr(value)}" />
           </label>
@@ -4059,7 +4091,10 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
         const isProblem = problemKeys.has(key);
         control.classList.toggle("is-problem", isProblem);
         const wrapper = control.closest(".source-form-item");
-        if (wrapper) wrapper.classList.toggle("is-problem", isProblem);
+        if (wrapper) {
+          wrapper.classList.add("slot-field");
+          wrapper.classList.toggle("is-problem", isProblem);
+        }
       });
     }
 
@@ -4173,6 +4208,7 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
         const ext = extFromName(item.reportFileName || item.templateName || item.fileName);
         if (ext === ".docx") {
           await renderDocx("targetPreview", await blob.arrayBuffer());
+          applyTargetPreviewSlotHighlights(item);
         } else {
           const url = URL.createObjectURL(blob);
           state.blobUrls.target = url;
@@ -4180,6 +4216,114 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
         }
       } catch (error) {
         setPreviewPlaceholder("targetPreview", `原始记录预览失败：${error.message || "unknown"}`);
+      }
+    }
+
+    function normalizePreviewText(value) {
+      return String(value || "").replace(/\s+/g, " ").trim();
+    }
+
+    function classifyPreviewSlotText(text) {
+      const t = normalizePreviewText(text);
+      if (!t) return "";
+      if (/^(温度|湿度|器具名称|制造厂\/商|型号\/规格|器具编号|序号|检测\/校准依据|检测\/校准地点)[:：]?$/.test(t)) {
+        return "";
+      }
+
+      if (/结果[:：]/.test(t)) {
+        return /结果[:：]\s*[√☑■]/.test(t) ? "filled" : "missing";
+      }
+      if (/最大(?:起始)?距离/.test(t) && /mm/i.test(t)) {
+        return /最大(?:起始)?距离(?:为)?\s*\d+(?:\.\d+)?\s*mm/i.test(t) ? "filled" : "missing";
+      }
+      if (/检测.*校准.*依据/.test(t)) {
+        const basisTailMatch = t.match(/依据[:：]?\s*(.*)$/);
+        const basisTail = normalizePreviewText((basisTailMatch && basisTailMatch[1]) || "");
+        if (basisTail) return "filled";
+        return /(☑|√|■)/.test(t) ? "filled" : "missing";
+      }
+      if (/检测.*校准.*地点/.test(t)) {
+        const locationTailMatch = t.match(/地点[:：]?\s*(.*)$/);
+        const locationTail = normalizePreviewText((locationTailMatch && locationTailMatch[1]) || "");
+        if (locationTail) return "filled";
+        return /(☑|√|■)/.test(t) ? "filled" : "missing";
+      }
+      const labelMatch = t.match(/(序号|器具名称|制造厂\/商|型号\/规格|器具编号|检测\/校准地点|温度|湿度)\s*[:：]\s*(.*)$/);
+      if (labelMatch) {
+        const tail = normalizePreviewText(labelMatch[2] || "");
+        if (!tail) return "missing";
+        if (/^(?:[-—_/\\.%℃:：]+)$/.test(tail)) return "missing";
+        if (/^(?:℃|%RH|mm)$/i.test(tail)) return "missing";
+        return "filled";
+      }
+      if (/序号/.test(t) && /[:：]/.test(t)) {
+        return /[:：]\s*.+$/.test(t) ? "filled" : "missing";
+      }
+      if (/检测\/校准地点/.test(t)) {
+        return /[:：]\s*.+$/.test(t) ? "filled" : "missing";
+      }
+      if (/温度/.test(t) || /湿度/.test(t)) {
+        const hasTemp = /温度\s*\d+(?:\.\d+)?\s*℃/.test(t);
+        const hasHumidity = /湿度\s*\d+(?:\.\d+)?\s*%RH/i.test(t);
+        if (hasTemp || hasHumidity) return "filled";
+        if (/^(温度|湿度)$/.test(t)) return "";
+        if (/温度|湿度/.test(t)) return "missing";
+      }
+      return "";
+    }
+
+    function highlightR872Section2Table(docRoot) {
+      if (!docRoot) return;
+      const tables = Array.from(docRoot.querySelectorAll("table"));
+      const table = tables.find((tbl) => {
+        const head = normalizePreviewText(tbl.textContent || "");
+        return (
+          head.includes("扭转圈数") &&
+          (head.includes("时间(s)") || head.includes("时间")) &&
+          head.includes("扭转速度")
+        );
+      });
+      if (!table) return;
+      const rows = Array.from(table.querySelectorAll("tr"));
+      rows.forEach((tr, rowIdx) => {
+        const cells = Array.from(tr.querySelectorAll("td, th"));
+        cells.forEach((cell, colIdx) => {
+          if (rowIdx === 0) return;
+          if (colIdx === 0) return;
+          const text = normalizePreviewText(cell.textContent).replace(/[\u00a0\u200b]/g, "").trim();
+          if (!text) {
+            cell.classList.add("preview-slot-missing", "preview-slot-cell");
+          } else if (/\d/.test(text)) {
+            cell.classList.add("preview-slot-filled", "preview-slot-cell");
+          }
+        });
+      });
+    }
+
+    function applyTargetPreviewSlotHighlights(item) {
+      if (!item || !item.reportDownloadUrl) return;
+      const root = $("targetPreview");
+      if (!root) return;
+      const docRoot = root.querySelector(".docx") || root;
+      docRoot.querySelectorAll(".preview-slot-filled,.preview-slot-missing,.preview-slot-cell").forEach((el) => {
+        el.classList.remove("preview-slot-filled", "preview-slot-missing", "preview-slot-cell");
+      });
+      const candidates = docRoot.querySelectorAll("p, td, th");
+      candidates.forEach((el) => {
+        if (el.closest(".preview-slot-filled, .preview-slot-missing")) return;
+        const text = normalizePreviewText(el.textContent);
+        if (!text || text.length > 160) return;
+        const cls = classifyPreviewSlotText(text);
+        if (cls === "filled") el.classList.add("preview-slot-filled");
+        if (cls === "missing") el.classList.add("preview-slot-missing");
+      });
+      // Remove nested double highlights; keep only the outermost block.
+      docRoot.querySelectorAll(".preview-slot-filled .preview-slot-filled, .preview-slot-missing .preview-slot-missing, .preview-slot-filled .preview-slot-missing, .preview-slot-missing .preview-slot-filled").forEach((el) => {
+        el.classList.remove("preview-slot-filled", "preview-slot-missing");
+      });
+      const templateName = String((item && item.templateName) || "");
+      if (/r[-_ ]?872b|扭转/i.test(templateName)) {
+        highlightR872Section2Table(docRoot);
       }
     }
 
@@ -4909,9 +5053,29 @@ import { createEmptyFields, createInitialState } from "../core/state/factory.js"
       });
 
       $("runGenerateAllBtn").addEventListener("click", async () => {
-        if (state.busy) return;
-        const selected = getSelectedNormalItems().map((x) => x.id);
-        await generateAllReady(selected);
+        if (state.busy) {
+          const reason = "当前仍在处理中，请稍后再试";
+          setStatus(reason);
+          appendLog(`批量生成被阻塞：${reason}`);
+          return;
+        }
+        const selectedItems = getSelectedNormalItems();
+        if (!selectedItems.length) {
+          const reason = "请先勾选要批量生成的记录";
+          setStatus(reason);
+          appendLog(reason);
+          return;
+        }
+        appendLog(`开始批量生成（选中 ${selectedItems.length} 条）`);
+        const selected = selectedItems.map((x) => x.id);
+        try {
+          await generateAllReady(selected);
+          await renderPreviews();
+        } catch (error) {
+          const reason = error && error.message ? error.message : "批量生成发生未知错误";
+          setStatus(`批量生成失败：${reason}`);
+          appendLog(`批量生成失败：${reason}`);
+        }
       });
 
       $("refreshAllRecognitionBtn").addEventListener("click", async () => {
