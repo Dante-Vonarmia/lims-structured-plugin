@@ -241,6 +241,25 @@ class SemanticFillLibTDD(unittest.TestCase):
         self.assertEqual(nominal[:4], ["0.05", "0.1", "0.2", "0.5"])
         self.assertEqual(actual[:4], ["0.052", "0.12", "0.21", "0.52"])
 
+    def test_build_semantic_maps_should_not_stop_on_note_line(self) -> None:
+        text = "\n".join(
+            [
+                "标称值(N)\t0.05\t0.1\t0.2",
+                "校准值(N)\t0.052\t0.12\t0.21",
+                "注：本条仅说明，不是结束标记。",
+                "标称值(N)\t0.5\t1.0\t2.0",
+                "校准值(N)\t0.52\t1.02\t2.01",
+            ]
+        )
+        maps = build_semantic_value_maps_from_general_check_text(text, normalize_space=normalize_space)
+        merged = {}
+        for item in maps:
+            merged.update(item)
+        self.assertEqual(merged.get("0.2"), "0.21")
+        self.assertEqual(merged.get("0.5"), "0.52")
+        self.assertEqual(merged.get("1"), "1.02")
+        self.assertEqual(merged.get("2"), "2.01")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -78,7 +78,8 @@ export function createGeneralCheckFeature(deps = {}) {
         .trim();
       for (const line of lines) {
         if (/^注[:：]?/.test(line)) {
-          break;
+          rows.push(["", normalizeGeneralCheckTitle(line)]);
+          continue;
         }
         if (/^(?:一|二|三|四|五|六|七|八|九|十)[、.．]/.test(line)) {
           const m = line.match(/^((?:一|二|三|四|五|六|七|八|九|十)[、.．])\s*(.*)$/);
@@ -248,7 +249,7 @@ export function createGeneralCheckFeature(deps = {}) {
       const scopedRows = startIdx >= 0 ? visibleRowsRaw.slice(startIdx) : [];
       const cutIdx = scopedRows.findIndex((row) => {
         const line = (Array.isArray(row) ? row : []).join(" ");
-        return /(?:^|\s)注[:：]?(?:\s|$)/.test(line) || /(?:以下空白|\(以下空白\)|（以下空白）)/.test(line);
+        return /(?:以下空白|\(以下空白\)|（以下空白）)/.test(line);
       });
       const body = (cutIdx >= 0 ? scopedRows.slice(0, cutIdx) : scopedRows)
         .map((row) => row.map((cell) => String(cell || "")))
@@ -377,7 +378,7 @@ export function createGeneralCheckFeature(deps = {}) {
       const scopedRows = startIdx >= 0 ? visibleRowsRaw.slice(startIdx) : [];
       const cutIdx = scopedRows.findIndex((row) => {
         const line = (row.texts || []).join(" ");
-        return /(?:^|\s)注[:：]?(?:\s|$)/.test(line) || /(?:以下空白|\(以下空白\)|（以下空白）)/.test(line);
+        return /(?:以下空白|\(以下空白\)|（以下空白）)/.test(line);
       });
       const tableRows = (cutIdx >= 0 ? scopedRows.slice(0, cutIdx) : scopedRows).map((x) => x.html);
       return `
@@ -411,7 +412,7 @@ export function createGeneralCheckFeature(deps = {}) {
       const isNoteStart = (row) => {
         const cells = Array.isArray(row) ? row : [];
         const text = cells.map((x) => String(x || "").trim()).join(" ");
-        return /(?:^|\s)注[:：]?(?:\s|$)/.test(text);
+        return /^备注[:：]?|^Remarks[:：]?/i.test(text);
       };
       const isBlankTail = (row) => {
         const cells = Array.isArray(row) ? row : [];
@@ -558,7 +559,7 @@ export function createGeneralCheckFeature(deps = {}) {
           texts.push(current);
         }
 
-        const isStop = (text) => /^(?:注[:：]?|\(以下空白\)|（以下空白）|以下空白|检测员|校准员|核验员|结果[:：]?)/.test(String(text || "").trim());
+        const isStop = (text) => /^(?:\(以下空白\)|（以下空白）|以下空白|检测员|校准员|核验员|结果[:：]?)/.test(String(text || "").trim());
         const looksLikeRowStart = (text) => /^[A-Za-z]?\d+$/.test(String(text || "").trim().replace(/\s+/g, ""));
         const norm = (text) => String(text || "").replace(/\s+/g, "").replace(/[：:，,。.;；]/g, "").toLowerCase();
         const sameHeader = (a, b) => {
@@ -636,7 +637,7 @@ export function createGeneralCheckFeature(deps = {}) {
         if (!Number.isFinite(n)) return "";
         return String(Math.round(n));
       };
-      const isStopText = (text) => /^(?:注[:：]?|\(以下空白\)|（以下空白）|以下空白)/.test(String(text || "").trim());
+      const isStopText = (text) => /^(?:\(以下空白\)|（以下空白）|以下空白)/.test(String(text || "").trim());
       const isLikelyNextHeader = (text) => isValueHeader(text) || isGenericHeader(text) || /^(?:一|二|三|四|五|六|七|八|九|十)[、.．]/.test(String(text || "").trim());
       const parseResistanceCalibrationBlock = (rows, startIndex) => {
         const current = rows[startIndex] || ["", ""];

@@ -186,7 +186,7 @@ def is_semantic_section_stop_row(row: list[str], normalize_space: Callable[[str]
     text = normalize_space(" ".join([str(x or "") for x in row]))
     if not text:
         return False
-    return bool(re.search(r"注[:：]?|以下空白|不确定度评定|检测员|校准员|核验员|结果[:：]?$", text))
+    return bool(re.search(r"以下空白|不确定度评定|检测员|校准员|核验员|结果[:：]?$", text))
 
 
 def build_semantic_value_maps_from_general_check_text(text: str, normalize_space: Callable[[str], str]) -> list[dict[str, str]]:

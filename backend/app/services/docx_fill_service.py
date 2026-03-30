@@ -1191,7 +1191,7 @@ def _sanitize_general_check_table_rows(tbl: ET.Element) -> None:
     keep_until = len(rows)
     for idx, row in enumerate(rows):
         text = normalize_space(" ".join([(node.text or "") for node in row.findall(".//w:t", NS)]))
-        if re.search(r"(?:^|[\s：:])注(?:\s*[:：]|\b)|Remarks", text, flags=re.IGNORECASE):
+        if re.search(r"备注|Remarks|检测员|校准员|核验员|(?:以下空白|\(以下空白\)|（以下空白）)", text, flags=re.IGNORECASE):
             keep_until = idx
             break
 
