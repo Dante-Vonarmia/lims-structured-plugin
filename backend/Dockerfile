@@ -5,6 +5,7 @@ WORKDIR /app
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN set -eux; \
+    sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources; \
     apt-get update; \
     for i in 1 2 3 4 5; do \
       if apt-get install -y --no-install-recommends --fix-missing \
