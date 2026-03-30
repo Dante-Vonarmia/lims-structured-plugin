@@ -355,6 +355,16 @@ class DocxFillServiceTDD(unittest.TestCase):
         intro_tc = ET.SubElement(intro_tr, f"{{{W_NS}}}tc")
         set_cell_text(intro_tc, "器具编号：R802B")
 
+        source_header_tbl = ET.SubElement(source_body, f"{{{W_NS}}}tbl")
+        source_header_tr = ET.SubElement(source_header_tbl, f"{{{W_NS}}}tr")
+        source_header_tc = ET.SubElement(source_header_tr, f"{{{W_NS}}}tc")
+        set_cell_text(source_header_tc, "校准证书续页专用")
+
+        source_title_tbl = ET.SubElement(source_body, f"{{{W_NS}}}tbl")
+        source_title_tr = ET.SubElement(source_title_tbl, f"{{{W_NS}}}tr")
+        source_title_tc = ET.SubElement(source_title_tr, f"{{{W_NS}}}tc")
+        set_cell_text(source_title_tc, "校准结果/说明（续页）：")
+
         source_continued_tbl_1 = ET.SubElement(source_body, f"{{{W_NS}}}tbl")
         src_1_tr = ET.SubElement(source_continued_tbl_1, f"{{{W_NS}}}tr")
         src_1_tc = ET.SubElement(src_1_tr, f"{{{W_NS}}}tc")
@@ -388,6 +398,8 @@ class DocxFillServiceTDD(unittest.TestCase):
         target_text = ET.tostring(target_root, encoding="unicode")
         self.assertIn("SOURCE_PAGE_1", target_text)
         self.assertIn("SOURCE_PAGE_2", target_text)
+        self.assertNotIn("校准证书续页专用", target_text)
+        self.assertNotIn("校准结果/说明（续页）", target_text)
 
 
 if __name__ == "__main__":

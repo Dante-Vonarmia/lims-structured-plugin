@@ -1549,6 +1549,12 @@ def _copy_r802b_general_check_table_from_source(
     copied_tables: list[ET.Element] = []
     for node in source_block:
         cloned_node = ET.fromstring(ET.tostring(node, encoding="utf-8"))
+        if _should_skip_r802b_continued_node(cloned_node):
+            continue
+        if cloned_node.tag == f"{{{W_NS}}}tbl":
+            _sanitize_general_check_table_rows(cloned_node)
+            if _is_empty_table_after_sanitize(cloned_node):
+                continue
         body.insert(insert_index, cloned_node)
         copied_nodes.append(cloned_node)
         if cloned_node.tag == f"{{{W_NS}}}tbl":
@@ -2026,6 +2032,9 @@ def _sanitize_general_check_table_rows(tbl: ET.Element) -> None:
         if re.search(r"一般检查|General inspection", text, flags=re.IGNORECASE):
             start_index = idx
             break
+        if re.search(r"(?:^|[\s])(?:[一二三四五六七八九十]+[、.．)]|\(\s*\d+\s*\)|（\s*\d+\s*）)", text):
+            start_index = idx
+            break
 
     keep_until = len(rows)
     for idx, row in enumerate(rows):
@@ -2043,10 +2052,60 @@ def _sanitize_general_check_table_rows(tbl: ET.Element) -> None:
             remove = True
         if re.search(r"校准结果\s*/\s*说明|Results of calibration and additional explanation", text, flags=re.IGNORECASE):
             remove = True
+        if re.search(
+            r"校准证书续页专用|Continued page of calibration certificate|"
+            r"第\s*\d+\s*页\s*[\/／]\s*共\s*\d+\s*页|"
+            r"\bPage\b(?:\s+\d+\s+of\s+\d+)?|\bof\s*total\b|"
+            r"缆专检号|Certificate series number|"
+            r"上海国缆检测股份有限公司|Shanghai National Center of Testing and Inspection",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            remove = True
         if re.search(r"本次校准所使用的主要计量标准器具|本次校准所依据的技术规范|(?:其它|其他)校准信息", text):
             remove = True
         if remove:
             tbl.remove(row)
+
+
+def _should_skip_r802b_continued_node(node: ET.Element) -> bool:
+    text = normalize_space(" ".join([(t.text or "") for t in node.findall(".//w:t", NS)]))
+    if not text:
+        return False
+    has_body_marker = bool(
+        re.search(
+            r"一般检查|General inspection|"
+            r"(?:^|[\s])(?:[一二三四五六七八九十]+[、.．)]|\(\s*\d+\s*\)|（\s*\d+\s*）)|"
+            r"实测值|扩展不确定度|试验|校准值|显示值",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+    if has_body_marker:
+        return False
+    return bool(
+        re.search(
+            r"校准证书续页专用|Continued page of calibration certificate|"
+            r"第\s*\d+\s*页\s*[\/／]\s*共\s*\d+\s*页|"
+            r"\bPage\b(?:\s+\d+\s+of\s+\d+)?|\bof\s*total\b|"
+            r"校准结果\s*/\s*说明\s*[（(]?\s*续页\s*[）)]?\s*[:：]?|"
+            r"Results of calibration and additional explanation\s*[（(]?\s*continued page\s*[）)]?\s*[:：]?|"
+            r"缆专检号|Certificate series number",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _is_empty_table_after_sanitize(tbl: ET.Element) -> bool:
+    rows = tbl.findall("./w:tr", NS)
+    if not rows:
+        return True
+    for row in rows:
+        text = normalize_space(" ".join([(t.text or "") for t in row.findall(".//w:t", NS)]))
+        if text:
+            return False
+    return True
 
 
 def _append_r802b_general_check_text_only(root: ET.Element, payload: dict[str, Any]) -> None:
