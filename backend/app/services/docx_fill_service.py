@@ -425,15 +425,15 @@ def fill_modify_certificate_docx(
     if tables:
         changed = _fill_modify_certificate_front_page_sections(tables, payload) or changed
         changed = _fill_modify_certificate_blueprint_sections(tables, payload, context) or changed
-    copied_continued_page_table, copied_table = _copy_modify_certificate_continued_page_table_from_source(
+    copied_continued_page_table, copied_tables = _copy_modify_certificate_continued_page_table_from_source(
         target_root=root,
         source_file_path=source_file_path,
     )
-    if copied_continued_page_table and copied_table is not None and source_file_path is not None:
-        rel_updates = _copy_docx_image_dependencies_for_table(
+    if copied_continued_page_table and copied_tables and source_file_path is not None:
+        rel_updates = _copy_docx_image_dependencies_for_tables(
             template_path=template_path,
             source_file_path=source_file_path,
-            table_element=copied_table,
+            table_elements=copied_tables,
         )
         changed = True
     _fill_page_number_placeholders_in_root(root)
@@ -1540,59 +1540,141 @@ def _copy_r802b_general_check_table_from_source(
 def _copy_modify_certificate_continued_page_table_from_source(
     target_root: ET.Element,
     source_file_path: Path | None,
-) -> tuple[bool, ET.Element | None]:
+) -> tuple[bool, list[ET.Element]]:
     if source_file_path is None or not source_file_path.exists() or source_file_path.suffix.lower() != ".docx":
-        return False, None
+        return False, []
     try:
         with zipfile.ZipFile(source_file_path, "r") as zf:
             source_xml = zf.read(DOC_XML_PATH)
         source_root = ET.fromstring(source_xml)
     except Exception:
-        return False, None
+        return False, []
 
-    source_table = _find_modify_certificate_continued_page_table(source_root)
-    target_table = _find_modify_certificate_continued_page_table(target_root)
-    if source_table is None or target_table is None:
-        return False, None
+    source_tables = _find_modify_certificate_continued_page_tables(source_root)
+    target_tables = _find_modify_certificate_continued_page_tables(target_root)
+    if not source_tables or not target_tables:
+        return False, []
 
-    cloned_table = ET.fromstring(ET.tostring(source_table, encoding="utf-8"))
-    replaced = _replace_xml_element(target_root, target_table, cloned_table)
-    if not replaced:
-        return False, None
-    return True, cloned_table
+    copied_tables: list[ET.Element] = []
+    replaced_any = False
+    replace_count = min(len(source_tables), len(target_tables))
+    for idx in range(replace_count):
+        cloned_table = ET.fromstring(ET.tostring(source_tables[idx], encoding="utf-8"))
+        replaced = _replace_xml_element(target_root, target_tables[idx], cloned_table)
+        if replaced:
+            copied_tables.append(cloned_table)
+            replaced_any = True
+
+    if len(source_tables) > len(target_tables):
+        anchor: ET.Element | None = copied_tables[-1] if copied_tables else target_tables[-1]
+        for idx in range(len(target_tables), len(source_tables)):
+            if anchor is None:
+                break
+            cloned_table = ET.fromstring(ET.tostring(source_tables[idx], encoding="utf-8"))
+            inserted = _insert_xml_element_after(target_root, anchor, cloned_table)
+            if not inserted:
+                break
+            copied_tables.append(cloned_table)
+            anchor = cloned_table
+            replaced_any = True
+
+    if not replaced_any:
+        return False, []
+    return True, copied_tables
 
 
 def _find_modify_certificate_continued_page_table(root: ET.Element) -> ET.Element | None:
+    tables = _find_modify_certificate_continued_page_tables(root)
+    if tables:
+        return tables[0]
+
     candidates: list[tuple[int, ET.Element]] = []
     for tbl in root.findall(".//w:tbl", NS):
-        text = normalize_space(" ".join([(node.text or "") for node in tbl.findall(".//w:t", NS)]))
-        if not text:
+        score = _score_modify_certificate_continued_page_table(tbl)
+        if score < -9999:
             continue
-        if not re.search(r"校准结果\s*/\s*说明|Results of calibration and additional explanation", text, flags=re.IGNORECASE):
-            continue
-        rows = tbl.findall("./w:tr", NS)
-        row_count = len(rows)
-        max_cols = 0
-        for row in rows:
-            cols = len(row.findall("./w:tc", NS))
-            if cols > max_cols:
-                max_cols = cols
-        score = row_count * 5
-        if re.search(r"一般检查|General inspection", text, flags=re.IGNORECASE):
-            score += 80
-        if re.search(r"\(\s*1\s*\)|（\s*1\s*）", text):
-            score += 60
-        if re.search(r"^注[:：]?|^Notes?[:：]?", text, flags=re.IGNORECASE):
-            score += 60
-        if max_cols >= 3:
-            score += 50
-        if row_count <= 2:
-            score -= 120
         candidates.append((score, tbl))
     if not candidates:
         return None
     candidates.sort(key=lambda item: item[0], reverse=True)
     return candidates[0][1]
+
+
+def _find_modify_certificate_continued_page_tables(root: ET.Element) -> list[ET.Element]:
+    selected: list[ET.Element] = []
+    candidates: list[tuple[int, ET.Element]] = []
+    for tbl in root.findall(".//w:tbl", NS):
+        score = _score_modify_certificate_continued_page_table(tbl)
+        if score < -9999:
+            continue
+        candidates.append((score, tbl))
+        if _is_modify_certificate_continued_page_table_candidate(tbl):
+            selected.append(tbl)
+    if selected:
+        return selected
+    if not candidates:
+        return []
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return [candidates[0][1]]
+
+
+def _is_modify_certificate_continued_page_table_candidate(tbl: ET.Element) -> bool:
+    rows = tbl.findall("./w:tr", NS)
+    row_count = len(rows)
+    if row_count < 2:
+        return False
+    text = normalize_space(" ".join([(node.text or "") for node in tbl.findall(".//w:t", NS)]))
+    if not text:
+        return False
+    if re.search(r"一般检查|General inspection", text, flags=re.IGNORECASE):
+        return True
+    if re.search(r"\(\s*1\s*\)|（\s*1\s*）", text):
+        return True
+    if re.search(r"\b注[:：]?|\bNotes?[:：]?", text, flags=re.IGNORECASE):
+        return True
+    max_cols = 0
+    for row in rows:
+        cols = len(row.findall("./w:tc", NS))
+        if cols > max_cols:
+            max_cols = cols
+    return max_cols >= 2
+
+
+def _score_modify_certificate_continued_page_table(tbl: ET.Element) -> int:
+    text = normalize_space(" ".join([(node.text or "") for node in tbl.findall(".//w:t", NS)]))
+    if not text:
+        return -10000
+    if not re.search(r"校准结果\s*/\s*说明|Results of calibration and additional explanation", text, flags=re.IGNORECASE):
+        return -10000
+    rows = tbl.findall("./w:tr", NS)
+    row_count = len(rows)
+    max_cols = 0
+    for row in rows:
+        cols = len(row.findall("./w:tc", NS))
+        if cols > max_cols:
+            max_cols = cols
+    score = row_count * 5
+    if re.search(r"一般检查|General inspection", text, flags=re.IGNORECASE):
+        score += 80
+    if re.search(r"\(\s*1\s*\)|（\s*1\s*）", text):
+        score += 60
+    if re.search(r"^注[:：]?|^Notes?[:：]?", text, flags=re.IGNORECASE):
+        score += 60
+    if max_cols >= 3:
+        score += 50
+    if row_count <= 2:
+        score -= 120
+    return score
+
+
+def _insert_xml_element_after(root: ET.Element, anchor_elem: ET.Element, new_elem: ET.Element) -> bool:
+    for parent in root.iter():
+        children = list(parent)
+        for idx, child in enumerate(children):
+            if child is anchor_elem:
+                parent.insert(idx + 1, new_elem)
+                return True
+    return False
 
 
 def _replace_xml_element(root: ET.Element, old_elem: ET.Element, new_elem: ET.Element) -> bool:
@@ -1611,8 +1693,22 @@ def _copy_docx_image_dependencies_for_table(
     source_file_path: Path,
     table_element: ET.Element,
 ) -> dict[str, bytes]:
+    return _copy_docx_image_dependencies_for_tables(
+        template_path=template_path,
+        source_file_path=source_file_path,
+        table_elements=[table_element],
+    )
+
+
+def _copy_docx_image_dependencies_for_tables(
+    template_path: Path,
+    source_file_path: Path,
+    table_elements: list[ET.Element],
+) -> dict[str, bytes]:
     updates: dict[str, bytes] = {}
-    embed_ids = _collect_embed_relationship_ids(table_element)
+    embed_ids: set[str] = set()
+    for table_element in table_elements:
+        embed_ids.update(_collect_embed_relationship_ids(table_element))
     if not embed_ids:
         return updates
     try:
@@ -1688,7 +1784,8 @@ def _copy_docx_image_dependencies_for_table(
                     added_exts.add(ext.lstrip(".").lower())
 
             if rid_mapping:
-                _remap_table_embed_rids(table_element, rid_mapping)
+                for table_element in table_elements:
+                    _remap_table_embed_rids(table_element, rid_mapping)
                 updates["__rels__"] = ET.tostring(target_rels_root, encoding="utf-8", xml_declaration=True)
                 if template_ct_xml is not None:
                     updated_ct = _ensure_content_types_for_image_exts(template_ct_xml, added_exts)

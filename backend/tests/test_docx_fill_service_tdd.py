@@ -18,6 +18,7 @@ if "yaml" not in sys.modules:
     sys.modules["yaml"] = yaml_stub
 
 from app.services.docx_fill_service import (
+    _copy_modify_certificate_continued_page_table_from_source,
     _extract_r882_background_noise_values,
     _extract_r882_series_rows_from_text,
     _fill_modify_certificate_blueprint_sections,
@@ -223,6 +224,55 @@ class DocxFillServiceTDD(unittest.TestCase):
         picked = _find_modify_certificate_continued_page_table(root)
         self.assertIsNotNone(picked)
         self.assertIs(picked, structured_tbl)
+
+    def test_should_copy_all_modify_certificate_continued_page_tables_from_source(self) -> None:
+        def build_continued_tbl(head: str, row_text: str) -> ET.Element:
+            tbl = ET.Element(f"{{{W_NS}}}tbl")
+            tr0 = ET.SubElement(tbl, f"{{{W_NS}}}tr")
+            tc0 = ET.SubElement(tr0, f"{{{W_NS}}}tc")
+            set_cell_text(tc0, f"校准结果/说明（续页）：{head}")
+            tr1 = ET.SubElement(tbl, f"{{{W_NS}}}tr")
+            tc1 = ET.SubElement(tr1, f"{{{W_NS}}}tc")
+            set_cell_text(tc1, f"(1) {row_text}")
+            return tbl
+
+        source_root = ET.Element(f"{{{W_NS}}}document")
+        source_body = ET.SubElement(source_root, f"{{{W_NS}}}body")
+        source_tbl_1 = build_continued_tbl("A", "SOURCE_ROW_1")
+        source_tbl_2 = build_continued_tbl("B", "SOURCE_ROW_2")
+        source_tbl_3 = build_continued_tbl("C", "SOURCE_ROW_3")
+        source_body.append(source_tbl_1)
+        source_body.append(source_tbl_2)
+        source_body.append(source_tbl_3)
+        source_body.append(ET.Element(f"{{{W_NS}}}sectPr"))
+
+        target_root = ET.Element(f"{{{W_NS}}}document")
+        target_body = ET.SubElement(target_root, f"{{{W_NS}}}body")
+        target_tbl_1 = build_continued_tbl("A", "TARGET_ROW_1")
+        target_tbl_2 = build_continued_tbl("B", "TARGET_ROW_2")
+        target_body.append(target_tbl_1)
+        target_body.append(target_tbl_2)
+        target_body.append(ET.Element(f"{{{W_NS}}}sectPr"))
+
+        source_xml = ET.tostring(source_root, encoding="utf-8", xml_declaration=True)
+        with tempfile.TemporaryDirectory() as td:
+            source_docx = Path(td) / "source.docx"
+            with zipfile.ZipFile(source_docx, "w") as zf:
+                zf.writestr("word/document.xml", source_xml)
+
+            copied, copied_tables = _copy_modify_certificate_continued_page_table_from_source(
+                target_root=target_root,
+                source_file_path=source_docx,
+            )
+            self.assertTrue(copied)
+            self.assertEqual(len(copied_tables), 3)
+
+        target_text = ET.tostring(target_root, encoding="unicode")
+        self.assertIn("SOURCE_ROW_1", target_text)
+        self.assertIn("SOURCE_ROW_2", target_text)
+        self.assertIn("SOURCE_ROW_3", target_text)
+        self.assertNotIn("TARGET_ROW_1", target_text)
+        self.assertNotIn("TARGET_ROW_2", target_text)
 
 
 if __name__ == "__main__":
