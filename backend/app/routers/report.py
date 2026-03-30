@@ -1,5 +1,7 @@
 import csv
 import io
+import base64
+import posixpath
 import re
 from typing import Any
 
@@ -57,6 +59,12 @@ from ..services.template_service import (
 from ..services.template_feedback_service import build_template_feedback_entry
 
 router = APIRouter()
+
+DOC_XML_RELS_PATH = "word/_rels/document.xml.rels"
+REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+DRAWING_NS = {"a": "http://schemas.openxmlformats.org/drawingml/2006/main"}
+VML_NS = {"v": "urn:schemas-microsoft-com:vml"}
 
 
 @router.post("/extract", response_model=DeviceFields)
@@ -833,6 +841,7 @@ def _extract_general_check_structure_from_docx(raw_bytes: bytes) -> dict[str, An
     try:
         with zipfile.ZipFile(io.BytesIO(raw_bytes), "r") as zf:
             xml_bytes = zf.read("word/document.xml")
+            image_tokens = _load_docx_inline_image_tokens_from_zip(zf)
     except Exception:
         return None
     try:
@@ -842,7 +851,7 @@ def _extract_general_check_structure_from_docx(raw_bytes: bytes) -> dict[str, An
 
     candidates: list[dict[str, Any]] = []
     for tbl in root.findall(".//{*}tbl"):
-        model = _build_docx_table_model(tbl)
+        model = _build_docx_table_model(tbl, image_tokens)
         if not model:
             continue
         score = _score_general_check_table(model)
@@ -882,7 +891,7 @@ def _merge_docx_table_models(models: list[dict[str, Any]]) -> dict[str, Any] | N
     return {"rows": row_offset, "cols": max_cols, "cells": merged_cells}
 
 
-def _build_docx_table_model(tbl: ET.Element) -> dict[str, Any] | None:
+def _build_docx_table_model(tbl: ET.Element, image_tokens: dict[str, str] | None = None) -> dict[str, Any] | None:
     cells: list[dict[str, Any]] = []
     active_vmerge: dict[int, dict[str, Any]] = {}
     occupied: dict[tuple[int, int], bool] = {}
@@ -897,7 +906,7 @@ def _build_docx_table_model(tbl: ET.Element) -> dict[str, Any] | None:
                 col_idx += 1
 
             colspan = _get_docx_cell_grid_span(tc)
-            text = _extract_docx_cell_text(tc, preserve_paragraphs=True)
+            text = _extract_docx_cell_text(tc, preserve_paragraphs=True, image_tokens=image_tokens)
             align = _get_docx_cell_align(tc)
             valign = _get_docx_cell_valign(tc)
             vmerge = _get_docx_cell_vmerge(tc)
@@ -987,16 +996,110 @@ def _get_docx_cell_valign(tc: ET.Element) -> str:
     return "top"
 
 
-def _extract_docx_cell_text(tc: ET.Element, preserve_paragraphs: bool = False) -> str:
+def _guess_docx_image_mime(path: str) -> str:
+    suffix = Path(path).suffix.lower()
+    if suffix in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    if suffix == ".png":
+        return "image/png"
+    if suffix == ".bmp":
+        return "image/bmp"
+    if suffix == ".webp":
+        return "image/webp"
+    if suffix in {".tif", ".tiff"}:
+        return "image/tiff"
+    if suffix == ".gif":
+        return "image/gif"
+    if suffix == ".svg":
+        return "image/svg+xml"
+    return "image/png"
+
+
+def _resolve_docx_rel_target(target: str) -> str:
+    text = str(target or "").strip()
+    if not text:
+        return ""
+    if text.startswith("/"):
+        return text.lstrip("/")
+    return posixpath.normpath(posixpath.join("word", text))
+
+
+def _load_docx_inline_image_tokens_from_zip(zf: zipfile.ZipFile) -> dict[str, str]:
+    try:
+        rel_xml = zf.read(DOC_XML_RELS_PATH)
+    except Exception:
+        return {}
+    try:
+        rel_root = ET.fromstring(rel_xml)
+    except Exception:
+        return {}
+
+    tokens: dict[str, str] = {}
+    for rel in rel_root.findall(f".//{{{REL_NS}}}Relationship"):
+        rel_type = str(rel.attrib.get("Type", "")).strip().lower()
+        if not rel_type.endswith("/image"):
+            continue
+        rel_id = str(rel.attrib.get("Id", "")).strip()
+        target = _resolve_docx_rel_target(str(rel.attrib.get("Target", "")))
+        if not rel_id or not target:
+            continue
+        try:
+            raw = zf.read(target)
+        except Exception:
+            continue
+        if not raw:
+            continue
+        mime = _guess_docx_image_mime(target)
+        encoded = base64.b64encode(raw).decode("ascii")
+        tokens[rel_id] = f"[[DOCX_IMG|data:{mime};base64,{encoded}]]"
+    return tokens
+
+
+def _extract_docx_drawing_tokens(node: ET.Element, image_tokens: dict[str, str] | None = None) -> list[str]:
+    token_map = image_tokens or {}
+    result: list[str] = []
+    seen: set[str] = set()
+    for blip in node.findall(".//a:blip", DRAWING_NS):
+        rel_id = str(blip.attrib.get(f"{{{R_NS}}}embed", "")).strip()
+        if not rel_id or rel_id in seen:
+            continue
+        seen.add(rel_id)
+        result.append(token_map.get(rel_id, "[图片]"))
+    for imagedata in node.findall(".//v:imagedata", VML_NS):
+        rel_id = str(imagedata.attrib.get(f"{{{R_NS}}}id", "")).strip()
+        if not rel_id or rel_id in seen:
+            continue
+        seen.add(rel_id)
+        result.append(token_map.get(rel_id, "[图片]"))
+    return result
+
+
+def _extract_docx_cell_text(
+    tc: ET.Element,
+    preserve_paragraphs: bool = False,
+    image_tokens: dict[str, str] | None = None,
+) -> str:
+    drawings = _extract_docx_drawing_tokens(tc, image_tokens)
     if preserve_paragraphs:
         paragraphs: list[str] = []
         for p in tc.findall("./{*}p"):
             chunks = [(node.text or "") for node in p.findall(".//{*}t")]
             line = "".join(chunks).strip()
+            if not line:
+                p_drawings = _extract_docx_drawing_tokens(p, image_tokens)
+                if p_drawings:
+                    line = " ".join(p_drawings).strip()
             if line:
                 paragraphs.append(line)
+        if drawings:
+            exists = set(paragraphs)
+            for token in drawings:
+                if token not in exists:
+                    paragraphs.append(token)
         return "\n".join(paragraphs).strip()
     text = "".join([(node.text or "") for node in tc.findall(".//{*}t")])
+    if drawings:
+        text = " ".join([text, *drawings]).strip()
     return _normalize_catalog_value(text)
 
 

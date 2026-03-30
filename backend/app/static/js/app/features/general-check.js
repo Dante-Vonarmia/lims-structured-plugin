@@ -77,26 +77,26 @@ export function createGeneralCheckFeature(deps = {}) {
         .replace(/General\s*inspection\s*[（(]\s*\*\s*[）)]\s*[:：]?/ig, "General inspection:")
         .trim();
       for (const line of lines) {
-        if (/^注[:：]?/.test(line)) {
-          rows.push(["", normalizeGeneralCheckTitle(line)]);
-          continue;
+        if (/^注[:：]?/i.test(line) || /^notes?[:：]?/i.test(line)) {
+          break;
         }
-        if (/^(?:一|二|三|四|五|六|七|八|九|十)[、.．]/.test(line)) {
-          const m = line.match(/^((?:一|二|三|四|五|六|七|八|九|十)[、.．])\s*(.*)$/);
+        const normalizedLine = line;
+        if (/^(?:一|二|三|四|五|六|七|八|九|十)[、.．]/.test(normalizedLine)) {
+          const m = normalizedLine.match(/^((?:一|二|三|四|五|六|七|八|九|十)[、.．])\s*(.*)$/);
           rows.push([m ? m[1] : "", normalizeGeneralCheckTitle(m ? m[2] : line)]);
           hasGeneralCheckMarkers = true;
           continue;
         }
-        if (/^\(\d+\)/.test(line)) {
-          const m = line.match(/^(\(\d+\))\s*(.*)$/);
+        if (/^\(\d+\)/.test(normalizedLine)) {
+          const m = normalizedLine.match(/^(\(\d+\))\s*(.*)$/);
           const marker = m ? m[1] : "";
           const prefix = notePrefix ? `${notePrefix}${marker}` : marker;
-          rows.push([prefix, m ? m[2] : line]);
+          rows.push([prefix, m ? m[2] : normalizedLine]);
           notePrefix = "";
           hasGeneralCheckMarkers = true;
           continue;
         }
-        rows.push(["", normalizeGeneralCheckTitle(line)]);
+        rows.push(["", normalizeGeneralCheckTitle(normalizedLine)]);
       }
       const mergedRows = [];
       for (let i = 0; i < rows.length; i += 1) {
@@ -249,14 +249,22 @@ export function createGeneralCheckFeature(deps = {}) {
       const scopedRows = startIdx >= 0 ? visibleRowsRaw.slice(startIdx) : [];
       const cutIdx = scopedRows.findIndex((row) => {
         const line = (Array.isArray(row) ? row : []).join(" ");
-        return /(?:以下空白|\(以下空白\)|（以下空白）)/.test(line);
+        return /(?:以下空白|\(以下空白\)|（以下空白）)/.test(line) || /^注[:：]?|^Notes?[:：]?/i.test(String(line || "").trim());
       });
       const body = (cutIdx >= 0 ? scopedRows.slice(0, cutIdx) : scopedRows)
         .map((row) => row.map((cell) => String(cell || "")))
         .filter((row) => row.some((cell) => String(cell || "").trim()));
       if (!body.length) return null;
-      const header = ["序号/标记", "内容", ...Array.from({ length: Math.max(0, colCount - 2) }, (_, idx) => String(idx + 1))];
-      return [header, ...body];
+      let maxUsedCol = -1;
+      body.forEach((row) => {
+        (Array.isArray(row) ? row : []).forEach((cell, colIdx) => {
+          if (String(cell || "").trim()) maxUsedCol = Math.max(maxUsedCol, colIdx);
+        });
+      });
+      const effectiveColCount = Math.min(colCount, Math.max(2, maxUsedCol + 1));
+      const trimmedBody = body.map((row) => row.slice(0, effectiveColCount));
+      const header = ["序号/标记", "内容", ...Array.from({ length: Math.max(0, effectiveColCount - 2) }, (_, idx) => String(idx + 1))];
+      return [header, ...trimmedBody];
     }
 
     function buildGeneralCheckWysiwygData(blockText, options = {}) {
@@ -309,39 +317,32 @@ export function createGeneralCheckFeature(deps = {}) {
 
       const tableRowsRaw = [];
       for (let r = 0; r < rowCount; r += 1) {
-        const tds = [];
+        const rowCells = [];
         for (let c = 0; c < colCount; c += 1) {
           const slot = grid[r][c];
-          if (slot === "__covered__") continue;
+          if (slot === "__covered__") {
+            rowCells.push({ kind: "covered", col: c });
+            continue;
+          }
           if (!slot) {
-            tds.push("<td></td>");
+            rowCells.push({ kind: "empty", col: c });
             continue;
           }
           const text = formatGeneralCheckMathText(String(slot.text || ""));
           const align = String(slot.align || "left").toLowerCase();
           const valign = String(slot.valign || "top").toLowerCase();
-          const attrs = [];
-          if (slot.rowspan > 1) attrs.push(`rowspan="${slot.rowspan}"`);
-          if (slot.colspan > 1) attrs.push(`colspan="${slot.colspan}"`);
           const style = [];
           if (["left", "center", "right"].includes(align)) style.push(`text-align:${align}`);
           if (["top", "middle", "bottom"].includes(valign)) style.push(`vertical-align:${valign}`);
-          if (style.length) attrs.push(`style="${style.join(";")}"`);
-          if (readOnly) {
-            tds.push(`<td ${attrs.join(" ")}>${renderRichCellHtml(text)}</td>`);
-          } else {
-            const baseAttrs = [
-              'class="general-check-wysiwyg-cell"',
-              'data-field="general_check_cell"',
-              'data-struct-cell="1"',
-              `data-row="${slot.r}"`,
-              `data-col="${slot.c}"`,
-              'contenteditable="true"',
-            ];
-            tds.push(`<td ${[...attrs, ...baseAttrs].join(" ")}>${escapeHtml(text)}</td>`);
-          }
+          rowCells.push({
+            kind: "slot",
+            col: c,
+            slot,
+            text,
+            style: style.join(";"),
+          });
         }
-        tableRowsRaw.push({ html: `<tr>${tds.join("")}</tr>`, texts: Array.from({ length: colCount }, (_, c) => {
+        tableRowsRaw.push({ cells: rowCells, texts: Array.from({ length: colCount }, (_, c) => {
           const slot = grid[r][c];
           return slot && slot !== "__covered__" ? String(slot.text || "").trim() : "";
         }) });
@@ -378,9 +379,50 @@ export function createGeneralCheckFeature(deps = {}) {
       const scopedRows = startIdx >= 0 ? visibleRowsRaw.slice(startIdx) : [];
       const cutIdx = scopedRows.findIndex((row) => {
         const line = (row.texts || []).join(" ");
-        return /(?:以下空白|\(以下空白\)|（以下空白）)/.test(line);
+        return /(?:以下空白|\(以下空白\)|（以下空白）)/.test(line) || /^注[:：]?|^Notes?[:：]?/i.test(String(line || "").trim());
       });
-      const tableRows = (cutIdx >= 0 ? scopedRows.slice(0, cutIdx) : scopedRows).map((x) => x.html);
+      const bodyRows = cutIdx >= 0 ? scopedRows.slice(0, cutIdx) : scopedRows;
+      let maxUsedCol = -1;
+      bodyRows.forEach((row) => {
+        const texts = Array.isArray(row && row.texts) ? row.texts : [];
+        texts.forEach((cellText, colIdx) => {
+          if (String(cellText || "").trim()) maxUsedCol = Math.max(maxUsedCol, colIdx);
+        });
+      });
+      const lastCol = Math.min(colCount - 1, Math.max(1, maxUsedCol));
+      const renderCell = (entry) => {
+        if (!entry || entry.kind === "covered") return "";
+        if (entry.kind === "empty") return "<td></td>";
+        const slot = entry.slot || {};
+        const text = String(entry.text || "");
+        const attrs = [];
+        if (slot.rowspan > 1) attrs.push(`rowspan="${slot.rowspan}"`);
+        const safeColspan = Math.max(1, Math.min(Number(slot.colspan || 1) || 1, lastCol - Number(entry.col || 0) + 1));
+        if (safeColspan > 1) attrs.push(`colspan="${safeColspan}"`);
+        const styleText = String(entry.style || "").trim();
+        if (styleText) attrs.push(`style="${styleText}"`);
+        if (!readOnly && hasDocxImageToken(text)) {
+          return `<td ${attrs.join(" ")} class="general-check-media-cell">${renderRichCellHtml(text)}</td>`;
+        }
+        if (readOnly) return `<td ${attrs.join(" ")}>${renderRichCellHtml(text)}</td>`;
+        const baseAttrs = [
+          'class="general-check-wysiwyg-cell"',
+          'data-field="general_check_cell"',
+          'data-struct-cell="1"',
+          `data-row="${slot.r}"`,
+          `data-col="${slot.c}"`,
+          'contenteditable="true"',
+        ];
+        return `<td ${[...attrs, ...baseAttrs].join(" ")}>${escapeHtml(text)}</td>`;
+      };
+      const tableRows = bodyRows.map((row) => {
+        const cells = Array.isArray(row && row.cells) ? row.cells : [];
+        const rowHtml = cells
+          .filter((entry) => Number(entry && entry.col) <= lastCol)
+          .map((entry) => renderCell(entry))
+          .join("");
+        return `<tr>${rowHtml}</tr>`;
+      });
       return `
         <div class="source-recog-block source-recog-block-formatted">
           <table class="source-recog-block-table">
@@ -412,7 +454,7 @@ export function createGeneralCheckFeature(deps = {}) {
       const isNoteStart = (row) => {
         const cells = Array.isArray(row) ? row : [];
         const text = cells.map((x) => String(x || "").trim()).join(" ");
-        return /^备注[:：]?|^Remarks[:：]?/i.test(text);
+        return /^备注[:：]?|^Remarks[:：]?|^注[:：]?|^Notes?[:：]?/i.test(text);
       };
       const isBlankTail = (row) => {
         const cells = Array.isArray(row) ? row : [];
@@ -521,9 +563,15 @@ export function createGeneralCheckFeature(deps = {}) {
           .filter((row) => !isGeneralCheckNoiseRow(row))
           .filter((row) => (Array.isArray(row) ? row : []).some((cell) => String(cell || "").trim()));
         if (filteredDirectRows.length < 2) return null;
-        const colCount = Array.isArray(filteredDirectRows[0]) ? filteredDirectRows[0].length : 0;
-        if (colCount >= 3 && filteredDirectRows.every((row) => Array.isArray(row) && row.length === colCount)) {
-          return filteredDirectRows.map((row) => row.map((cell) => String(cell || "").trim()));
+        const noteIdx = filteredDirectRows.findIndex((row) => {
+          const text = (Array.isArray(row) ? row : []).map((x) => String(x || "").trim()).join(" ").trim();
+          return /^注[:：]?|^Notes?[:：]?/i.test(text);
+        });
+        const scopedDirectRows = noteIdx >= 0 ? filteredDirectRows.slice(0, noteIdx) : filteredDirectRows;
+        if (scopedDirectRows.length < 2) return null;
+        const colCount = Array.isArray(scopedDirectRows[0]) ? scopedDirectRows[0].length : 0;
+        if (colCount >= 3 && scopedDirectRows.every((row) => Array.isArray(row) && row.length === colCount)) {
+          return scopedDirectRows.map((row) => row.map((cell) => String(cell || "").trim()));
         }
       }
 
@@ -949,7 +997,7 @@ export function createGeneralCheckFeature(deps = {}) {
         if (!startMatch) return "";
         const startPos = Math.max(0, Number(startMatch.index || 0));
         let cropped = rawText.slice(startPos);
-        const stopPattern = /(?:^|\n)\s*(?:备注[:：]?|Remarks[:：]?|检测员|校准员|核验员|(?:以下空白|\(以下空白\)|（以下空白）))/i;
+        const stopPattern = /(?:^|\n)\s*(?:注[:：]?|Notes?[:：]?|备注[:：]?|Remarks[:：]?|检测员|校准员|核验员|(?:以下空白|\(以下空白\)|（以下空白）))/i;
         const stopMatch = stopPattern.exec(cropped);
         if (stopMatch && Number(stopMatch.index || 0) > 0) {
           cropped = cropped.slice(0, Number(stopMatch.index || 0));
@@ -964,6 +1012,7 @@ export function createGeneralCheckFeature(deps = {}) {
           /本次校准所依据的技术规范|Reference documents for the calibration/i,
           /本次校准所使用的主要计量标准器具|Main measurement standard instruments/i,
           /(?:其它|其他)校准信息|Calibration Information/i,
+          /^注[:：]?\s*$/i,
           /^备注[:：]?|^Remarks[:：]?/i,
         ];
         const cleaned = [];
