@@ -71,6 +71,10 @@ export function createRuntimeListUiFeature(deps = {}) {
     if (previewTabBtn) {
       setButtonText(previewTabBtn, isModifyCertificate ? "证书预览" : "原始记录预览");
     }
+    const generatePreviewBtn = $("generatePreviewBtn");
+    if (generatePreviewBtn) {
+      setButtonText(generatePreviewBtn, "生成选中");
+    }
     const targetPaneTitle = $("targetPaneTitle");
     if (targetPaneTitle) {
       targetPaneTitle.textContent = isModifyCertificate ? "证书模板（来源）" : "原始记录模板";
