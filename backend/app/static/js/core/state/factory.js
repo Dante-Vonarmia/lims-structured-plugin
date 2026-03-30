@@ -6,7 +6,7 @@ export function createInitialState() {
     selectedIds: new Set(),
     listFilter: { keyword: "", status: "", sortKey: "", sortDir: "asc", columnFilters: {}, activeFilterKey: "" },
     busy: false,
-    runtime: { offlineMode: false },
+    runtime: { offlineMode: false, modifyCertificateBlueprintTemplateName: "" },
     docxReady: false,
     docxLoadingPromise: null,
     blobUrls: { source: "", target: "" },

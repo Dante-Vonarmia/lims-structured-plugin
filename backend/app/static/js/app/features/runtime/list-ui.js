@@ -51,7 +51,7 @@ export function createRuntimeListUiFeature(deps = {}) {
 
   function getGenerateMode() {
     const select = $("generateModeSelect");
-    const mode = String((select && select.value) || "certificate_template");
+    const mode = String((select && select.value) || "source_file");
     return mode === "source_file" ? "source_file" : "certificate_template";
   }
 
@@ -78,6 +78,15 @@ export function createRuntimeListUiFeature(deps = {}) {
     const templateSearch = $("templateSearch");
     if (templateSearch) {
       templateSearch.placeholder = isModifyCertificate ? "浏览并选择证书模板" : "搜索并选择模板";
+      templateSearch.style.display = isModifyCertificate ? "none" : "";
+    }
+    const useBlankTemplateBtn = $("useBlankTemplateBtn");
+    if (useBlankTemplateBtn) {
+      useBlankTemplateBtn.style.display = isModifyCertificate ? "none" : "";
+    }
+    const templateFeedbackBtn = $("templateFeedbackBtn");
+    if (templateFeedbackBtn) {
+      templateFeedbackBtn.style.display = isModifyCertificate ? "none" : "";
     }
   }
 

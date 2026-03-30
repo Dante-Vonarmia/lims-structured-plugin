@@ -44,5 +44,8 @@ def healthz() -> dict[str, str]:
 
 
 @app.get("/api/runtime-config")
-def runtime_config() -> dict[str, bool]:
-    return {"offline_mode": config.OFFLINE_MODE}
+def runtime_config() -> dict[str, object]:
+    return {
+        "offline_mode": config.OFFLINE_MODE,
+        "modify_certificate_blueprint_template_name": config.MODIFY_CERTIFICATE_BLUEPRINT_TEMPLATE_NAME,
+    }

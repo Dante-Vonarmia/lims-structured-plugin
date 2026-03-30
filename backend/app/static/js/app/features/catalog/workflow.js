@@ -24,6 +24,9 @@ export function createCatalogWorkflowFeature(deps = {}) {
     try {
       const data = await loadRuntimeConfigApi();
       state.runtime.offlineMode = !!data.offline_mode;
+      state.runtime.modifyCertificateBlueprintTemplateName = String(
+        (data && data.modify_certificate_blueprint_template_name) || "修改证书蓝本.docx",
+      ).trim();
     } catch (error) {
       // noop
     }

@@ -18,6 +18,7 @@ from ..config import (
     INSTRUMENT_CATALOG_AUTO_ENABLED,
     INSTRUMENT_CATALOG_AUTO_KEYWORDS,
     LOCAL_DOCUMENT_LIBRARY_FILE,
+    MODIFY_CERTIFICATE_BLUEPRINT_TEMPLATE_NAME,
     OUTPUT_DIR,
     TEMPLATE_DIR,
     UPLOAD_DIR,
@@ -69,11 +70,20 @@ def create_report(request: ReportRequest) -> ReportResponse:
     template_name = request.template_name or DEFAULT_TEMPLATE_NAME
     context = request.fields.model_dump()
     source_file_path = _find_uploaded_file(request.source_file_id) if request.source_file_id else None
+    source_file_as_template = bool(request.source_file_as_template)
+    if source_file_as_template:
+        blueprint_name = str(MODIFY_CERTIFICATE_BLUEPRINT_TEMPLATE_NAME or "").strip()
+        blueprint_path = TEMPLATE_DIR / blueprint_name
+        if not blueprint_name or not blueprint_path.exists() or not blueprint_path.is_file():
+            raise HTTPException(status_code=422, detail=f"修改证书蓝本不存在：{blueprint_name or '未配置'}")
+        template_name = blueprint_name
+        source_file_as_template = False
     try:
         report_id, output_path = render_report(
             template_name=template_name,
             context=context,
             source_file_path=source_file_path,
+            source_file_as_template=source_file_as_template,
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

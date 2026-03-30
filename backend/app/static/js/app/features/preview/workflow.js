@@ -107,6 +107,13 @@ export function createPreviewWorkflowFeature(deps = {}) {
     }
     const generateMode = getGenerateMode();
     const isModifyCertificate = generateMode === "source_file";
+    const modeReports = item.modeReports && typeof item.modeReports === "object" ? item.modeReports : {};
+    const modeReport = modeReports[generateMode] && typeof modeReports[generateMode] === "object" ? modeReports[generateMode] : null;
+    const currentReportUrl = String((modeReport && modeReport.reportDownloadUrl) || "").trim();
+    const currentReportName = String((modeReport && modeReport.reportFileName) || "").trim();
+    const hasCurrentModeReport = !!(
+      currentReportUrl
+    );
     const selectedNormalItems = getSelectedNormalItems();
     if (selectedNormalItems.length > 1) {
       setPreviewPlaceholder("targetPreview", `${isModifyCertificate ? "证书预览" : "原始记录预览"}：已选 ${selectedNormalItems.length} 条记录`);
@@ -114,25 +121,46 @@ export function createPreviewWorkflowFeature(deps = {}) {
     }
     try {
       if (isModifyCertificate) {
+        if (hasCurrentModeReport) {
+          revokeBlobUrl("target");
+          const blob = await fetchBlob(currentReportUrl);
+          const ext = extFromName(currentReportName || item.sourceFileName || item.fileName);
+          if (ext === ".docx") {
+            await renderDocx("targetPreview", await blob.arrayBuffer());
+          } else {
+            const url = URL.createObjectURL(blob);
+            state.blobUrls.target = url;
+            $("targetPreview").innerHTML = `<iframe src="${url}"></iframe>`;
+          }
+          return;
+        }
         revokeBlobUrl("target");
-        const sourceBlob = item.fileId ? await fetchBlob(`/api/upload/${item.fileId}/download`) : item.file;
-        const sourceExt = extFromName(item.fileName || item.sourceFileName);
-        if (sourceExt === ".docx") {
-          await renderDocx("targetPreview", await sourceBlob.arrayBuffer());
-        } else if ([".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff", ".heic", ".heif", ".pic"].includes(sourceExt)) {
-          const url = URL.createObjectURL(sourceBlob);
-          state.blobUrls.target = url;
-          $("targetPreview").innerHTML = `<img alt="target" src="${url}" />`;
-        } else if (sourceExt === ".pdf") {
-          const url = URL.createObjectURL(sourceBlob);
+        const blueprintTemplateName = String((state.runtime && state.runtime.modifyCertificateBlueprintTemplateName) || "修改证书蓝本.docx").trim();
+        if (!blueprintTemplateName) {
+          setPreviewPlaceholder("targetPreview", "修改证书蓝本未配置");
+          return;
+        }
+        const tplBlob = await fetchBlob(`/api/templates/download?template_name=${encodeURIComponent(blueprintTemplateName)}`);
+        const tplExt = extFromName(blueprintTemplateName);
+        if (tplExt === ".docx") {
+          const docxReady = await ensureDocxLib();
+          if (docxReady) {
+            await renderDocx("targetPreview", await tplBlob.arrayBuffer());
+          } else {
+            const data = await runTemplateTextPreview(blueprintTemplateName);
+            const text = String((data && data.text) || "").trim();
+            const truncated = !!(data && data.truncated);
+            const tail = truncated ? "\n\n[文本过长，已截断]" : "";
+            $("targetPreview").innerHTML = `<div style="padding:10px;white-space:pre-wrap;line-height:1.5;font-size:12px;">${escapeHtml(text || "模板文本预览为空")}${escapeHtml(tail)}</div>`;
+          }
+        } else {
+          const url = URL.createObjectURL(tplBlob);
           state.blobUrls.target = url;
           $("targetPreview").innerHTML = `<iframe src="${url}"></iframe>`;
-        } else {
-          setPreviewPlaceholder("targetPreview", "该类型不支持证书预览");
         }
         return;
       }
-      if (!item.reportDownloadUrl) {
+      if (!hasCurrentModeReport) {
         if (!item.templateName) {
           setPreviewPlaceholder("targetPreview", "原始记录预览未加载");
           return;
@@ -159,8 +187,8 @@ export function createPreviewWorkflowFeature(deps = {}) {
         return;
       }
       revokeBlobUrl("target");
-      const blob = await fetchBlob(item.reportDownloadUrl);
-      const ext = extFromName(item.reportFileName || item.templateName || item.fileName);
+      const blob = await fetchBlob(currentReportUrl);
+      const ext = extFromName(currentReportName || item.templateName || item.fileName);
       if (ext === ".docx") {
         await renderDocx("targetPreview", await blob.arrayBuffer());
         applyTargetPreviewSlotHighlights(item);
