@@ -20,6 +20,7 @@ export function createInitialState() {
     rightViewMode: "preview",
     sourceFieldGroupCollapsed: {},
     targetFieldGroupCollapsed: {},
+    measurementMultiSyncNotice: { scope: "", text: "" },
     excelPreviewSheetByFileId: {},
     editorSchemaByTemplate: {},
   };

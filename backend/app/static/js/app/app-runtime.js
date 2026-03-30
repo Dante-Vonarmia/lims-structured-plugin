@@ -212,7 +212,7 @@ import {
       btn.textContent = text;
     }
     const MULTI_EDIT_MIXED_PLACEHOLDER = "（多值）";
-    const MULTI_EDIT_DISABLED_FIELD_KEYS = new Set(["measurement_items", "general_check_full"]);
+    const MULTI_EDIT_DISABLED_FIELD_KEYS = new Set(["measurement_items", "general_check_full", "basis_standard"]);
 
     const {
       getActiveItem,

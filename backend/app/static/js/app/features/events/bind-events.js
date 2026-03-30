@@ -151,6 +151,10 @@ export function createBindEventsFeature(deps = {}) {
         if (!row) return;
         const id = row.getAttribute("data-id") || "";
         if (!id) return;
+        if (state.selectedIds.has(id)) state.selectedIds.delete(id);
+        else state.selectedIds.add(id);
+        updateSelectedCountText();
+        refreshTargetFieldFormBySelection();
         state.listFilter.activeFilterKey = "";
         state.activeId = id;
         renderQueue();
@@ -688,6 +692,7 @@ export function createBindEventsFeature(deps = {}) {
         };
         if (action === "match-measurement-items") {
           if (!state.instrumentCatalogRows || !state.instrumentCatalogRows.length) {
+            setStatus("目录未就绪：请先装填计量标准器具目录");
             appendLog("目录未就绪：请先装填计量标准器具目录");
             return;
           }
@@ -702,11 +707,18 @@ export function createBindEventsFeature(deps = {}) {
           return;
         }
         if (action === "match-measurement-items-multi") {
+          const selectedItems = getSelectedNormalItems();
+          const scope = selectedItems.map((x) => String(x && x.id || "")).filter(Boolean).sort().join(",");
           if (!state.instrumentCatalogRows || !state.instrumentCatalogRows.length) {
+            state.measurementMultiSyncNotice = {
+              scope,
+              text: "目录未就绪，请先加载目录",
+            };
+            renderTargetFieldForm(item);
+            setStatus("目录未就绪：请先装填计量标准器具目录");
             appendLog("目录未就绪：请先装填计量标准器具目录");
             return;
           }
-          const selectedItems = getSelectedNormalItems();
           if (!selectedItems.length) return;
           let changedRows = 0;
           let changedRecords = 0;
@@ -716,6 +728,10 @@ export function createBindEventsFeature(deps = {}) {
             if (changed > 0) changedRecords += 1;
             changedRows += changed;
           });
+          state.measurementMultiSyncNotice = {
+            scope,
+            text: changedRows > 0 ? "已全部同步最新" : "已检查完成（无更新）",
+          };
           renderTargetFieldForm(item);
           applyTargetFieldProblemStyles(item);
           renderQueue();
@@ -1058,20 +1074,51 @@ export function createBindEventsFeature(deps = {}) {
         const item = getActiveItem();
         if (!item || state.busy) return;
         const generateMode = getGenerateMode();
+        const selectedItems = getSelectedNormalItems();
+        const targets = selectedItems.length ? selectedItems : [item];
+        if (!targets.length) return;
         try {
-          setLoading(true, generateMode === "source_file" ? `生成修改证书中：${item.fileName}` : `生成原始记录中：${item.fileName}`);
-          await generateItem(item, generateMode);
-          await renderPreviews();
-          setRightViewMode("preview");
-          setStatus(generateMode === "source_file" ? `已生成修改证书：${item.fileName}` : `已生成原始记录：${item.fileName}`);
-        } catch (error) {
-          if (item.status !== "incomplete") {
-            item.status = "error";
-            item.message = error.message || "生成失败";
+          if (targets.length > 1) {
+            setLoading(
+              true,
+              generateMode === "source_file"
+                ? `批量生成修改证书中：${targets.length} 条`
+                : `批量生成原始记录中：${targets.length} 条`,
+            );
+          } else {
+            setLoading(true, generateMode === "source_file" ? `生成修改证书中：${item.fileName}` : `生成原始记录中：${item.fileName}`);
+          }
+          let success = 0;
+          let failed = 0;
+          for (const targetItem of targets) {
+            try {
+              await generateItem(targetItem, generateMode);
+              success += 1;
+            } catch (error) {
+              failed += 1;
+              if (targetItem.status !== "incomplete") {
+                targetItem.status = "error";
+                targetItem.message = error && error.message ? error.message : "生成失败";
+              }
+              appendLog(`生成失败 ${targetItem.fileName}：${targetItem.message}`);
+            }
           }
           renderQueue();
-          appendLog(`生成失败 ${item.fileName}：${item.message}`);
-          setStatus(`生成失败：${item.fileName}`);
+          await renderPreviews();
+          setRightViewMode("preview");
+          if (targets.length > 1) {
+            setStatus(
+              generateMode === "source_file"
+                ? `批量生成修改证书完成：成功 ${success}，失败 ${failed}`
+                : `批量生成原始记录完成：成功 ${success}，失败 ${failed}`,
+            );
+          } else if (failed === 0) {
+            setStatus(generateMode === "source_file" ? `已生成修改证书：${item.fileName}` : `已生成原始记录：${item.fileName}`);
+          } else {
+            setStatus(`生成失败：${item.fileName}`);
+          }
+        } catch (error) {
+          setStatus(`生成失败：${error && error.message ? error.message : "unknown"}`);
         } finally {
           setLoading(false);
         }

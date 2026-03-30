@@ -388,17 +388,13 @@ def fill_generic_record_docx(
     _fill_page_number_placeholders_in_root(root)
     changed = _fill_generic_base_labels_in_paragraphs(root, payload) or changed
 
-    _preserve_original_namespaces(root, original_namespaces)
-    updated_xml = ET.tostring(root, encoding="utf-8", xml_declaration=True)
-    with zipfile.ZipFile(template_path, "r") as zin, zipfile.ZipFile(output_path, "w") as zout:
-        for item in zin.infolist():
-            if item.filename == DOC_XML_PATH:
-                zout.writestr(item, updated_xml)
-            elif _is_header_xml_path(item.filename):
-                header_xml = _fill_header_base_fields_xml(zin.read(item.filename), payload)
-                zout.writestr(item, header_xml)
-            else:
-                zout.writestr(item, zin.read(item.filename))
+    _write_docx_with_updated_root(
+        template_path=template_path,
+        output_path=output_path,
+        root=root,
+        original_namespaces=original_namespaces,
+        header_payload=payload,
+    )
     return True
 
 
@@ -423,31 +419,37 @@ def fill_modify_certificate_docx(
         original_namespaces = _capture_namespaces(original_xml)
         root = ET.fromstring(original_xml)
 
+    rel_updates: dict[str, bytes] = {}
     tables = root.findall(".//w:tbl", NS)
     changed = False
     if tables:
         changed = _fill_modify_certificate_front_page_sections(tables, payload) or changed
         changed = _fill_modify_certificate_blueprint_sections(tables, payload, context) or changed
+    copied_continued_page_table, copied_table = _copy_modify_certificate_continued_page_table_from_source(
+        target_root=root,
+        source_file_path=source_file_path,
+    )
+    if copied_continued_page_table and copied_table is not None and source_file_path is not None:
+        rel_updates = _copy_docx_image_dependencies_for_table(
+            template_path=template_path,
+            source_file_path=source_file_path,
+            table_element=copied_table,
+        )
+        changed = True
     _fill_page_number_placeholders_in_root(root)
     changed = _fill_generic_base_labels_in_paragraphs(
         root,
         {"certificate_no": payload.get("certificate_no", "")},
     ) or changed
 
-    _preserve_original_namespaces(root, original_namespaces)
-    updated_xml = ET.tostring(root, encoding="utf-8", xml_declaration=True)
-    with zipfile.ZipFile(template_path, "r") as zin, zipfile.ZipFile(output_path, "w") as zout:
-        for item in zin.infolist():
-            if item.filename == DOC_XML_PATH:
-                zout.writestr(item, updated_xml)
-            elif _is_header_xml_path(item.filename):
-                header_xml = _fill_header_base_fields_xml(
-                    zin.read(item.filename),
-                    {"certificate_no": payload.get("certificate_no", "")},
-                )
-                zout.writestr(item, header_xml)
-            else:
-                zout.writestr(item, zin.read(item.filename))
+    _write_docx_with_updated_root(
+        template_path=template_path,
+        output_path=output_path,
+        root=root,
+        original_namespaces=original_namespaces,
+        header_payload={"certificate_no": payload.get("certificate_no", "")},
+        rel_updates=rel_updates,
+    )
     return True
 
 
@@ -551,7 +553,8 @@ def _fill_modify_certificate_blueprint_sections(
             and ("Received date" in table_text or "收样日期" in table_text)
         ):
             changed = _fill_modify_certificate_middle_table(tbl, payload, context) or changed
-        # 在“修改证书”模式下，续页区块保持蓝本原样，避免破坏表格结构与注释行。
+        if re.search(r"校准结果\s*/\s*说明|Results of calibration and additional explanation", table_text, flags=re.IGNORECASE):
+            changed = _fill_modify_certificate_general_check_table(tbl, payload, context) or changed
     return changed
 
 
@@ -565,135 +568,142 @@ def _fill_modify_certificate_middle_table(
         return False
     changed = False
 
-    def _row_text(row: ET.Element) -> str:
-        return normalize_space(" ".join([get_cell_text(tc) for tc in row.findall("./w:tc", NS)]))
-
     basis_lines = _resolve_basis_lines_for_blueprint(payload, context)
     if basis_lines:
-        rows = tbl.findall("./w:tr", NS)
-        basis_title_idx = next(
-            (idx for idx, row in enumerate(rows) if re.search(r"本次校准所依据的技术规范|Reference documents for the calibration", _row_text(row), flags=re.IGNORECASE)),
-            -1,
-        )
-        measurement_title_idx = next(
-            (idx for idx, row in enumerate(rows) if re.search(r"本次校准所使用的主要计量标准器具|Main measurement standard instruments", _row_text(row), flags=re.IGNORECASE)),
-            -1,
-        )
-        if basis_title_idx >= 0 and measurement_title_idx > basis_title_idx + 1:
-            basis_start = basis_title_idx + 1
-            basis_end = measurement_title_idx
-            existing_rows = basis_end - basis_start
-            need_rows = len(basis_lines)
-            if existing_rows > 0 and need_rows > existing_rows:
-                template_row = rows[basis_start]
-                for _ in range(need_rows - existing_rows):
-                    rows = tbl.findall("./w:tr", NS)
-                    anchor_row = rows[basis_end]
-                    anchor_pos = list(tbl).index(anchor_row)
-                    tbl.insert(anchor_pos, deepcopy(template_row))
-                    basis_end += 1
-                rows = tbl.findall("./w:tr", NS)
-                existing_rows = basis_end - basis_start
-            for offset in range(max(existing_rows, 0)):
-                cells = rows[basis_start + offset].findall("./w:tc", NS)
-                if not cells:
-                    continue
-                target_idx = 1 if len(cells) > 1 else 0
-                value = basis_lines[offset] if offset < len(basis_lines) else ""
-                set_cell_text(cells[target_idx], value)
-                changed = True
+        changed = _fill_modify_certificate_basis_rows(tbl, basis_lines) or changed
 
     measurement_rows = _resolve_measurement_rows_for_blueprint(context)
     if measurement_rows:
+        changed = _fill_modify_certificate_measurement_rows(tbl, measurement_rows) or changed
+
+    changed = _fill_modify_certificate_calibration_info_rows(tbl, payload, context) or changed
+
+    return changed
+
+
+_MODIFY_CERT_MEASUREMENT_COL_RULES: tuple[tuple[str, tuple[str, ...], int], ...] = (
+    ("name", ("器具名称", "Instrument name"), 0),
+    ("model", ("型号/规格", "Model/Specification"), 1),
+    ("code", ("器具编号", "仪器编号", "设备编号", "编号"), 2),
+    ("range", ("测量范围", "Measurement range"), 3),
+    ("uncertainty", ("不确定度", "Accuracy", "Uncertainty"), 4),
+    ("cert_valid", ("证书编号", "有效期限", "Certificate number", "Valid date"), 5),
+    ("trace", ("溯源机构", "traceability"), 6),
+)
+
+
+def _modify_cert_row_text(row: ET.Element) -> str:
+    return normalize_space(" ".join([get_cell_text(tc) for tc in row.findall("./w:tc", NS)]))
+
+
+def _find_first_row_index(rows: list[ET.Element], pattern: str) -> int:
+    return next((idx for idx, row in enumerate(rows) if re.search(pattern, _modify_cert_row_text(row), flags=re.IGNORECASE)), -1)
+
+
+def _expand_data_rows_before_anchor(tbl: ET.Element, data_start: int, data_end: int, need_rows: int) -> int:
+    existing_rows = data_end - data_start
+    if existing_rows <= 0 or need_rows <= existing_rows:
+        return existing_rows
+    rows = tbl.findall("./w:tr", NS)
+    template_row = rows[data_start]
+    for _ in range(need_rows - existing_rows):
         rows = tbl.findall("./w:tr", NS)
-        header_idx = next(
-            (
-                idx
-                for idx, row in enumerate(rows)
-                if re.search(r"器具名称|Instrument name", _row_text(row), flags=re.IGNORECASE)
-                and re.search(r"测量范围|Measurement range", _row_text(row), flags=re.IGNORECASE)
-            ),
-            -1,
-        )
-        summary_idx = next(
-            (
-                idx
-                for idx, row in enumerate(rows)
-                if re.search(r"以上计量标准器具|Quantity values of above measurement standards", _row_text(row), flags=re.IGNORECASE)
-            ),
-            -1,
-        )
-        if header_idx >= 0 and summary_idx > header_idx + 1:
-            data_start = header_idx + 1
-            data_end = summary_idx
-            existing_rows = data_end - data_start
-            need_rows = len(measurement_rows)
-            if existing_rows > 0 and need_rows > existing_rows:
-                template_row = rows[data_start]
-                for _ in range(need_rows - existing_rows):
-                    rows = tbl.findall("./w:tr", NS)
-                    anchor_row = rows[data_end]
-                    anchor_pos = list(tbl).index(anchor_row)
-                    tbl.insert(anchor_pos, deepcopy(template_row))
-                    data_end += 1
-                rows = tbl.findall("./w:tr", NS)
-                existing_rows = data_end - data_start
+        anchor_row = rows[data_end]
+        anchor_pos = list(tbl).index(anchor_row)
+        tbl.insert(anchor_pos, deepcopy(template_row))
+        data_end += 1
+    rows = tbl.findall("./w:tr", NS)
+    return data_end - data_start
 
-            header_cells = rows[header_idx].findall("./w:tc", NS)
-            if len(header_cells) > 2 and not normalize_space(get_cell_text(header_cells[2])):
-                set_cell_text(header_cells[2], "编号\nNumber")
-                changed = True
-            col_map = {
-                "name": _find_cell_index_contains_any(header_cells, ("器具名称", "Instrument name")),
-                "model": _find_cell_index_contains_any(header_cells, ("型号/规格", "Model/Specification")),
-                "code": _find_cell_index_contains_any(header_cells, ("器具编号", "仪器编号", "设备编号", "编号")),
-                "range": _find_cell_index_contains_any(header_cells, ("测量范围", "Measurement range")),
-                "uncertainty": _find_cell_index_contains_any(header_cells, ("不确定度", "Accuracy", "Uncertainty")),
-                "cert_valid": _find_cell_index_contains_any(header_cells, ("证书编号", "有效期限", "Certificate number", "Valid date")),
-                "trace": _find_cell_index_contains_any(header_cells, ("溯源机构", "traceability")),
-            }
-            if 0 <= col_map["code"] < len(header_cells):
-                if "证书" in get_cell_text(header_cells[col_map["code"]]):
-                    col_map["code"] = 2 if len(header_cells) > 2 else -1
-            if col_map["name"] < 0:
-                col_map["name"] = 0
-            if col_map["model"] < 0:
-                col_map["model"] = 1
-            if col_map["code"] < 0:
-                col_map["code"] = 2
-            if col_map["range"] < 0:
-                col_map["range"] = 3
-            if col_map["uncertainty"] < 0:
-                col_map["uncertainty"] = 4
-            if col_map["cert_valid"] < 0:
-                col_map["cert_valid"] = 5
-            if col_map["trace"] < 0:
-                col_map["trace"] = 6
 
-            for offset in range(max(existing_rows, 0)):
-                row_cells = rows[data_start + offset].findall("./w:tc", NS)
-                item = measurement_rows[offset] if offset < len(measurement_rows) else {}
-                for key, idx in col_map.items():
-                    if idx < 0 or idx >= len(row_cells):
-                        continue
-                    set_cell_text(row_cells[idx], normalize_space(str(item.get(key, ""))))
-                    changed = True
+def _fill_modify_certificate_basis_rows(tbl: ET.Element, basis_lines: list[str]) -> bool:
+    rows = tbl.findall("./w:tr", NS)
+    basis_title_idx = _find_first_row_index(rows, r"本次校准所依据的技术规范|Reference documents for the calibration")
+    measurement_title_idx = _find_first_row_index(rows, r"本次校准所使用的主要计量标准器具|Main measurement standard instruments")
+    if basis_title_idx < 0 or measurement_title_idx <= basis_title_idx + 1:
+        return False
+    basis_start = basis_title_idx + 1
+    basis_end = measurement_title_idx
+    existing_rows = _expand_data_rows_before_anchor(tbl, basis_start, basis_end, len(basis_lines))
+    rows = tbl.findall("./w:tr", NS)
+    changed = False
+    for offset in range(max(existing_rows, 0)):
+        cells = rows[basis_start + offset].findall("./w:tc", NS)
+        if not cells:
+            continue
+        target_idx = 1 if len(cells) > 1 else 0
+        value = basis_lines[offset] if offset < len(basis_lines) else ""
+        set_cell_text(cells[target_idx], value)
+        changed = True
+    return changed
 
+
+def _resolve_modify_cert_measurement_col_map(header_cells: list[ET.Element]) -> dict[str, int]:
+    col_map: dict[str, int] = {}
+    for key, markers, fallback in _MODIFY_CERT_MEASUREMENT_COL_RULES:
+        idx = _find_cell_index_contains_any(header_cells, markers)
+        col_map[key] = idx if idx >= 0 else fallback
+    if 0 <= col_map["code"] < len(header_cells):
+        if "证书" in get_cell_text(header_cells[col_map["code"]]):
+            col_map["code"] = 2 if len(header_cells) > 2 else -1
+    return col_map
+
+
+def _fill_modify_certificate_measurement_rows(tbl: ET.Element, measurement_rows: list[dict[str, str]]) -> bool:
+    rows = tbl.findall("./w:tr", NS)
+    header_idx = next(
+        (
+            idx
+            for idx, row in enumerate(rows)
+            if re.search(r"器具名称|Instrument name", _modify_cert_row_text(row), flags=re.IGNORECASE)
+            and re.search(r"测量范围|Measurement range", _modify_cert_row_text(row), flags=re.IGNORECASE)
+        ),
+        -1,
+    )
+    summary_idx = _find_first_row_index(rows, r"以上计量标准器具|Quantity values of above measurement standards")
+    if header_idx < 0 or summary_idx <= header_idx + 1:
+        return False
+    data_start = header_idx + 1
+    data_end = summary_idx
+    existing_rows = _expand_data_rows_before_anchor(tbl, data_start, data_end, len(measurement_rows))
+    rows = tbl.findall("./w:tr", NS)
+
+    changed = False
+    header_cells = rows[header_idx].findall("./w:tc", NS)
+    if len(header_cells) > 2 and not normalize_space(get_cell_text(header_cells[2])):
+        set_cell_text(header_cells[2], "编号\nNumber")
+        changed = True
+    col_map = _resolve_modify_cert_measurement_col_map(header_cells)
+    for offset in range(max(existing_rows, 0)):
+        row_cells = rows[data_start + offset].findall("./w:tc", NS)
+        item = measurement_rows[offset] if offset < len(measurement_rows) else {}
+        for key, idx in col_map.items():
+            if idx < 0 or idx >= len(row_cells):
+                continue
+            set_cell_text(row_cells[idx], normalize_space(str(item.get(key, ""))))
+            changed = True
+    return changed
+
+
+def _fill_modify_certificate_calibration_info_rows(
+    tbl: ET.Element,
+    payload: dict[str, Any],
+    context: dict[str, str],
+) -> bool:
     location = normalize_space(payload.get("location", "")) or normalize_space(context.get("location", ""))
     temp = normalize_space(payload.get("temperature", "")) or normalize_space(context.get("temperature", ""))
     humidity = normalize_space(payload.get("humidity", "")) or normalize_space(context.get("humidity", ""))
     other = normalize_space(context.get("calibration_other", ""))
     receive_date = sanitize_context_date(context.get("receive_date", ""))
     calibration_date = sanitize_context_date(context.get("calibration_date", ""))
-    publish_date = sanitize_context_date(context.get("publish_date", "")) or sanitize_context_date(
-        context.get("release_date", ""),
-    )
+
     rows = tbl.findall("./w:tr", NS)
+    changed = False
     for row in rows:
         cells = row.findall("./w:tc", NS)
         if not cells:
             continue
-        text = _row_text(row)
+        text = _modify_cert_row_text(row)
         if location and re.search(r"地点", text) and not re.search(r"收样日期|校准日期", text):
             set_cell_text(cells[-1], f"地点： {location}\n")
             changed = True
@@ -721,7 +731,6 @@ def _fill_modify_certificate_middle_table(
             if calibration_date:
                 _fill_split_date(cells, "校准日期", calibration_date)
                 changed = True
-
     return changed
 
 
@@ -827,27 +836,51 @@ def _parse_measurement_items_rows(text: str) -> list[dict[str, str]]:
 
 
 def _resolve_measurement_rows_for_blueprint(context: dict[str, str]) -> list[dict[str, str]]:
-    rows = _parse_measurement_items_rows(context.get("measurement_items", ""))
-    if rows:
-        return rows
+    parsed_rows = _parse_measurement_items_rows(context.get("measurement_items", ""))
+    normalized_parsed_rows = _normalize_measurement_rows_for_blueprint(parsed_rows)
+    if normalized_parsed_rows:
+        return normalized_parsed_rows
     catalog_rows = parse_instrument_catalog_rows_json(context.get("instrument_catalog_rows_json", ""))
+    return _build_measurement_rows_from_catalog_for_blueprint(catalog_rows)
+
+
+def _normalize_measurement_rows_for_blueprint(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    result: list[dict[str, str]] = []
+    for row in rows:
+        normalized_row = {
+            "name": normalize_space(row.get("name", "")),
+            "model": normalize_space(row.get("model", "")),
+            "code": normalize_space(row.get("code", "")),
+            "range": normalize_space(row.get("range", "")),
+            "uncertainty": normalize_space(row.get("uncertainty", "")),
+            "cert_valid": normalize_space(row.get("cert_valid", "")),
+            "trace": normalize_space(row.get("trace", "")),
+        }
+        if normalized_row.get("name"):
+            result.append(normalized_row)
+    return result
+
+
+def _build_measurement_rows_from_catalog_for_blueprint(
+    catalog_rows: list[dict[str, str]],
+) -> list[dict[str, str]]:
     result: list[dict[str, str]] = []
     for item in catalog_rows:
         cert = normalize_space(item.get("certificate_no", ""))
         valid = normalize_space(item.get("valid_date", ""))
         cert_valid = " ".join([x for x in (cert, valid) if x]).strip()
-        result.append(
-            {
-                "name": normalize_space(item.get("name", "")),
-                "model": normalize_space(item.get("model", "")),
-                "code": normalize_space(item.get("code", "")),
-                "range": normalize_space(item.get("measurement_range", "")),
-                "uncertainty": normalize_space(item.get("uncertainty", "")),
-                "cert_valid": cert_valid,
-                "trace": normalize_space(item.get("traceability_institution", "")),
-            }
-        )
-    return [item for item in result if item.get("name")]
+        row = {
+            "name": normalize_space(item.get("name", "")),
+            "model": normalize_space(item.get("model", "")),
+            "code": normalize_space(item.get("code", "")),
+            "range": normalize_space(item.get("measurement_range", "")),
+            "uncertainty": normalize_space(item.get("uncertainty", "")),
+            "cert_valid": cert_valid,
+            "trace": normalize_space(item.get("traceability_institution", "")),
+        }
+        if row.get("name"):
+            result.append(row)
+    return result
 
 
 def _normalize_general_check_lines_for_blueprint(text: str) -> list[str]:
@@ -1502,6 +1535,75 @@ def _copy_r802b_general_check_table_from_source(
     _sanitize_general_check_table_rows(cloned_table)
     body.insert(insert_index, cloned_table)
     return True, cloned_table
+
+
+def _copy_modify_certificate_continued_page_table_from_source(
+    target_root: ET.Element,
+    source_file_path: Path | None,
+) -> tuple[bool, ET.Element | None]:
+    if source_file_path is None or not source_file_path.exists() or source_file_path.suffix.lower() != ".docx":
+        return False, None
+    try:
+        with zipfile.ZipFile(source_file_path, "r") as zf:
+            source_xml = zf.read(DOC_XML_PATH)
+        source_root = ET.fromstring(source_xml)
+    except Exception:
+        return False, None
+
+    source_table = _find_modify_certificate_continued_page_table(source_root)
+    target_table = _find_modify_certificate_continued_page_table(target_root)
+    if source_table is None or target_table is None:
+        return False, None
+
+    cloned_table = ET.fromstring(ET.tostring(source_table, encoding="utf-8"))
+    replaced = _replace_xml_element(target_root, target_table, cloned_table)
+    if not replaced:
+        return False, None
+    return True, cloned_table
+
+
+def _find_modify_certificate_continued_page_table(root: ET.Element) -> ET.Element | None:
+    candidates: list[tuple[int, ET.Element]] = []
+    for tbl in root.findall(".//w:tbl", NS):
+        text = normalize_space(" ".join([(node.text or "") for node in tbl.findall(".//w:t", NS)]))
+        if not text:
+            continue
+        if not re.search(r"校准结果\s*/\s*说明|Results of calibration and additional explanation", text, flags=re.IGNORECASE):
+            continue
+        rows = tbl.findall("./w:tr", NS)
+        row_count = len(rows)
+        max_cols = 0
+        for row in rows:
+            cols = len(row.findall("./w:tc", NS))
+            if cols > max_cols:
+                max_cols = cols
+        score = row_count * 5
+        if re.search(r"一般检查|General inspection", text, flags=re.IGNORECASE):
+            score += 80
+        if re.search(r"\(\s*1\s*\)|（\s*1\s*）", text):
+            score += 60
+        if re.search(r"^注[:：]?|^Notes?[:：]?", text, flags=re.IGNORECASE):
+            score += 60
+        if max_cols >= 3:
+            score += 50
+        if row_count <= 2:
+            score -= 120
+        candidates.append((score, tbl))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
+
+
+def _replace_xml_element(root: ET.Element, old_elem: ET.Element, new_elem: ET.Element) -> bool:
+    for parent in root.iter():
+        children = list(parent)
+        for idx, child in enumerate(children):
+            if child is old_elem:
+                parent.remove(old_elem)
+                parent.insert(idx, new_elem)
+                return True
+    return False
 
 
 def _copy_docx_image_dependencies_for_table(
@@ -2448,6 +2550,45 @@ def _fill_generic_base_labels_in_paragraphs(root: ET.Element, payload: dict[str,
         extract_basis_from_text=_extract_basis_from_cell,
         format_mode_prefix=_format_dual_mode_checkbox,
     )
+
+
+def _write_docx_with_updated_root(
+    template_path: Path,
+    output_path: Path,
+    root: ET.Element,
+    original_namespaces: dict[str, str],
+    header_payload: dict[str, Any] | None = None,
+    rel_updates: dict[str, bytes] | None = None,
+) -> None:
+    _preserve_original_namespaces(root, original_namespaces)
+    updated_xml = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+    updates = rel_updates or {}
+    updated_rels_xml = updates.get("__rels__")
+    updated_ct_xml = updates.get("__ct__")
+    with zipfile.ZipFile(template_path, "r") as zin, zipfile.ZipFile(output_path, "w") as zout:
+        existing_names = {x.filename for x in zin.infolist()}
+        for item in zin.infolist():
+            if item.filename == DOC_XML_PATH:
+                zout.writestr(item, updated_xml)
+            elif _is_header_xml_path(item.filename) and header_payload is not None:
+                header_xml = _fill_header_base_fields_xml(zin.read(item.filename), header_payload)
+                zout.writestr(item, header_xml)
+            elif item.filename == DOC_RELS_PATH and updated_rels_xml is not None:
+                zout.writestr(item, updated_rels_xml)
+            elif item.filename == CONTENT_TYPES_PATH and updated_ct_xml is not None:
+                zout.writestr(item, updated_ct_xml)
+            else:
+                zout.writestr(item, zin.read(item.filename))
+
+        if updated_rels_xml is not None and DOC_RELS_PATH not in existing_names:
+            zout.writestr(DOC_RELS_PATH, updated_rels_xml)
+        if updated_ct_xml is not None and CONTENT_TYPES_PATH not in existing_names:
+            zout.writestr(CONTENT_TYPES_PATH, updated_ct_xml)
+        for path, raw in updates.items():
+            if path.startswith("__"):
+                continue
+            zout.writestr(path, raw)
 
 
 def _is_header_xml_path(path: str) -> bool:

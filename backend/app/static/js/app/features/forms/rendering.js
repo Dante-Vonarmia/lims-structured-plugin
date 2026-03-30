@@ -116,10 +116,8 @@ export function createFormRenderingFeature(deps = {}) {
     const note = resolved && resolved.note ? resolved.note : "";
     const loading = !!(resolved && resolved.loading);
     const problemKeys = isMultiMode ? new Set() : getProblemFieldKeys(item);
-    const rowInfo = isMultiMode
-      ? `多选编辑（已选 ${multiItems.length} 条记录）`
-      : (item.recordName || item.fileName || "未命名记录");
-    const noteTextBase = isMultiMode ? "相同值直接显示，不同值显示“（多值）”；修改将应用到所有已选记录。" : "";
+    const rowInfo = isMultiMode ? "" : (item.recordName || item.fileName || "未命名记录");
+    const noteTextBase = "";
     const getFieldView = (fieldKey) => {
       if (isMultiMode) {
         const merged = getSharedFieldValue(multiItems, fieldKey);
@@ -145,9 +143,9 @@ export function createFormRenderingFeature(deps = {}) {
       if (field.key === "basis_standard") {
         if (isMultiMode) {
           return `
-              <label class="source-form-item slot-field wide ${isProblem ? "is-problem" : ""}">
+              <label class="source-form-item slot-field wide multi-edit-disabled-field ${isProblem ? "is-problem" : ""}">
                 <span>${escapeHtml(field.label)}</span>
-                <input type="text" class="${isProblem ? "is-problem" : ""}" data-field="${escapeAttr(field.key)}" value="${escapeAttr(value)}" placeholder="${isMixed ? MULTI_EDIT_MIXED_PLACEHOLDER : ""}" />
+                <div class="source-recog-block multi-edit-disabled-note">多选模式下不可编辑</div>
               </label>
             `;
         }
@@ -185,10 +183,19 @@ export function createFormRenderingFeature(deps = {}) {
       if (field.key === "measurement_items") {
         if (isMultiMode) {
           const hasCatalog = !!(state.instrumentCatalogRows && state.instrumentCatalogRows.length);
+          const scope = selectedNormalItems.map((x) => String(x && x.id || "")).filter(Boolean).sort().join(",");
+          const notice = (state.measurementMultiSyncNotice && state.measurementMultiSyncNotice.scope === scope)
+            ? String(state.measurementMultiSyncNotice.text || "")
+            : "";
+          const hintText = hasCatalog
+            ? "多选模式仅按各记录自身内容与目录对齐，不会在记录间互相覆盖"
+            : "目录未就绪：请先加载“本次校准所使用的主要计量标准器具”目录";
           return `
               <label class="source-form-item slot-field wide">
                 <div class="measurement-toolbar">
-                  <button type="button" class="btn ghost" data-action="match-measurement-items-multi" ${hasCatalog ? "" : "disabled"}>一键目录配对</button>
+                  <button type="button" class="btn ghost" data-action="match-measurement-items-multi">一键目录配对</button>
+                  <span class="measurement-toolbar-hint">${escapeHtml(hintText)}</span>
+                  ${notice ? `<span class="measurement-toolbar-status">${escapeHtml(notice)}</span>` : ""}
                 </div>
               </label>
             `;
@@ -234,7 +241,7 @@ export function createFormRenderingFeature(deps = {}) {
             <label class="source-form-item slot-field wide ${isProblem ? "is-problem" : ""}">
               <span>${escapeHtml(field.label)}</span>
               <div class="measurement-toolbar">
-                <button type="button" class="btn ghost" data-action="match-measurement-items" ${hasCatalog ? "" : "disabled"}>一键目录配对</button>
+                <button type="button" class="btn ghost" data-action="match-measurement-items">一键目录配对</button>
                 <span class="measurement-toolbar-hint">已识别信息已自动带入；红色表示与目录不匹配</span>
               </div>
               <div class="measurement-table-wrap">

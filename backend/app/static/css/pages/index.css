@@ -1429,6 +1429,12 @@ tr.row-generated.active { background: #dceddf; }
   font-weight: 600;
 }
 
+.measurement-toolbar-status {
+  color: #2e7d50;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .measurement-row-mismatch td {
   background: #fff1f1;
 }
