@@ -328,6 +328,34 @@ export function createBindEventsFeature(deps = {}) {
       const handleTargetFieldChange = (event) => {
         const target = event.target;
         if (!(target instanceof HTMLElement)) return;
+        const datePart = String(target.getAttribute("data-date-part") || "").trim();
+        const dateField = String(target.getAttribute("data-date-field") || "").trim();
+        if (datePart && dateField && target instanceof HTMLInputElement) {
+          const grid = target.closest(".target-date-grid");
+          if (!(grid instanceof HTMLElement)) return;
+          const yearInput = grid.querySelector('input[data-date-field][data-date-part="year"]');
+          const monthInput = grid.querySelector('input[data-date-field][data-date-part="month"]');
+          const dayInput = grid.querySelector('input[data-date-field][data-date-part="day"]');
+          const hiddenInput = grid.parentElement ? grid.parentElement.querySelector(`input[type="hidden"][data-field="${dateField}"]`) : null;
+          if (!(yearInput instanceof HTMLInputElement) || !(monthInput instanceof HTMLInputElement) || !(dayInput instanceof HTMLInputElement)) return;
+          if (!(hiddenInput instanceof HTMLInputElement)) return;
+          const normalizeDigits = (raw, maxLen) => String(raw || "").replace(/\D+/g, "").slice(0, maxLen);
+          const year = normalizeDigits(yearInput.value, 4);
+          const month = normalizeDigits(monthInput.value, 2);
+          const day = normalizeDigits(dayInput.value, 2);
+          if (yearInput.value !== year) yearInput.value = year;
+          if (monthInput.value !== month) monthInput.value = month;
+          if (dayInput.value !== day) dayInput.value = day;
+          let composed = "";
+          if (year || month || day) {
+            composed = `${year}${year ? "年" : ""}${month ? `${month.padStart(2, "0")}月` : ""}${day ? `${day.padStart(2, "0")}日` : ""}`;
+          }
+          if (hiddenInput.value !== composed) {
+            hiddenInput.value = composed;
+          }
+          hiddenInput.dispatchEvent(new Event(event.type === "change" ? "change" : "input", { bubbles: true }));
+          return;
+        }
         const key = String(target.getAttribute("data-field") || "").trim();
         if (!key) return;
         const isInputControl = (target instanceof HTMLInputElement) || (target instanceof HTMLTextAreaElement) || (target instanceof HTMLSelectElement);
@@ -449,6 +477,11 @@ export function createBindEventsFeature(deps = {}) {
         editTargets.forEach((targetItem) => {
           if (!targetItem.fields) targetItem.fields = createEmptyFields();
           targetItem.fields[key] = value;
+          if (key === "receive_date") {
+            targetItem.fields.calibration_date = value;
+          } else if (key === "calibration_date") {
+            targetItem.fields.receive_date = value;
+          }
           if (["receive_date", "calibration_date", "release_date"].includes(key)) {
             const inferred = inferDateTriplet({
               receiveDate: String(targetItem.fields.receive_date || ""),
@@ -461,7 +494,16 @@ export function createBindEventsFeature(deps = {}) {
             if (!isCompleteDateText(targetItem.fields.calibration_date || "") && inferred.calibrationDate) {
               targetItem.fields.calibration_date = inferred.calibrationDate;
             }
-            if (!isCompleteDateText(targetItem.fields.release_date || "") && inferred.releaseDate) {
+            const strictRelease = inferDateTriplet({
+              receiveDate: String(targetItem.fields.receive_date || ""),
+              calibrationDate: String(targetItem.fields.calibration_date || ""),
+              releaseDate: "",
+            }).releaseDate;
+            const hasCompleteUpperDate = isCompleteDateText(targetItem.fields.receive_date || "")
+              || isCompleteDateText(targetItem.fields.calibration_date || "");
+            if (hasCompleteUpperDate && strictRelease) {
+              targetItem.fields.release_date = strictRelease;
+            } else if (!isCompleteDateText(targetItem.fields.release_date || "") && inferred.releaseDate) {
               targetItem.fields.release_date = inferred.releaseDate;
             }
           }
