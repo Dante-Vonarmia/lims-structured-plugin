@@ -278,6 +278,7 @@ def _clear_section_three_table_defaults(
     get_cell_text: Callable[[ET.Element], str],
     set_cell_text: Callable[[ET.Element, str], None],
     source_text: str,
+    normalize_space: Callable[[str], str],
 ) -> bool:
     # If source has no structured detail rows for section 三, clear template default rows (e.g., hardcoded 60/60/60).
     if "\t" in str(source_text or ""):
@@ -401,7 +402,7 @@ def fill_r846b_specific_sections(
     for tbl in tables:
         current_section = ""
         row_cells = [tr.findall("./w:tc", ns) for tr in tbl.findall("./w:tr", ns)]
-        if _clear_section_three_table_defaults(row_cells, ns, get_cell_text, set_cell_text, source_text):
+        if _clear_section_three_table_defaults(row_cells, ns, get_cell_text, set_cell_text, source_text, normalize_space):
             changed = True
         for cells in row_cells:
             if not cells:
