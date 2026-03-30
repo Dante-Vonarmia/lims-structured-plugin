@@ -675,6 +675,9 @@ th .th-filter-count {
 
 tr.active { background: #e7f1ff; }
 tr:hover { background: #f2f7ff; }
+tr.row-generated { background: #edf9ef; }
+tr.row-generated:hover { background: #e2f4e6; }
+tr.row-generated.active { background: #dceddf; }
 
 .status {
   border: 1px solid #a9b8cd;
@@ -1377,6 +1380,33 @@ tr:hover { background: #f2f7ff; }
 .source-form-item textarea {
   min-height: 72px;
   resize: vertical;
+}
+
+.target-date-grid {
+  display: inline-grid;
+  grid-auto-flow: column;
+  gap: 4px;
+  align-items: center;
+}
+
+.source-form-item .target-date-input {
+  width: auto;
+  text-align: center;
+  padding: 6px 4px;
+}
+
+.source-form-item .target-date-year {
+  min-width: 64px;
+}
+
+.source-form-item .target-date-month,
+.source-form-item .target-date-day {
+  min-width: 44px;
+}
+
+.target-date-unit {
+  color: #4a607f;
+  font-size: 12px;
 }
 
 .measurement-table-wrap {

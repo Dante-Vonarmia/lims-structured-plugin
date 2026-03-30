@@ -16,21 +16,8 @@ export function createGenerationWorkflowFeature(deps = {}) {
     if (isExcelItem(item)) throw new Error("Excel 文件请用 Excel 批量生成");
     if (!item.isRecordRow && (!item.fileId || item.status === "pending")) await processItem(item);
     if (item.isRecordRow && !item.fileId) await ensureSourceFileId(item);
-    if (generateMode === "source_file") {
-      if (!item.fileId) {
-        const up = await uploadFile(item.file);
-        item.fileId = up.file_id;
-      }
-      if (!item.fileId) throw new Error("证书模板来源文件未上传，无法生成");
-      item.reportId = `source_${item.fileId}`;
-      item.reportDownloadUrl = `/api/upload/${item.fileId}/download`;
-      item.reportFileName = item.fileName || "source_file";
-      item.status = "generated";
-      item.message = "已导出证书模板来源文件（未套模板）";
-      renderQueue();
-      return { report_id: item.reportId, download_url: item.reportDownloadUrl };
-    }
-    if (!item.templateName) throw new Error("未选择模板");
+    const isModifyCertificate = generateMode === "source_file";
+    if (!isModifyCertificate && !item.templateName) throw new Error("未选择模板");
     const validation = validateItemForGeneration(item, generateMode);
     const incompleteSummary = validation.ok ? "" : String(validation.summary || "");
     if (!validation.ok) {
@@ -42,13 +29,16 @@ export function createGenerationWorkflowFeature(deps = {}) {
       ...(item.fields || {}),
     };
     const payload = {
-      template_name: item.templateName,
+      template_name: isModifyCertificate
+        ? (item.sourceFileName || item.fileName || item.templateName || "")
+        : item.templateName,
       source_file_id: item.fileId || null,
+      source_file_as_template: isModifyCertificate,
       fields: {
         ...fieldsForGenerate,
         instrument_catalog_names: state.instrumentCatalogNames.join("\n"),
         instrument_catalog_rows_json: JSON.stringify(state.instrumentCatalogRows || []),
-        raw_record: item.rawText || fieldsForGenerate.raw_record || "",
+        raw_record: fieldsForGenerate.raw_record || item.rawText || "",
       },
     };
     const data = await fetchJson("/api/report", {
@@ -58,7 +48,15 @@ export function createGenerationWorkflowFeature(deps = {}) {
     });
     item.reportId = data.report_id;
     item.reportDownloadUrl = data.download_url;
-    item.reportFileName = item.templateName || "report.docx";
+    item.reportFileName = item.sourceFileName || item.fileName || item.templateName || "report.docx";
+    item.reportGenerateMode = generateMode;
+    const modeReports = item.modeReports && typeof item.modeReports === "object" ? { ...item.modeReports } : {};
+    modeReports[generateMode] = {
+      reportId: item.reportId,
+      reportDownloadUrl: item.reportDownloadUrl,
+      reportFileName: item.reportFileName,
+    };
+    item.modeReports = modeReports;
     if (item.templateUserSelected) {
       await persistTemplateDefaultMapping(item, item.templateName);
     }

@@ -23,6 +23,7 @@ export function createFormRenderingFeature(deps = {}) {
     getMeasurementHeaderIndexes,
     renderGeneralCheckWysiwygBlock,
     isTargetMultiEditMode,
+    parseDateParts,
     escapeHtml,
     escapeAttr,
   } = deps;
@@ -133,7 +134,7 @@ export function createFormRenderingFeature(deps = {}) {
       const isMixed = !!fieldView.mixed;
       const isProblem = problemKeys.has(field.key);
       const isMultiDisabled = isMultiMode && MULTI_EDIT_DISABLED_FIELD_KEYS.has(field.key);
-      if (isMultiDisabled) {
+      if (isMultiDisabled && field.key !== "measurement_items") {
         return `
             <label class="source-form-item slot-field wide multi-edit-disabled-field">
               <span>${escapeHtml(field.label)}</span>
@@ -150,22 +151,18 @@ export function createFormRenderingFeature(deps = {}) {
               </label>
             `;
         }
-        const codeRegex = /([A-Za-z]{1,5}\s*\/\s*T\s*\d+(?:\.\d+)?-\d{4})/ig;
-        const normalizeCode = (code) => String(code || "")
+        const normalizeLine = (line) => String(line || "")
           .replace(/\s+/g, " ")
-          .replace(/\s*\/\s*/g, "/")
-          .replace(/\/\s*T\s*/ig, "/T ")
           .trim();
         const fromArray = Array.isArray(f.basis_standard_items) ? f.basis_standard_items : [];
         const source = fromArray.length ? fromArray.join("\n") : String(f.basis_standard || "");
         const items = [];
         const seen = new Set();
-        let m;
-        while ((m = codeRegex.exec(source)) !== null) {
-          const code = normalizeCode(m[1] || "");
-          if (!code || seen.has(code)) continue;
-          seen.add(code);
-          items.push(code);
+        const lines = source.split(/\r?\n/).map((x) => normalizeLine(x)).filter(Boolean);
+        for (const line of lines) {
+          if (seen.has(line)) continue;
+          seen.add(line);
+          items.push(line);
         }
         if (!items.length && String(source || "").trim()) items.push(String(source).trim());
         const rows = (items.length ? items : [""]).map((itemValue, idx) => `
@@ -187,10 +184,12 @@ export function createFormRenderingFeature(deps = {}) {
       }
       if (field.key === "measurement_items") {
         if (isMultiMode) {
+          const hasCatalog = !!(state.instrumentCatalogRows && state.instrumentCatalogRows.length);
           return `
-              <label class="source-form-item slot-field wide multi-edit-disabled-field">
-                <span>${escapeHtml(field.label)}</span>
-                <div class="source-recog-block multi-edit-disabled-note">多选模式下不可编辑</div>
+              <label class="source-form-item slot-field wide">
+                <div class="measurement-toolbar">
+                  <button type="button" class="btn ghost" data-action="match-measurement-items-multi" ${hasCatalog ? "" : "disabled"}>一键目录配对</button>
+                </div>
               </label>
             `;
         }
@@ -264,6 +263,30 @@ export function createFormRenderingFeature(deps = {}) {
       rawText: rawForDate,
       tableStruct: item && item.generalCheckStruct ? item.generalCheckStruct : null,
     })}
+            </label>
+          `;
+      }
+      const fieldKey = String(field.key || "").trim();
+      const fieldLabel = String(field.label || "").trim();
+      const isDateField = ["receive_date", "calibration_date", "release_date"].includes(fieldKey)
+        || ["收样日期", "校准日期", "发布日期"].includes(fieldLabel);
+      if (isDateField) {
+        const parsed = parseDateParts(value);
+        const year = parsed ? String(parsed.year || "") : "";
+        const month = parsed ? String(parsed.month || "") : "";
+        const day = parsed ? String(parsed.day || "") : "";
+        return `
+            <label class="source-form-item slot-field ${isProblem ? "is-problem" : ""}">
+              <span>${escapeHtml(field.label)}</span>
+              <input type="hidden" data-field="${escapeAttr(fieldKey)}" value="${escapeAttr(value)}" />
+              <span class="target-date-grid">
+                <input type="text" class="target-date-input target-date-year ${isProblem ? "is-problem" : ""}" data-date-field="${escapeAttr(fieldKey)}" data-date-part="year" value="${escapeAttr(year)}" maxlength="4" placeholder="${isMixed ? MULTI_EDIT_MIXED_PLACEHOLDER : ""}" />
+                <span class="target-date-unit">年</span>
+                <input type="text" class="target-date-input target-date-month ${isProblem ? "is-problem" : ""}" data-date-field="${escapeAttr(fieldKey)}" data-date-part="month" value="${escapeAttr(month)}" maxlength="2" />
+                <span class="target-date-unit">月</span>
+                <input type="text" class="target-date-input target-date-day ${isProblem ? "is-problem" : ""}" data-date-field="${escapeAttr(fieldKey)}" data-date-part="day" value="${escapeAttr(day)}" maxlength="2" />
+                <span class="target-date-unit">日</span>
+              </span>
             </label>
           `;
       }

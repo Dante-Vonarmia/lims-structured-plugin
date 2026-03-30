@@ -74,6 +74,7 @@ import {
   parseDateFromLabelText,
   parseDateParts,
   renderRichCellHtml,
+  shiftDateText,
   toDateOnlyDisplay,
 } from "./features/shared/text-date-utils.js";
 
@@ -126,6 +127,8 @@ import {
         reportId: "",
         reportDownloadUrl: "",
         reportFileName: "",
+        reportGenerateMode: "",
+        modeReports: {},
       };
     }
 
@@ -367,6 +370,8 @@ import {
       item.reportId = "";
       item.reportDownloadUrl = "";
       item.reportFileName = "";
+      item.reportGenerateMode = "";
+      item.modeReports = {};
       item.status = "incomplete";
       item.message = buildCategoryMessage(item, `待补全：${validation.summary}`);
     }
@@ -655,6 +660,7 @@ import {
       getMeasurementHeaderIndexes,
       renderGeneralCheckWysiwygBlock,
       isTargetMultiEditMode,
+      parseDateParts,
       escapeHtml,
       escapeAttr,
     });
@@ -709,6 +715,7 @@ import {
       inferCategory,
       inferDateTriplet,
       isCompleteDateText,
+      shiftDateText,
       isSupportedFile,
       isTargetMultiEditMode,
       isTypingTarget,

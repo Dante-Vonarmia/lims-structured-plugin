@@ -377,11 +377,7 @@ export function createGeneralCheckFeature(deps = {}) {
         return /(?:^|[\s])(?:一[、.．)]\s*)?一般检查|General inspection/i.test(line) || /^\(\d+\)/.test(String(line || "").trim());
       });
       const scopedRows = startIdx >= 0 ? visibleRowsRaw.slice(startIdx) : [];
-      const cutIdx = scopedRows.findIndex((row) => {
-        const line = (row.texts || []).join(" ");
-        return /(?:以下空白|\(以下空白\)|（以下空白）)/.test(line) || /^注[:：]?|^Notes?[:：]?/i.test(String(line || "").trim());
-      });
-      const bodyRows = cutIdx >= 0 ? scopedRows.slice(0, cutIdx) : scopedRows;
+      const bodyRows = scopedRows;
       let maxUsedCol = -1;
       bodyRows.forEach((row) => {
         const texts = Array.isArray(row && row.texts) ? row.texts : [];
@@ -425,7 +421,7 @@ export function createGeneralCheckFeature(deps = {}) {
       });
       return `
         <div class="source-recog-block source-recog-block-formatted">
-          <table class="source-recog-block-table">
+          <table class="source-recog-block-table general-check-table">
             <tbody>${tableRows.join("")}</tbody>
           </table>
         </div>

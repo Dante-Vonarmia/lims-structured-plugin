@@ -71,6 +71,8 @@ export function createRecognitionWorkflowFeature(deps = {}) {
     item.reportId = "";
     item.reportDownloadUrl = "";
     item.reportFileName = "";
+    item.reportGenerateMode = "";
+    item.modeReports = {};
     renderQueue();
 
     if (!item.fileId) {
@@ -153,6 +155,8 @@ export function createRecognitionWorkflowFeature(deps = {}) {
           reportId: "",
           reportDownloadUrl: "",
           reportFileName: "",
+          reportGenerateMode: "",
+          modeReports: {},
           generalCheckStruct: generalCheckStructureData,
         };
         await applyAutoTemplateMatch(recordItem, { force: true });

@@ -138,6 +138,8 @@ export function createRecognitionBatchFeature(deps = {}) {
           item.reportId = "";
           item.reportDownloadUrl = "";
           item.reportFileName = "";
+          item.reportGenerateMode = "";
+          item.modeReports = {};
           renderQueue();
 
           const rawText = String(item.rawText || (item.fields && item.fields.raw_record) || "");

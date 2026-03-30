@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+import re
 from typing import Any, Callable
 from xml.etree import ElementTree as ET
 
@@ -14,6 +15,65 @@ RULES_FILE = Path(__file__).resolve().parents[1] / "rules" / "fixed_template_fil
 
 def _normalize(value: str) -> str:
     return " ".join(str(value or "").replace("\u3000", " ").split()).strip()
+
+
+def _contains_marker(text: str, marker: str) -> bool:
+    source = str(text or "")
+    token = _normalize(marker)
+    if not source or not token:
+        return False
+    if token in source:
+        return True
+    pattern = r"\s*".join(re.escape(ch) for ch in token)
+    try:
+        return re.search(pattern, source, flags=re.IGNORECASE) is not None
+    except re.error:
+        return False
+
+
+def _strip_marker(text: str, marker: str) -> str:
+    source = str(text or "")
+    token = _normalize(marker)
+    if not source or not token:
+        return source
+    pattern = r"\s*".join(re.escape(ch) for ch in token)
+    try:
+        return re.sub(pattern, " ", source, flags=re.IGNORECASE)
+    except re.error:
+        return source.replace(token, " ")
+
+
+def _looks_like_label_cell(value: str, markers: tuple[str, ...]) -> bool:
+    text = _normalize(value)
+    if not text:
+        return False
+    for marker in markers:
+        marker_text = _normalize(marker)
+        if not marker_text or not _contains_marker(text, marker_text):
+            continue
+        remain = _strip_marker(text, marker_text)
+        # Remove common bilingual subtitle tokens that belong to label cells.
+        remain = re.sub(
+            r"(?i)\b("
+            r"client|address|instrument\s*name|manufacturer|model\s*/?\s*specification|"
+            r"instrument\s*serial\s*number|certificate\s*series\s*number|"
+            r"model|specification|serial|number|issue\s*date|year|month|day|others|"
+            r"ambient\s*temperature|relative\s*humidity|received\s*date|date\s*for\s*calibration"
+            r")\b",
+            " ",
+            remain,
+        )
+        remain = re.sub(r"[：:、，,。.;；()（）\[\]{}<>《》“”\"'`~!@#$%^&*_+=|\\/?\-\s□■•·]+", "", remain)
+        if not remain:
+            return True
+    return False
+
+
+def _is_compatible_value_cell(value: str, markers: tuple[str, ...]) -> bool:
+    text = _normalize(value)
+    if not text:
+        return True
+    return not any(marker and _contains_marker(text, marker) for marker in markers)
 
 
 @lru_cache(maxsize=1)
@@ -107,6 +167,13 @@ def fill_base_fields_in_cells_by_rules(
         if not value and not (mode_aware and basis_mode):
             continue
 
+        if value and idx + 1 < len(cells) and _looks_like_label_cell(current, markers):
+            next_cell_text = _normalize(get_cell_text(cells[idx + 1]))
+            if _is_compatible_value_cell(next_cell_text, markers):
+                set_cell_text(cells[idx + 1], value)
+                changed = True
+                continue
+
         mode_prefix = format_mode_prefix(basis_mode) if mode_aware else ""
         rendered = format_text.format(value=value, mode_prefix=mode_prefix)
         set_cell_text(cells[idx], rendered)
@@ -161,8 +228,11 @@ def fill_base_fields_in_paragraphs_by_rules(
 ) -> bool:
     changed = False
     rules = load_fixed_fill_rules().get("base_fields", []) or []
+    table_paragraph_ids = {id(p) for p in root.findall(".//w:tbl//w:p", NS)}
     paragraphs = root.findall(".//w:p", NS)
     for paragraph in paragraphs:
+        if id(paragraph) in table_paragraph_ids:
+            continue
         paragraph_text = _normalize("".join((node.text or "") for node in paragraph.findall(".//w:t", NS)))
         if not paragraph_text:
             continue

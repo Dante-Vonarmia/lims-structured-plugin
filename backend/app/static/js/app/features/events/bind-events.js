@@ -23,8 +23,6 @@ export function createBindEventsFeature(deps = {}) {
     getMeasurementHeaderIndexes,
     getSelectedNormalItems,
     inferCategory,
-    inferDateTriplet,
-    isCompleteDateText,
     isSupportedFile,
     isTargetMultiEditMode,
     isTypingTarget,
@@ -333,6 +331,7 @@ export function createBindEventsFeature(deps = {}) {
         if (datePart && dateField && target instanceof HTMLInputElement) {
           const grid = target.closest(".target-date-grid");
           if (!(grid instanceof HTMLElement)) return;
+          const formRoot = $("targetFieldForm");
           const yearInput = grid.querySelector('input[data-date-field][data-date-part="year"]');
           const monthInput = grid.querySelector('input[data-date-field][data-date-part="month"]');
           const dayInput = grid.querySelector('input[data-date-field][data-date-part="day"]');
@@ -346,14 +345,46 @@ export function createBindEventsFeature(deps = {}) {
           if (yearInput.value !== year) yearInput.value = year;
           if (monthInput.value !== month) monthInput.value = month;
           if (dayInput.value !== day) dayInput.value = day;
+          const isDateComplete = !!(year && month && day);
           let composed = "";
           if (year || month || day) {
-            composed = `${year}${year ? "年" : ""}${month ? `${month.padStart(2, "0")}月` : ""}${day ? `${day.padStart(2, "0")}日` : ""}`;
+            composed = `${year}${year ? "年" : ""}${month ? `${month}月` : ""}${day ? `${day}日` : ""}`;
           }
           if (hiddenInput.value !== composed) {
             hiddenInput.value = composed;
           }
+          if (isDateComplete) hiddenInput.setAttribute("data-date-exact", "1");
+          else hiddenInput.removeAttribute("data-date-exact");
           hiddenInput.dispatchEvent(new Event(event.type === "change" ? "change" : "input", { bubbles: true }));
+
+          // 收样日期 <-> 校准日期：同位同步（年对年、月对月、日对日），发布日期不参与。
+          const pairField = dateField === "receive_date"
+            ? "calibration_date"
+            : (dateField === "calibration_date" ? "receive_date" : "");
+          if (pairField && formRoot instanceof HTMLElement) {
+            const pairPart = formRoot.querySelector(`input[data-date-field="${pairField}"][data-date-part="${datePart}"]`);
+            const pairYear = formRoot.querySelector(`input[data-date-field="${pairField}"][data-date-part="year"]`);
+            const pairMonth = formRoot.querySelector(`input[data-date-field="${pairField}"][data-date-part="month"]`);
+            const pairDay = formRoot.querySelector(`input[data-date-field="${pairField}"][data-date-part="day"]`);
+            const pairHidden = formRoot.querySelector(`input[type="hidden"][data-field="${pairField}"]`);
+            if (
+              pairPart instanceof HTMLInputElement
+              && pairYear instanceof HTMLInputElement
+              && pairMonth instanceof HTMLInputElement
+              && pairDay instanceof HTMLInputElement
+              && pairHidden instanceof HTMLInputElement
+            ) {
+              const nextPartValue = datePart === "year"
+                ? year
+                : (datePart === "month" ? month : day);
+              if (pairPart.value !== nextPartValue) pairPart.value = nextPartValue;
+              const pairComposed = `${pairYear.value}${pairYear.value ? "年" : ""}${pairMonth.value ? `${pairMonth.value}月` : ""}${pairDay.value ? `${pairDay.value}日` : ""}`;
+              if (pairHidden.value !== pairComposed) {
+                pairHidden.value = pairComposed;
+                pairHidden.dispatchEvent(new Event(event.type === "change" ? "change" : "input", { bubbles: true }));
+              }
+            }
+          }
           return;
         }
         const key = String(target.getAttribute("data-field") || "").trim();
@@ -366,6 +397,23 @@ export function createBindEventsFeature(deps = {}) {
         if (!item.fields) item.fields = createEmptyFields();
         const editTargets = isTargetMultiEditMode() ? getSelectedNormalItems() : [item];
         const isMultiMode = editTargets.length > 1;
+        const invalidateCurrentModeReports = (targets) => {
+          const mode = getGenerateMode();
+          (Array.isArray(targets) ? targets : []).forEach((targetItem) => {
+            if (!targetItem || typeof targetItem !== "object") return;
+            const current = targetItem.modeReports && typeof targetItem.modeReports === "object"
+              ? { ...targetItem.modeReports }
+              : {};
+            if (current[mode]) delete current[mode];
+            targetItem.modeReports = current;
+            if (String(targetItem.reportGenerateMode || "") === mode) {
+              targetItem.reportId = "";
+              targetItem.reportDownloadUrl = "";
+              targetItem.reportFileName = "";
+              targetItem.reportGenerateMode = "";
+            }
+          });
+        };
         const readControlValue = () => {
           if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
             return String(target.value || "");
@@ -382,21 +430,21 @@ export function createBindEventsFeature(deps = {}) {
         };
         if (key === "basis_standard_item") {
           if (isMultiMode) return;
-          const normalizeCode = (code) => String(code || "")
+          const normalizeLine = (line) => String(line || "")
             .replace(/\s+/g, " ")
-            .replace(/\s*\/\s*/g, "/")
-            .replace(/\/\s*T\s*/ig, "/T ")
             .trim();
           const idx = Number.parseInt(String(target.getAttribute("data-index") || "-1"), 10);
           const current = Array.isArray(item.fields.basis_standard_items) ? [...item.fields.basis_standard_items] : [];
           while (current.length <= idx) current.push("");
-          current[idx] = normalizeCode(target.value || "");
-          const next = current.map((x) => normalizeCode(x)).filter(Boolean);
+          current[idx] = normalizeLine(target.value || "");
+          const next = current.map((x) => normalizeLine(x)).filter(Boolean);
           item.fields.basis_standard_items = next;
           item.fields.basis_standard = next.join("\n");
+          invalidateCurrentModeReports([item]);
           renderTargetFieldForm(item);
           applyTargetFieldProblemStyles(item);
           renderQueue();
+          setStatus("已更新：本次校准所依据的技术规范");
           return;
         }
         if (key === "measurement_item_cell") {
@@ -424,8 +472,10 @@ export function createBindEventsFeature(deps = {}) {
             item.fields.measurement_item_count = String(body.length);
           }
           rebuildMeasurementItemsFromCells();
+          invalidateCurrentModeReports([item]);
           renderTargetFieldForm(item);
           renderQueue();
+          setStatus("已更新：本次校准所使用的主要计量标准器具");
           return;
         }
         if (key === "general_check_cell") {
@@ -447,7 +497,9 @@ export function createBindEventsFeature(deps = {}) {
               .map((row) => (Array.isArray(row) ? row : []).map((v) => String(v || "").trim()).join("\t"))
               .join("\n");
             item.fields.general_check = item.fields.general_check_full;
+            invalidateCurrentModeReports([item]);
             renderQueue();
+            setStatus("已更新：一般检查");
             return;
           }
           const data = buildGeneralCheckWysiwygData(String(item.fields.general_check_full || ""), {
@@ -469,44 +521,34 @@ export function createBindEventsFeature(deps = {}) {
             .map((row) => row.map((cell) => String(cell || "").trim()).join("\t"))
             .join("\n");
           item.fields.general_check = item.fields.general_check_full;
+          invalidateCurrentModeReports([item]);
           renderQueue();
+          setStatus("已更新：一般检查");
           return;
         }
         const value = readControlValue();
         if (isMultiMode && MULTI_EDIT_DISABLED_FIELD_KEYS.has(key)) return;
+        const isDateKey = ["receive_date", "calibration_date", "release_date"].includes(key);
+        const parseLooseDateParts = (dateText) => {
+          const text = String(dateText || "").trim();
+          if (!text) return { year: "", month: "", day: "" };
+          const y = text.match(/(\d{1,4})\s*年?/);
+          const m = text.match(/(\d{1,2})\s*月/);
+          const d = text.match(/(\d{1,2})\s*日/);
+          return {
+            year: y ? String(y[1] || "") : "",
+            month: m ? String(m[1] || "") : "",
+            day: d ? String(d[1] || "") : "",
+          };
+        };
+        const applyDateSyncRule = (targetItem, changedKey, changedValue) => {
+          if (!targetItem.fields) targetItem.fields = createEmptyFields();
+          targetItem.fields[changedKey] = String(changedValue || "");
+        };
         editTargets.forEach((targetItem) => {
           if (!targetItem.fields) targetItem.fields = createEmptyFields();
-          targetItem.fields[key] = value;
-          if (key === "receive_date") {
-            targetItem.fields.calibration_date = value;
-          } else if (key === "calibration_date") {
-            targetItem.fields.receive_date = value;
-          }
-          if (["receive_date", "calibration_date", "release_date"].includes(key)) {
-            const inferred = inferDateTriplet({
-              receiveDate: String(targetItem.fields.receive_date || ""),
-              calibrationDate: String(targetItem.fields.calibration_date || ""),
-              releaseDate: String(targetItem.fields.release_date || ""),
-            });
-            if (!isCompleteDateText(targetItem.fields.receive_date || "") && inferred.receiveDate) {
-              targetItem.fields.receive_date = inferred.receiveDate;
-            }
-            if (!isCompleteDateText(targetItem.fields.calibration_date || "") && inferred.calibrationDate) {
-              targetItem.fields.calibration_date = inferred.calibrationDate;
-            }
-            const strictRelease = inferDateTriplet({
-              receiveDate: String(targetItem.fields.receive_date || ""),
-              calibrationDate: String(targetItem.fields.calibration_date || ""),
-              releaseDate: "",
-            }).releaseDate;
-            const hasCompleteUpperDate = isCompleteDateText(targetItem.fields.receive_date || "")
-              || isCompleteDateText(targetItem.fields.calibration_date || "");
-            if (hasCompleteUpperDate && strictRelease) {
-              targetItem.fields.release_date = strictRelease;
-            } else if (!isCompleteDateText(targetItem.fields.release_date || "") && inferred.releaseDate) {
-              targetItem.fields.release_date = inferred.releaseDate;
-            }
-          }
+          if (isDateKey) applyDateSyncRule(targetItem, key, value);
+          else targetItem.fields[key] = value;
           if (key === "general_check_full") {
             targetItem.fields.general_check = cleanBlockText(targetItem.fields.general_check_full || "");
           }
@@ -528,8 +570,40 @@ export function createBindEventsFeature(deps = {}) {
             }
           }
         });
+        invalidateCurrentModeReports(editTargets);
+        if (isDateKey && target instanceof HTMLElement && target.hasAttribute("data-date-exact")) {
+          target.removeAttribute("data-date-exact");
+        }
+        if (isDateKey && isMultiMode) {
+          refreshTargetFieldFormBySelection();
+        } else if (isDateKey && !isMultiMode) {
+          const formRoot = $("targetFieldForm");
+          const syncDateFieldDom = (fieldKey, fieldValue) => {
+            if (!(formRoot instanceof HTMLElement)) return;
+            const hidden = formRoot.querySelector(`input[type="hidden"][data-field="${fieldKey}"]`);
+            if (hidden instanceof HTMLInputElement) hidden.value = String(fieldValue || "");
+            const parts = parseLooseDateParts(fieldValue);
+            const y = formRoot.querySelector(`input[data-date-field="${fieldKey}"][data-date-part="year"]`);
+            const m = formRoot.querySelector(`input[data-date-field="${fieldKey}"][data-date-part="month"]`);
+            const d = formRoot.querySelector(`input[data-date-field="${fieldKey}"][data-date-part="day"]`);
+            if (y instanceof HTMLInputElement) y.value = parts.year;
+            if (m instanceof HTMLInputElement) m.value = parts.month;
+            if (d instanceof HTMLInputElement) d.value = parts.day;
+          };
+          const active = getActiveItem();
+          if (active && active.fields) {
+            syncDateFieldDom("receive_date", active.fields.receive_date);
+            syncDateFieldDom("calibration_date", active.fields.calibration_date);
+            syncDateFieldDom("release_date", active.fields.release_date);
+          }
+        }
         applyTargetFieldProblemStyles(item);
         renderQueue();
+        if (event.type === "change") {
+          const labelEl = target.closest(".source-form-item")?.querySelector("span");
+          const labelText = String(labelEl && labelEl.textContent ? labelEl.textContent : "").trim();
+          setStatus(`已更新：${labelText || key}`);
+        }
       };
       $("targetFieldForm").addEventListener("input", handleTargetFieldChange);
       $("targetFieldForm").addEventListener("change", handleTargetFieldChange);
@@ -587,15 +661,12 @@ export function createBindEventsFeature(deps = {}) {
           item.fields.general_check = item.fields.general_check_full;
           renderTargetFieldForm(item);
           renderQueue();
+          setStatus("已更新：一般检查");
           return;
         }
-        if (action === "match-measurement-items") {
-          const tableRows = parseTableRowsFromBlock(String(item.fields.measurement_items || ""));
-          if (!tableRows || tableRows.length < 2) return;
-          if (!state.instrumentCatalogRows || !state.instrumentCatalogRows.length) {
-            appendLog("目录未就绪：请先装填计量标准器具目录");
-            return;
-          }
+        const applyMeasurementCatalogMatch = (targetItem) => {
+          const tableRows = parseTableRowsFromBlock(String((targetItem && targetItem.fields && targetItem.fields.measurement_items) || ""));
+          if (!tableRows || tableRows.length < 2) return 0;
           const [header, ...body] = tableRows;
           const { nameIdx, modelIdx, codeIdx } = getMeasurementHeaderIndexes(header);
           const nextBody = body.map((row) => [...row]);
@@ -612,34 +683,71 @@ export function createBindEventsFeature(deps = {}) {
             const after = `${row[nameIdx] || ""}|${row[modelIdx] || ""}|${row[codeIdx] || ""}`;
             if (before !== after) changed += 1;
           }
-          item.fields.measurement_items = [header, ...nextBody].map((row) => row.join("\t")).join("\n");
+          targetItem.fields.measurement_items = [header, ...nextBody].map((row) => row.join("\t")).join("\n");
+          return changed;
+        };
+        if (action === "match-measurement-items") {
+          if (!state.instrumentCatalogRows || !state.instrumentCatalogRows.length) {
+            appendLog("目录未就绪：请先装填计量标准器具目录");
+            return;
+          }
+          const changed = applyMeasurementCatalogMatch(item);
           renderTargetFieldForm(item);
           applyTargetFieldProblemStyles(item);
           renderQueue();
-          appendLog(changed > 0 ? `器具目录一键配对完成：更新 ${changed} 行` : "器具目录一键配对完成：无可更新项");
+          renderTargetPreview(item);
+          const doneText = changed > 0 ? `器具目录一键配对完成：更新 ${changed} 行` : "器具目录一键配对完成：无可更新项";
+          setStatus(doneText);
+          appendLog(doneText);
           return;
         }
-        const normalizeCode = (code) => String(code || "")
+        if (action === "match-measurement-items-multi") {
+          if (!state.instrumentCatalogRows || !state.instrumentCatalogRows.length) {
+            appendLog("目录未就绪：请先装填计量标准器具目录");
+            return;
+          }
+          const selectedItems = getSelectedNormalItems();
+          if (!selectedItems.length) return;
+          let changedRows = 0;
+          let changedRecords = 0;
+          selectedItems.forEach((targetItem) => {
+            if (!targetItem.fields) targetItem.fields = createEmptyFields();
+            const changed = applyMeasurementCatalogMatch(targetItem);
+            if (changed > 0) changedRecords += 1;
+            changedRows += changed;
+          });
+          renderTargetFieldForm(item);
+          applyTargetFieldProblemStyles(item);
+          renderQueue();
+          renderTargetPreview(item);
+          const doneText = changedRows > 0
+            ? `器具目录一键配对完成（多选）：更新 ${changedRecords} 条记录，共 ${changedRows} 行`
+            : "器具目录一键配对完成（多选）：无可更新项";
+          setStatus(doneText);
+          appendLog(doneText);
+          return;
+        }
+        const normalizeLine = (line) => String(line || "")
           .replace(/\s+/g, " ")
-          .replace(/\s*\/\s*/g, "/")
-          .replace(/\/\s*T\s*/ig, "/T ")
           .trim();
         const current = Array.isArray(item.fields.basis_standard_items) ? [...item.fields.basis_standard_items] : [];
         if (action === "add-basis-item") {
           current.push("");
           item.fields.basis_standard_items = current;
-          item.fields.basis_standard = current.map((x) => normalizeCode(x)).filter(Boolean).join("\n");
+          item.fields.basis_standard = current.map((x) => normalizeLine(x)).filter(Boolean).join("\n");
           renderTargetFieldForm(item);
+          setStatus("已更新：本次校准所依据的技术规范");
           return;
         }
         if (action === "remove-basis-item") {
           const idx = Number.parseInt(String(target.getAttribute("data-index") || "-1"), 10);
           if (idx < 0 || idx >= current.length) return;
           current.splice(idx, 1);
-          const next = current.map((x) => normalizeCode(x)).filter(Boolean);
+          const next = current.map((x) => normalizeLine(x)).filter(Boolean);
           item.fields.basis_standard_items = next;
           item.fields.basis_standard = next.join("\n");
           renderTargetFieldForm(item);
+          setStatus("已更新：本次校准所依据的技术规范");
         }
       });
 
@@ -662,6 +770,8 @@ export function createBindEventsFeature(deps = {}) {
           item.reportId = "";
           item.reportDownloadUrl = "";
           item.reportFileName = "";
+          item.reportGenerateMode = "";
+          item.modeReports = {};
           item.status = "ready";
           item.message = "未选择模板";
           renderQueue();
@@ -680,6 +790,8 @@ export function createBindEventsFeature(deps = {}) {
         item.reportId = "";
         item.reportDownloadUrl = "";
         item.reportFileName = "";
+        item.reportGenerateMode = "";
+        item.modeReports = {};
         const validation = validateItemForGeneration(item, "certificate_template");
         if (!validation.ok) applyIncompleteState(item, validation);
         else {
@@ -720,6 +832,8 @@ export function createBindEventsFeature(deps = {}) {
         item.reportId = "";
         item.reportDownloadUrl = "";
         item.reportFileName = "";
+        item.reportGenerateMode = "";
+        item.modeReports = {};
         const validation = validateItemForGeneration(item, "certificate_template");
         if (!validation.ok) applyIncompleteState(item, validation);
         else {
@@ -945,11 +1059,11 @@ export function createBindEventsFeature(deps = {}) {
         if (!item || state.busy) return;
         const generateMode = getGenerateMode();
         try {
-          setLoading(true, generateMode === "source_file" ? `导出证书模板来源文件：${item.fileName}` : `生成原始记录中：${item.fileName}`);
+          setLoading(true, generateMode === "source_file" ? `生成修改证书中：${item.fileName}` : `生成原始记录中：${item.fileName}`);
           await generateItem(item, generateMode);
           await renderPreviews();
           setRightViewMode("preview");
-          setStatus(generateMode === "source_file" ? `已导出证书模板来源文件：${item.fileName}` : `已生成原始记录：${item.fileName}`);
+          setStatus(generateMode === "source_file" ? `已生成修改证书：${item.fileName}` : `已生成原始记录：${item.fileName}`);
         } catch (error) {
           if (item.status !== "incomplete") {
             item.status = "error";
@@ -998,6 +1112,19 @@ export function createBindEventsFeature(deps = {}) {
       });
 
       $("generateModeSelect").addEventListener("change", async () => {
+        const item = getActiveItem();
+        const generateMode = getGenerateMode();
+        if (item) {
+          const modeReports = item.modeReports && typeof item.modeReports === "object" ? item.modeReports : {};
+          const modeReport = modeReports[generateMode] && typeof modeReports[generateMode] === "object"
+            ? modeReports[generateMode]
+            : null;
+          item.reportId = String((modeReport && modeReport.reportId) || "");
+          item.reportDownloadUrl = String((modeReport && modeReport.reportDownloadUrl) || "");
+          item.reportFileName = String((modeReport && modeReport.reportFileName) || "");
+          item.reportGenerateMode = modeReport ? generateMode : "";
+          renderQueue();
+        }
         syncGenerateModeUiText();
         await renderTargetPreview(getActiveItem());
       });

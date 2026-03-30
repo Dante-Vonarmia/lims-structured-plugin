@@ -603,15 +603,43 @@ def _extract_standard_codes(value: str) -> list[str]:
 def _extract_basis_standard_items(text: str) -> list[str]:
     basis_block = _extract_basis_block(text)
     source = basis_block or text
-    codes = _extract_standard_codes(source)
-    return codes
+    if not source:
+        return []
+    lines = [line.strip() for line in str(source).split("\n")]
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw_line in lines:
+        line = _clean_extracted_value(raw_line)
+        if not line:
+            continue
+        if re.search(
+            r"(?:本次校准所依据的技术规范|Reference\s*documents\s*for\s*the\s*calibration|(?:检测|校准)\s*/?\s*依据)",
+            line,
+            flags=re.IGNORECASE,
+        ):
+            continue
+        if re.search(
+            r"(?:本次校准所使用的主要计量标准器具|Main measurement standard instruments|(?:其它|其他)校准信息|Calibration Information|(?:一[、.．)]\s*)?一般检查|General inspection|备注|结果|检测员|校准员|核验员)",
+            line,
+            flags=re.IGNORECASE,
+        ):
+            continue
+        normalized_line = re.sub(r"^\(?\d+\)?[、.．]?\s*", "", line)
+        normalized_line = _clean_extracted_value(normalized_line)
+        if not normalized_line or normalized_line in seen:
+            continue
+        seen.add(normalized_line)
+        result.append(normalized_line)
+    if result:
+        return result
+    return _extract_standard_codes(source)
 
 
 def _extract_basis_standard_value(text: str) -> str:
-    codes = _extract_basis_standard_items(text)
-    if not codes:
+    items = _extract_basis_standard_items(text)
+    if not items:
         return ""
-    return "\n".join(codes)
+    return "\n".join(items)
 
 
 def _extract_basis_mode(text: str) -> str:

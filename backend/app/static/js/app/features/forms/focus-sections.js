@@ -5,7 +5,6 @@ export function createFocusSectionsFeature(deps = {}) {
     normalizeOptionalBlank,
     parseDateFromLabelText,
     isCompleteDateText,
-    inferDateTriplet,
     cleanBlockText,
     safeNormalizeMeasurementItemsText,
     parseTableRowsFromBlock,
@@ -77,49 +76,41 @@ export function createFocusSectionsFeature(deps = {}) {
       releaseDateFromRaw,
       normalizedSrc.release_date,
     );
-    const inferred = inferDateTriplet({ receiveDate, calibrationDate, releaseDate });
     return {
       location,
       temperature: temperature.replace(/\s+/g, ""),
       humidity: humidity.replace(/\s+/g, ""),
       other,
-      receiveDate: inferred.receiveDate || "",
-      calibrationDate: inferred.calibrationDate || "",
-      releaseDate: inferred.releaseDate || "",
+      receiveDate: receiveDate || "",
+      calibrationDate: calibrationDate || "",
+      releaseDate: releaseDate || "",
     };
   }
 
   function extractBasisSummary(raw, src = {}) {
-    const normalizeCode = (code) => String(code || "")
+    const normalizeLine = (line) => String(line || "")
       .replace(/\s+/g, " ")
-      .replace(/\s*\/\s*/g, "/")
-      .replace(/\/\s*T\s*/ig, "/T ")
       .trim();
-    const collectCodes = (text) => {
+    const collectLines = (text) => {
       const source = String(text || "");
       if (!source.trim()) return [];
       const list = [];
       const seen = new Set();
-      const regex = /([A-Za-z]{1,5}\s*\/\s*T\s*\d+(?:\.\d+)?-\d{4})/ig;
-      let m;
-      while ((m = regex.exec(source)) !== null) {
-        const code = normalizeCode(m[1] || "");
-        if (!code || seen.has(code)) continue;
-        seen.add(code);
-        list.push(code);
+      const parts = source.split(/\r?\n/).map((x) => normalizeLine(x)).filter(Boolean);
+      for (const line of parts) {
+        if (seen.has(line)) continue;
+        seen.add(line);
+        list.push(line);
       }
       return list;
     };
     const fromArray = Array.isArray(src && src.basis_standard_items) ? src.basis_standard_items : [];
     if (fromArray.length) {
-      const arrCodes = collectCodes(fromArray.join("\n"));
-      if (arrCodes.length) return arrCodes.join("\n");
+      const arrLines = collectLines(fromArray.join("\n"));
+      if (arrLines.length) return arrLines.join("\n");
     }
     const direct = String((src && (src.basis_standard || src.calibration_basis)) || "").trim();
-    if (direct) {
-      const directCodes = collectCodes(direct);
-      return directCodes.length ? directCodes.join("\n") : direct;
-    }
+    if (direct) return direct;
     const text = cleanBlockText(raw);
     if (!text) return "";
     const block = extractBlockByLine(
@@ -127,8 +118,8 @@ export function createFocusSectionsFeature(deps = {}) {
       [/(?:本次校准所依据的技术规范|Reference documents for the calibration|检测\/?校准依据|校准依据)/i],
       [/(?:本次校准所使用的主要计量标准器具|Main measurement standard instruments)/i, /(?:其它|其他)校准信息|Calibration Information/i, /(?:一般检查|General inspection)/i, /^备注[:：]?/i, /^结果[:：]?/i, /(?:检测员|校准员|核验员)/],
     );
-    const codes = collectCodes(block || text);
-    return codes.join("\n");
+    const lines = collectLines(block || text);
+    return lines.join("\n");
   }
 
   function buildFocusSections(item, src, problemKeys, includeExtraRows = true) {

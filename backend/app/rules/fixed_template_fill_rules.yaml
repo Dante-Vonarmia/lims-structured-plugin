@@ -17,6 +17,15 @@ generic_record_table:
       markers: ["原始记录"]
 
 base_fields:
+  - key: certificate_no
+    markers: ["缆专检号", "Certificate series number"]
+    format: "缆专检号：{value}"
+  - key: client_name
+    markers: ["委托单位", "Client"]
+    format: "委托单位：{value}"
+  - key: address
+    markers: ["地址", "Address"]
+    format: "地址：{value}"
   - key: basis_standard
     markers: ["校准依据", "检测依据", "检测/校准依据", "依据"]
     format: "{mode_prefix}依据：{value}"

@@ -81,7 +81,7 @@ export function createQueueRenderingFeature(deps = {}) {
       return `<th><span class="th-cell"><button type="button" class="th-sort-btn ${isSortActive ? "is-active" : ""}" data-sort-key="${escapeAttr(key)}"><span>${escapeHtml(label)}</span><span class="th-sort-icon">${sortIcon}</span></button><button type="button" class="th-filter-trigger ${isFilterActive ? "is-active" : ""}" data-filter-key="${escapeAttr(key)}">${escapeHtml(triggerText)}</button>${menuHtml}</span></th>`;
     };
     const rows = visibleItems.map((item, i) => `
-        <tr data-id="${escapeAttr(item.id)}" class="${item.id === state.activeId ? "active" : ""}">
+        <tr data-id="${escapeAttr(item.id)}" class="${item.id === state.activeId ? "active" : ""} ${item.status === "generated" ? "row-generated" : ""}">
           <td><input type="checkbox" class="row-check" data-id="${escapeAttr(item.id)}" ${state.selectedIds.has(item.id) ? "checked" : ""} /></td>
           <td>${i + 1}</td>
           <td title="${escapeAttr((item.fields && item.fields.device_name) || "")}">${escapeHtml((item.fields && item.fields.device_name) || "-")}</td>

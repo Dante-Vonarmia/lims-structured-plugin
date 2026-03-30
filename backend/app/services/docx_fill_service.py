@@ -4,6 +4,7 @@ import logging
 import posixpath
 import re
 import zipfile
+from copy import deepcopy
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -91,6 +92,7 @@ def fill_r801b_docx(
     record_table = _find_record_table(tables)
     if record_table is not None:
         _fill_record_table(record_table, payload)
+    _fill_generic_base_labels_in_paragraphs(root, {"certificate_no": payload.get("certificate_no", "")})
     _fill_page_number_placeholders_in_root(root)
 
     _preserve_original_namespaces(root, original_namespaces)
@@ -99,6 +101,12 @@ def fill_r801b_docx(
         for item in zin.infolist():
             if item.filename == DOC_XML_PATH:
                 zout.writestr(item, updated_xml)
+            elif _is_header_xml_path(item.filename):
+                header_xml = _fill_header_base_fields_xml(
+                    zin.read(item.filename),
+                    {"certificate_no": payload.get("certificate_no", "")},
+                )
+                zout.writestr(item, header_xml)
             else:
                 zout.writestr(item, zin.read(item.filename))
     return True
@@ -140,6 +148,9 @@ def fill_r803b_docx(
         for item in zin.infolist():
             if item.filename == DOC_XML_PATH:
                 zout.writestr(item, updated_xml)
+            elif _is_header_xml_path(item.filename):
+                header_xml = _fill_header_base_fields_xml(zin.read(item.filename), payload)
+                zout.writestr(item, header_xml)
             else:
                 zout.writestr(item, zin.read(item.filename))
     return True
@@ -191,6 +202,9 @@ def fill_r802b_docx(
         for item in zin.infolist():
             if item.filename == DOC_XML_PATH:
                 zout.writestr(item, updated_xml)
+            elif _is_header_xml_path(item.filename):
+                header_xml = _fill_header_base_fields_xml(zin.read(item.filename), payload)
+                zout.writestr(item, header_xml)
             elif item.filename == DOC_RELS_PATH and updated_rels_xml is not None:
                 zout.writestr(item, updated_rels_xml)
             elif item.filename == CONTENT_TYPES_PATH and updated_ct_xml is not None:
@@ -243,6 +257,9 @@ def fill_r825b_docx(
         for item in zin.infolist():
             if item.filename == DOC_XML_PATH:
                 zout.writestr(item, updated_xml)
+            elif _is_header_xml_path(item.filename):
+                header_xml = _fill_header_base_fields_xml(zin.read(item.filename), payload)
+                zout.writestr(item, header_xml)
             else:
                 zout.writestr(item, zin.read(item.filename))
     return True
@@ -308,6 +325,9 @@ def fill_r846b_docx(
         for item in zin.infolist():
             if item.filename == DOC_XML_PATH:
                 zout.writestr(item, updated_xml)
+            elif _is_header_xml_path(item.filename):
+                header_xml = _fill_header_base_fields_xml(zin.read(item.filename), payload)
+                zout.writestr(item, header_xml)
             else:
                 zout.writestr(item, zin.read(item.filename))
     return True
@@ -330,6 +350,19 @@ def fill_generic_record_docx(
         payload["detail_general_check"] = detail_general_check
     payload["__raw_record_text"] = normalize_multiline_text(context.get("raw_record", ""), normalize_space=normalize_space)
     payload["__template_name"] = template_path.name
+    payload["__measurement_items_text"] = normalize_multiline_text_preserve_tabs(
+        context.get("measurement_items", ""),
+        normalize_space=normalize_space,
+    )
+    for key in (
+        "shield_background_noise_0kv_pc",
+        "shield_background_noise_working_kv_pc",
+        "shield_p1_dbm_values",
+        "shield_p2_dbm_values",
+        "shield_se_db_values",
+        "shield_se_avg_db",
+    ):
+        payload[key] = normalize_space(str(context.get(key, "") or ""))
 
     with zipfile.ZipFile(template_path, "r") as zin:
         original_xml = zin.read(DOC_XML_PATH)
@@ -343,8 +376,8 @@ def fill_generic_record_docx(
         if record_table is not None:
             _fill_r825b_record_table(record_table, payload)
             changed = True
-        else:
-            changed = _fill_generic_base_labels_in_tables(tables, payload)
+        changed = _fill_generic_base_labels_in_tables(tables, payload) or changed
+        changed = _fill_r882b_specific_sections(root, tables, payload) or changed
         changed = _fill_generic_semantic_value_matrices_from_payload(tables, payload) or changed
         changed = _fill_generic_semantic_series_rows_from_payload(tables, payload) or changed
         changed = _fill_generic_uncertainty_u_from_payload(root, tables, payload) or changed
@@ -361,9 +394,488 @@ def fill_generic_record_docx(
         for item in zin.infolist():
             if item.filename == DOC_XML_PATH:
                 zout.writestr(item, updated_xml)
+            elif _is_header_xml_path(item.filename):
+                header_xml = _fill_header_base_fields_xml(zin.read(item.filename), payload)
+                zout.writestr(item, header_xml)
             else:
                 zout.writestr(item, zin.read(item.filename))
     return True
+
+
+def fill_modify_certificate_docx(
+    template_path: Path,
+    output_path: Path,
+    context: dict[str, str],
+    source_file_path: Path | None,
+) -> bool:
+    if not template_path.exists():
+        return False
+
+    payload = build_r825b_payload(context=context, source_file_path=source_file_path)
+    if not payload:
+        return False
+    detail_general_check = _resolve_detail_general_check_for_generic_fill(context)
+    if detail_general_check:
+        payload["detail_general_check"] = detail_general_check
+
+    with zipfile.ZipFile(template_path, "r") as zin:
+        original_xml = zin.read(DOC_XML_PATH)
+        original_namespaces = _capture_namespaces(original_xml)
+        root = ET.fromstring(original_xml)
+
+    tables = root.findall(".//w:tbl", NS)
+    changed = False
+    if tables:
+        changed = _fill_modify_certificate_front_page_sections(tables, payload) or changed
+        changed = _fill_modify_certificate_blueprint_sections(tables, payload, context) or changed
+    _fill_page_number_placeholders_in_root(root)
+    changed = _fill_generic_base_labels_in_paragraphs(
+        root,
+        {"certificate_no": payload.get("certificate_no", "")},
+    ) or changed
+
+    _preserve_original_namespaces(root, original_namespaces)
+    updated_xml = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    with zipfile.ZipFile(template_path, "r") as zin, zipfile.ZipFile(output_path, "w") as zout:
+        for item in zin.infolist():
+            if item.filename == DOC_XML_PATH:
+                zout.writestr(item, updated_xml)
+            elif _is_header_xml_path(item.filename):
+                header_xml = _fill_header_base_fields_xml(
+                    zin.read(item.filename),
+                    {"certificate_no": payload.get("certificate_no", "")},
+                )
+                zout.writestr(item, header_xml)
+            else:
+                zout.writestr(item, zin.read(item.filename))
+    return True
+
+
+def _fill_modify_certificate_front_page_sections(
+    tables: list[ET.Element],
+    payload: dict[str, Any],
+) -> bool:
+    value_mappings: tuple[tuple[str, tuple[str, ...]], ...] = (
+        ("certificate_no", (r"缆\s*专\s*检\s*号", r"Certificate\s*series\s*number")),
+        ("client_name", (r"委\s*托\s*单\s*位", r"Client")),
+        ("address", (r"地\s*址", r"Address")),
+        ("device_name", (r"器\s*具\s*名\s*称", r"Instrument\s*name")),
+        ("manufacturer", (r"制\s*造\s*厂\s*/\s*商", r"Manufacturer")),
+        ("device_model", (r"型\s*号\s*/\s*规\s*格", r"Model\s*/\s*Specification")),
+        ("device_code", (r"器\s*具\s*编\s*号", r"Instrument\s*serial\s*number")),
+    )
+    date_mappings: tuple[tuple[str, str], ...] = (("发布日期", "publish_date"),)
+
+    changed = False
+    for tbl in tables:
+        table_text = normalize_space(" ".join([get_cell_text(tc) for tc in tbl.findall(".//w:tc", NS)]))
+        if not table_text:
+            continue
+        if "CALIBRATION CERTIFICATE" not in table_text:
+            continue
+        if "委托单位" not in table_text or "器具名称" not in table_text:
+            continue
+        rows = tbl.findall("./w:tr", NS)
+        for row in rows:
+            cells = row.findall("./w:tc", NS)
+            if not cells:
+                continue
+            for label, payload_key in date_mappings:
+                changed = _fill_modify_certificate_split_date_cell(
+                    cells,
+                    label=label,
+                    date_text=str(payload.get(payload_key, "") or ""),
+                ) or changed
+            for payload_key, patterns in value_mappings:
+                changed = _fill_modify_certificate_value_cell(
+                    cells,
+                    patterns=patterns,
+                    value=normalize_space(payload.get(payload_key, "")),
+                ) or changed
+        break
+    return changed
+
+
+def _fill_modify_certificate_value_cell(
+    cells: list[ET.Element],
+    patterns: tuple[str, ...],
+    value: str,
+) -> bool:
+    if not value:
+        return False
+    for idx, cell in enumerate(cells):
+        text = normalize_space(get_cell_text(cell))
+        if not text:
+            continue
+        if not any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in patterns):
+            continue
+        target_idx = idx + 1 if idx + 1 < len(cells) else idx
+        if target_idx == idx:
+            return False
+        set_cell_text(cells[target_idx], value)
+        return True
+    return False
+
+
+def _fill_modify_certificate_split_date_cell(
+    cells: list[ET.Element],
+    label: str,
+    date_text: str,
+) -> bool:
+    date_value = sanitize_context_date(date_text)
+    if not date_value:
+        return False
+    if not any(_contains_compact_label(get_cell_text(cell), label) for cell in cells):
+        return False
+    parts = split_date_parts(date_value)
+    if not parts:
+        return False
+    year, month, day = parts
+    _fill_split_date(cells, label, f"{year}年{month}月{day}日")
+    return True
+
+
+def _fill_modify_certificate_blueprint_sections(
+    tables: list[ET.Element],
+    payload: dict[str, Any],
+    context: dict[str, str],
+) -> bool:
+    changed = False
+    for tbl in tables:
+        table_text = normalize_space(" ".join([get_cell_text(tc) for tc in tbl.findall(".//w:tc", NS)]))
+        if not table_text:
+            continue
+        if (
+            ("Main measurement standard instruments" in table_text or "主要计量标准器具" in table_text)
+            and ("Calibration Information" in table_text or "校准信息" in table_text)
+            and ("Received date" in table_text or "收样日期" in table_text)
+        ):
+            changed = _fill_modify_certificate_middle_table(tbl, payload, context) or changed
+        # 在“修改证书”模式下，续页区块保持蓝本原样，避免破坏表格结构与注释行。
+    return changed
+
+
+def _fill_modify_certificate_middle_table(
+    tbl: ET.Element,
+    payload: dict[str, Any],
+    context: dict[str, str],
+) -> bool:
+    rows = tbl.findall("./w:tr", NS)
+    if len(rows) < 4:
+        return False
+    changed = False
+
+    def _row_text(row: ET.Element) -> str:
+        return normalize_space(" ".join([get_cell_text(tc) for tc in row.findall("./w:tc", NS)]))
+
+    basis_lines = _resolve_basis_lines_for_blueprint(payload, context)
+    if basis_lines:
+        rows = tbl.findall("./w:tr", NS)
+        basis_title_idx = next(
+            (idx for idx, row in enumerate(rows) if re.search(r"本次校准所依据的技术规范|Reference documents for the calibration", _row_text(row), flags=re.IGNORECASE)),
+            -1,
+        )
+        measurement_title_idx = next(
+            (idx for idx, row in enumerate(rows) if re.search(r"本次校准所使用的主要计量标准器具|Main measurement standard instruments", _row_text(row), flags=re.IGNORECASE)),
+            -1,
+        )
+        if basis_title_idx >= 0 and measurement_title_idx > basis_title_idx + 1:
+            basis_start = basis_title_idx + 1
+            basis_end = measurement_title_idx
+            existing_rows = basis_end - basis_start
+            need_rows = len(basis_lines)
+            if existing_rows > 0 and need_rows > existing_rows:
+                template_row = rows[basis_start]
+                for _ in range(need_rows - existing_rows):
+                    rows = tbl.findall("./w:tr", NS)
+                    anchor_row = rows[basis_end]
+                    anchor_pos = list(tbl).index(anchor_row)
+                    tbl.insert(anchor_pos, deepcopy(template_row))
+                    basis_end += 1
+                rows = tbl.findall("./w:tr", NS)
+                existing_rows = basis_end - basis_start
+            for offset in range(max(existing_rows, 0)):
+                cells = rows[basis_start + offset].findall("./w:tc", NS)
+                if not cells:
+                    continue
+                target_idx = 1 if len(cells) > 1 else 0
+                value = basis_lines[offset] if offset < len(basis_lines) else ""
+                set_cell_text(cells[target_idx], value)
+                changed = True
+
+    measurement_rows = _resolve_measurement_rows_for_blueprint(context)
+    if measurement_rows:
+        rows = tbl.findall("./w:tr", NS)
+        header_idx = next(
+            (
+                idx
+                for idx, row in enumerate(rows)
+                if re.search(r"器具名称|Instrument name", _row_text(row), flags=re.IGNORECASE)
+                and re.search(r"测量范围|Measurement range", _row_text(row), flags=re.IGNORECASE)
+            ),
+            -1,
+        )
+        summary_idx = next(
+            (
+                idx
+                for idx, row in enumerate(rows)
+                if re.search(r"以上计量标准器具|Quantity values of above measurement standards", _row_text(row), flags=re.IGNORECASE)
+            ),
+            -1,
+        )
+        if header_idx >= 0 and summary_idx > header_idx + 1:
+            data_start = header_idx + 1
+            data_end = summary_idx
+            existing_rows = data_end - data_start
+            need_rows = len(measurement_rows)
+            if existing_rows > 0 and need_rows > existing_rows:
+                template_row = rows[data_start]
+                for _ in range(need_rows - existing_rows):
+                    rows = tbl.findall("./w:tr", NS)
+                    anchor_row = rows[data_end]
+                    anchor_pos = list(tbl).index(anchor_row)
+                    tbl.insert(anchor_pos, deepcopy(template_row))
+                    data_end += 1
+                rows = tbl.findall("./w:tr", NS)
+                existing_rows = data_end - data_start
+
+            header_cells = rows[header_idx].findall("./w:tc", NS)
+            if len(header_cells) > 2 and not normalize_space(get_cell_text(header_cells[2])):
+                set_cell_text(header_cells[2], "编号\nNumber")
+                changed = True
+            col_map = {
+                "name": _find_cell_index_contains_any(header_cells, ("器具名称", "Instrument name")),
+                "model": _find_cell_index_contains_any(header_cells, ("型号/规格", "Model/Specification")),
+                "code": _find_cell_index_contains_any(header_cells, ("器具编号", "仪器编号", "设备编号", "编号")),
+                "range": _find_cell_index_contains_any(header_cells, ("测量范围", "Measurement range")),
+                "uncertainty": _find_cell_index_contains_any(header_cells, ("不确定度", "Accuracy", "Uncertainty")),
+                "cert_valid": _find_cell_index_contains_any(header_cells, ("证书编号", "有效期限", "Certificate number", "Valid date")),
+                "trace": _find_cell_index_contains_any(header_cells, ("溯源机构", "traceability")),
+            }
+            if 0 <= col_map["code"] < len(header_cells):
+                if "证书" in get_cell_text(header_cells[col_map["code"]]):
+                    col_map["code"] = 2 if len(header_cells) > 2 else -1
+            if col_map["name"] < 0:
+                col_map["name"] = 0
+            if col_map["model"] < 0:
+                col_map["model"] = 1
+            if col_map["code"] < 0:
+                col_map["code"] = 2
+            if col_map["range"] < 0:
+                col_map["range"] = 3
+            if col_map["uncertainty"] < 0:
+                col_map["uncertainty"] = 4
+            if col_map["cert_valid"] < 0:
+                col_map["cert_valid"] = 5
+            if col_map["trace"] < 0:
+                col_map["trace"] = 6
+
+            for offset in range(max(existing_rows, 0)):
+                row_cells = rows[data_start + offset].findall("./w:tc", NS)
+                item = measurement_rows[offset] if offset < len(measurement_rows) else {}
+                for key, idx in col_map.items():
+                    if idx < 0 or idx >= len(row_cells):
+                        continue
+                    set_cell_text(row_cells[idx], normalize_space(str(item.get(key, ""))))
+                    changed = True
+
+    location = normalize_space(payload.get("location", "")) or normalize_space(context.get("location", ""))
+    temp = normalize_space(payload.get("temperature", "")) or normalize_space(context.get("temperature", ""))
+    humidity = normalize_space(payload.get("humidity", "")) or normalize_space(context.get("humidity", ""))
+    other = normalize_space(context.get("calibration_other", ""))
+    receive_date = sanitize_context_date(context.get("receive_date", ""))
+    calibration_date = sanitize_context_date(context.get("calibration_date", ""))
+    publish_date = sanitize_context_date(context.get("publish_date", "")) or sanitize_context_date(
+        context.get("release_date", ""),
+    )
+    rows = tbl.findall("./w:tr", NS)
+    for row in rows:
+        cells = row.findall("./w:tc", NS)
+        if not cells:
+            continue
+        text = _row_text(row)
+        if location and re.search(r"地点", text) and not re.search(r"收样日期|校准日期", text):
+            set_cell_text(cells[-1], f"地点： {location}\n")
+            changed = True
+        if re.search(r"温度", text) and re.search(r"湿度", text):
+            if temp:
+                idx = _find_cell_index_contains(cells, "温度")
+                if idx >= 0:
+                    set_cell_text(cells[idx], f"温度：{temp}\nAmbient temperature")
+                    changed = True
+            if humidity:
+                idx = _find_cell_index_contains(cells, "湿度")
+                if idx >= 0:
+                    set_cell_text(cells[idx], f"湿度：{humidity}\nRelative humidity")
+                    changed = True
+            if other:
+                idx = _find_cell_index_contains_any(cells, ("其它", "其他", "Others"))
+                if idx >= 0:
+                    other_value = "/" if other in {"/", "／"} else other
+                    set_cell_text(cells[idx], f"其它： {other_value}\nOthers")
+                    changed = True
+        if re.search(r"收\s*样\s*日\s*期", text) and re.search(r"校\s*准\s*日\s*期", text):
+            if receive_date:
+                _fill_split_date(cells, "收样日期", receive_date)
+                changed = True
+            if calibration_date:
+                _fill_split_date(cells, "校准日期", calibration_date)
+                changed = True
+
+    return changed
+
+
+def _fill_modify_certificate_general_check_table(
+    tbl: ET.Element,
+    payload: dict[str, Any],
+    context: dict[str, str],
+) -> bool:
+    rows = tbl.findall("./w:tr", NS)
+    if len(rows) < 2:
+        return False
+    source = normalize_multiline_text_preserve_tabs(
+        context.get("general_check_full", ""),
+        normalize_space=normalize_space,
+    ) or normalize_multiline_text(
+        payload.get("detail_general_check", ""),
+        normalize_space=normalize_space,
+    )
+    lines = _normalize_general_check_lines_for_blueprint(source)
+    if not lines:
+        return False
+    row1_cells = rows[1].findall("./w:tc", NS)
+    if not row1_cells:
+        return False
+    set_cell_text(row1_cells[0], "\n".join(lines))
+    return True
+
+
+def _resolve_basis_lines_for_blueprint(payload: dict[str, Any], context: dict[str, str]) -> list[str]:
+    raw_items = context.get("basis_standard_items", "")
+    items: list[str] = []
+    if isinstance(raw_items, list):
+        items = [normalize_space(str(item or "")) for item in raw_items]
+    elif isinstance(raw_items, tuple):
+        items = [normalize_space(str(item or "")) for item in raw_items]
+    else:
+        text_items = normalize_multiline_text_preserve_tabs(str(raw_items or ""), normalize_space=normalize_space)
+        if text_items:
+            items = [normalize_space(part) for part in re.split(r"[\n]+", text_items)]
+    items = [item for item in items if item]
+    if items:
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for item in items:
+            if item in seen:
+                continue
+            seen.add(item)
+            deduped.append(item)
+        return deduped
+    basis_text = normalize_space(context.get("basis_standard", "")) or normalize_space(payload.get("basis_standard", ""))
+    if basis_text:
+        lines = [normalize_space(line) for line in str(basis_text).splitlines() if normalize_space(line)]
+        if lines:
+            return lines
+        return [basis_text]
+    code_fallback = _extract_standard_codes_from_context_items(context.get("basis_standard_items", "")) or _extract_standard_codes(
+        normalize_space(payload.get("basis_standard", "")),
+    )
+    if code_fallback:
+        return code_fallback
+    return []
+
+
+def _parse_measurement_items_rows(text: str) -> list[dict[str, str]]:
+    source = normalize_multiline_text_preserve_tabs(text, normalize_space=normalize_space)
+    if not source:
+        return []
+    lines = [line for line in source.splitlines() if normalize_space(line)]
+    if not lines:
+        return []
+    rows: list[list[str]] = []
+    for line in lines:
+        parts = [normalize_space(part) for part in line.split("\t")]
+        if len(parts) < 2:
+            parts = [normalize_space(part) for part in re.split(r"\s{2,}", line)]
+        if len(parts) < 2 and "|" in line:
+            parts = [normalize_space(part) for part in line.split("|")]
+        parts = [p for p in parts if p]
+        if not parts:
+            continue
+        rows.append(parts)
+    if not rows:
+        return []
+    header_tokens = "".join(rows[0]).lower()
+    if ("器具名称" in rows[0][0]) or ("instrumentname" in re.sub(r"\s+", "", header_tokens)):
+        rows = rows[1:]
+    result: list[dict[str, str]] = []
+    for row in rows:
+        padded = row + [""] * max(0, 8 - len(row))
+        cert_valid = normalize_space(padded[5])
+        result.append(
+            {
+                "name": padded[0],
+                "model": padded[1],
+                "code": padded[2],
+                "range": padded[3],
+                "uncertainty": padded[4],
+                "cert_valid": cert_valid,
+                "trace": padded[6] if len(padded) > 6 else "",
+            }
+        )
+    return [item for item in result if item.get("name")]
+
+
+def _resolve_measurement_rows_for_blueprint(context: dict[str, str]) -> list[dict[str, str]]:
+    rows = _parse_measurement_items_rows(context.get("measurement_items", ""))
+    if rows:
+        return rows
+    catalog_rows = parse_instrument_catalog_rows_json(context.get("instrument_catalog_rows_json", ""))
+    result: list[dict[str, str]] = []
+    for item in catalog_rows:
+        cert = normalize_space(item.get("certificate_no", ""))
+        valid = normalize_space(item.get("valid_date", ""))
+        cert_valid = " ".join([x for x in (cert, valid) if x]).strip()
+        result.append(
+            {
+                "name": normalize_space(item.get("name", "")),
+                "model": normalize_space(item.get("model", "")),
+                "code": normalize_space(item.get("code", "")),
+                "range": normalize_space(item.get("measurement_range", "")),
+                "uncertainty": normalize_space(item.get("uncertainty", "")),
+                "cert_valid": cert_valid,
+                "trace": normalize_space(item.get("traceability_institution", "")),
+            }
+        )
+    return [item for item in result if item.get("name")]
+
+
+def _normalize_general_check_lines_for_blueprint(text: str) -> list[str]:
+    source = normalize_multiline_text_preserve_tabs(text, normalize_space=normalize_space)
+    if not source:
+        return []
+    lines: list[str] = []
+    for raw in source.splitlines():
+        line = str(raw or "").strip()
+        if not line:
+            continue
+        if re.search(r"校准结果\s*/\s*说明|Results of calibration and additional explanation", line, flags=re.IGNORECASE):
+            continue
+        if re.search(r"^注[:：]?", line):
+            break
+        if line.startswith("序号/标记") or line.startswith("内容"):
+            continue
+        if "\t" in line:
+            parts = [normalize_space(p) for p in line.split("\t")]
+            parts = [p for p in parts if p]
+            if not parts:
+                continue
+            line = " ".join(parts)
+        line = normalize_space(line)
+        if not line:
+            continue
+        lines.append(line)
+    return lines
 
 
 def _score_detail_general_check_text(text: str) -> int:
@@ -432,7 +944,9 @@ def build_r801b_payload(
         text_block,
         "校准日期",
     )
-    publish_date = sanitize_context_date(context.get("publish_date", "")) or extract_date_from_text(
+    publish_date = sanitize_context_date(context.get("publish_date", "")) or sanitize_context_date(
+        context.get("release_date", ""),
+    ) or extract_date_from_text(
         text_block,
         "发布日期",
     )
@@ -527,6 +1041,13 @@ def build_r803b_payload(
     ) or extract_value_by_regex(
         text_block,
         patterns=(r"(?:制造厂/商|制造商|生产厂商|厂商|厂家)[:：]?\s*([^\n|]+)",),
+    )
+    client_name = sanitize_context_value(context.get("client_name", "")) or extract_value_from_tables(
+        tables,
+        labels=("委托单位", "客户名称", "送校单位", "Client"),
+    ) or extract_value_by_regex(
+        text_block,
+        patterns=(r"(?:委托单位|客户名称|送校单位|Client)[:：]?\s*([^\n|]+)",),
     )
     device_model = sanitize_context_value(context.get("device_model", "")) or extract_value_from_tables(
         tables,
@@ -691,6 +1212,8 @@ def build_r803b_payload(
 
     payload = {
         "device_name": normalize_space(device_name),
+        "client_name": normalize_space(client_name),
+        "address": normalize_space(address),
         "manufacturer": normalize_space(manufacturer),
         "device_model": normalize_space(device_model),
         "device_code": normalize_space(device_code),
@@ -710,6 +1233,8 @@ def build_r803b_payload(
     has_value = any(
         [
             payload["device_name"],
+            payload["client_name"],
+            payload["address"],
             payload["manufacturer"],
             payload["device_model"],
             payload["device_code"],
@@ -739,8 +1264,15 @@ def build_r825b_payload(
     payload = build_r803b_payload(context=context, source_file_path=source_file_path)
     if not payload:
         return {}
+    receive_date = sanitize_context_date(context.get("receive_date", ""))
+    calibration_date = sanitize_context_date(context.get("calibration_date", ""))
+    publish_date = sanitize_context_date(context.get("publish_date", "")) or sanitize_context_date(
+        context.get("release_date", ""),
+    )
     return {
         "device_name": normalize_space(payload.get("device_name", "")),
+        "client_name": normalize_space(payload.get("client_name", "")),
+        "address": normalize_space(payload.get("address", "")),
         "manufacturer": normalize_space(payload.get("manufacturer", "")),
         "device_model": normalize_space(payload.get("device_model", "")),
         "device_code": normalize_space(payload.get("device_code", "")),
@@ -750,6 +1282,9 @@ def build_r825b_payload(
         "location": normalize_space(payload.get("location", "")),
         "temperature": normalize_space(payload.get("temperature", "")),
         "humidity": normalize_space(payload.get("humidity", "")),
+        "receive_date": receive_date,
+        "calibration_date": calibration_date,
+        "publish_date": publish_date,
     }
 
 
@@ -1594,7 +2129,7 @@ def _fill_split_date(cells: list[ET.Element], label: str, date_text: str) -> Non
 
     label_idx = -1
     for idx, cell in enumerate(cells):
-        if label in get_cell_text(cell):
+        if _contains_compact_label(get_cell_text(cell), label):
             label_idx = idx
             break
     if label_idx < 0:
@@ -1617,17 +2152,30 @@ def _find_cell_index_with_text(
     indices: range,
     marker: str,
 ) -> int:
+    compact_marker = re.sub(r"\s+", "", str(marker or ""))
     for idx in indices:
-        if get_cell_text(cells[idx]) == marker:
+        compact_text = re.sub(r"\s+", "", str(get_cell_text(cells[idx]) or ""))
+        if compact_marker and compact_marker in compact_text:
             return idx
     return -1
 
 
+def _contains_compact_label(text: str, label: str) -> bool:
+    compact_text = re.sub(r"\s+", "", str(text or ""))
+    compact_label = re.sub(r"\s+", "", str(label or ""))
+    return bool(compact_label and compact_label in compact_text)
+
+
 def split_date_parts(date_text: str) -> tuple[str, str, str] | None:
-    match = re.search(r"(\d{4})\D+(\d{1,2})\D+(\d{1,2})", date_text)
-    if not match:
+    digits = re.findall(r"\d+", str(date_text or ""))
+    if len(digits) < 3:
         return None
-    return match.group(1), match.group(2).zfill(2), match.group(3).zfill(2)
+    year = str(digits[0] or "").strip()
+    month = str(digits[1] or "").strip().zfill(2)
+    day = str(digits[2] or "").strip().zfill(2)
+    if not year or not month or not day:
+        return None
+    return year, month, day
 
 
 def _fill_record_table(tbl: ET.Element, payload: dict[str, Any]) -> None:
@@ -1902,6 +2450,25 @@ def _fill_generic_base_labels_in_paragraphs(root: ET.Element, payload: dict[str,
     )
 
 
+def _is_header_xml_path(path: str) -> bool:
+    return bool(re.match(r"^word/header\d+\.xml$", str(path or "").strip()))
+
+
+def _fill_header_base_fields_xml(xml_data: bytes, payload: dict[str, Any]) -> bytes:
+    try:
+        original_namespaces = _capture_namespaces(xml_data)
+        root = ET.fromstring(xml_data)
+    except Exception:
+        return xml_data
+
+    tables = root.findall(".//w:tbl", NS)
+    if tables:
+        _fill_generic_base_labels_in_tables(tables, payload)
+    _fill_generic_base_labels_in_paragraphs(root, payload)
+    _preserve_original_namespaces(root, original_namespaces)
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
 def _fill_r803b_hammer_actual_rows(tbl: ET.Element, rows_data: list[list[str]]) -> None:
     rows = tbl.findall("./w:tr", NS)
     actual_rows: list[list[ET.Element]] = []
@@ -2118,6 +2685,258 @@ def _fill_generic_semantic_series_rows_from_payload(tables: list[ET.Element], pa
                     continue
                 set_cell_text(cells[idx], fill_value)
                 changed = True
+    return changed
+
+
+def _is_r882_profile(payload: dict[str, Any]) -> bool:
+    name = str(payload.get("__template_name", "") or "")
+    return bool(re.search(r"r[-_ ]?882b|屏蔽室", name, flags=re.IGNORECASE))
+
+
+def _extract_r882_background_noise_values(text: str) -> list[str]:
+    lines = [normalize_space(x) for x in str(text or "").splitlines() if normalize_space(x)]
+    if not lines:
+        return []
+    bg0 = ""
+    working: list[str] = []
+    for line in lines:
+        if "背景噪声" not in line:
+            continue
+        nums = re.findall(r"([+-]?\d+(?:\.\d+)?)\s*pC", line, flags=re.IGNORECASE)
+        if not nums:
+            continue
+        value = normalize_space(nums[-1])
+        if not value:
+            continue
+        if re.search(r"(?<!\d)0\s*kV", line, flags=re.IGNORECASE):
+            if not bg0:
+                bg0 = value
+        else:
+            working.append(value)
+    out: list[str] = []
+    if bg0:
+        out.append(bg0)
+    out.extend([x for x in working if x])
+    return out
+
+
+def _extract_r882_series_rows_from_text(text: str) -> list[tuple[str, str, str]]:
+    rows = [x for x in str(text or "").splitlines() if str(x or "").strip()]
+    if not rows:
+        return []
+
+    grid: list[list[str]] = []
+    for row in rows:
+        if "\t" not in row:
+            continue
+        grid.append([normalize_space(x) for x in row.split("\t")])
+    if not grid:
+        return []
+
+    out: list[tuple[str, str, str]] = []
+    for i, row in enumerate(grid):
+        p1_idx = -1
+        p2_idx = -1
+        se_idx = -1
+        for ci, cell in enumerate(row):
+            compact = re.sub(r"\s+", "", str(cell or ""))
+            if p1_idx < 0 and "P1" in compact:
+                p1_idx = ci
+            if p2_idx < 0 and "P2" in compact:
+                p2_idx = ci
+            if se_idx < 0 and ("SE" in compact or "屏蔽效能" in compact):
+                se_idx = ci
+        if p1_idx < 0 or p2_idx < 0:
+            continue
+
+        for j in range(i + 1, len(grid)):
+            data = grid[j]
+            if len(data) <= max(p1_idx, p2_idx):
+                continue
+            row_text = normalize_space(" ".join(data))
+            if not row_text:
+                continue
+            if "P1" in row_text and "P2" in row_text:
+                break
+            p1 = _extract_first_number(data[p1_idx])
+            p2 = _extract_first_number(data[p2_idx])
+            se = _extract_first_number(data[se_idx]) if se_idx >= 0 and se_idx < len(data) else ""
+            if not p1 and not p2 and not se:
+                continue
+            if not se and p1 and p2:
+                try:
+                    se = _format_decimal(float(p1) - float(p2))
+                except Exception:
+                    se = ""
+            out.append((p1, p2, se))
+    return out
+
+
+def _extract_first_number(value: str) -> str:
+    m = re.search(r"[+-]?\d+(?:\.\d+)?", str(value or ""))
+    if not m:
+        return ""
+    return normalize_space(m.group(0))
+
+
+def _format_decimal(value: float) -> str:
+    text = f"{value:.3f}".rstrip("0").rstrip(".")
+    return text if text else "0"
+
+
+def _is_numeric_placeholder_cell(value: str) -> bool:
+    text = normalize_space(value)
+    if not text:
+        return True
+    if re.search(r"[+-]?\d+(?:\.\d+)?", text):
+        return False
+    return bool(re.fullmatch(r"[—\-_/\.…\s]*", text))
+
+
+def _fill_r882b_background_noise_placeholders(root: ET.Element, values: list[str]) -> bool:
+    if not values:
+        return False
+
+    changed = False
+    idx = 0
+
+    def next_value() -> str:
+        nonlocal idx
+        if idx < len(values):
+            value = values[idx]
+            idx += 1
+            return value
+        return values[-1]
+
+    def replace_text(source: str) -> str:
+        if "背景噪声" not in source or "pC" not in source:
+            return source
+        pattern = re.compile(r"(背景噪声[^。\n]*[:：]\s*)([^。\n]*?)(\s*pC)", flags=re.IGNORECASE)
+
+        def repl(match: re.Match[str]) -> str:
+            current = normalize_space(match.group(2))
+            if re.search(r"[+-]?\d+(?:\.\d+)?", current):
+                return match.group(0)
+            value = next_value()
+            return f"{match.group(1)}{value}{match.group(3)}"
+
+        return pattern.sub(repl, source)
+
+    for paragraph in root.findall(".//w:p", NS):
+        current = normalize_space("".join([(node.text or "") for node in paragraph.findall(".//w:t", NS)]))
+        if not current:
+            continue
+        updated = replace_text(current)
+        if updated != current:
+            _set_paragraph_text(paragraph, updated)
+            changed = True
+
+    for tc in root.findall(".//w:tc", NS):
+        current = get_cell_text(tc)
+        if not current:
+            continue
+        updated = replace_text(current)
+        if updated != current:
+            set_cell_text(tc, updated)
+            changed = True
+    return changed
+
+
+def _fill_r882b_p_series_tables(tables: list[ET.Element], rows_data: list[tuple[str, str, str]]) -> bool:
+    if not rows_data:
+        return False
+
+    changed = False
+    cursor = 0
+    for tbl in tables:
+        rows = tbl.findall("./w:tr", NS)
+        if not rows:
+            continue
+        p1_idx = -1
+        p2_idx = -1
+        se_idx = -1
+        header_row_idx = -1
+        for ri, tr in enumerate(rows):
+            cells = tr.findall("./w:tc", NS)
+            texts = [normalize_space(get_cell_text(tc)) for tc in cells]
+            for ci, text in enumerate(texts):
+                compact = re.sub(r"\s+", "", text)
+                if p1_idx < 0 and "P1" in compact:
+                    p1_idx = ci
+                if p2_idx < 0 and "P2" in compact:
+                    p2_idx = ci
+                if se_idx < 0 and ("SE" in compact or "屏蔽效能" in compact):
+                    se_idx = ci
+            if p1_idx >= 0 and p2_idx >= 0:
+                header_row_idx = ri
+                break
+        if header_row_idx < 0:
+            continue
+        if se_idx < 0:
+            se_idx = p2_idx + 1
+
+        for ri in range(header_row_idx + 1, len(rows)):
+            if cursor >= len(rows_data):
+                break
+            tr = rows[ri]
+            cells = tr.findall("./w:tc", NS)
+            if len(cells) <= max(p1_idx, p2_idx, se_idx):
+                continue
+            p1, p2, se = rows_data[cursor]
+            current_p1 = get_cell_text(cells[p1_idx])
+            current_p2 = get_cell_text(cells[p2_idx])
+            current_se = get_cell_text(cells[se_idx]) if se_idx < len(cells) else ""
+            wrote = False
+            if p1 and _is_numeric_placeholder_cell(current_p1):
+                set_cell_text(cells[p1_idx], p1)
+                wrote = True
+            if p2 and _is_numeric_placeholder_cell(current_p2):
+                set_cell_text(cells[p2_idx], p2)
+                wrote = True
+            if se and se_idx < len(cells) and _is_numeric_placeholder_cell(current_se):
+                set_cell_text(cells[se_idx], se)
+                wrote = True
+            if wrote:
+                changed = True
+                cursor += 1
+    return changed
+
+
+def _fill_r882b_specific_sections(
+    root: ET.Element,
+    tables: list[ET.Element],
+    payload: dict[str, Any],
+) -> bool:
+    if not _is_r882_profile(payload):
+        return False
+
+    detail_text = normalize_multiline_text_preserve_tabs(str(payload.get("detail_general_check", "") or ""), normalize_space=normalize_space)
+    measurement_items_text = normalize_multiline_text_preserve_tabs(str(payload.get("__measurement_items_text", "") or ""), normalize_space=normalize_space)
+    raw_text = normalize_multiline_text(str(payload.get("__raw_record_text", "") or ""), normalize_space=normalize_space)
+    combined = "\n".join([x for x in (detail_text, measurement_items_text, raw_text) if x])
+
+    background_values = _extract_r882_background_noise_values(combined)
+    if payload.get("shield_background_noise_0kv_pc"):
+        bg0 = normalize_space(str(payload.get("shield_background_noise_0kv_pc", "")))
+        if bg0:
+            if background_values:
+                background_values[0] = bg0
+            else:
+                background_values = [bg0]
+    if payload.get("shield_background_noise_working_kv_pc"):
+        bgw = normalize_space(str(payload.get("shield_background_noise_working_kv_pc", "")))
+        if bgw:
+            if len(background_values) >= 2:
+                background_values[1] = bgw
+            elif len(background_values) == 1:
+                background_values.append(bgw)
+            else:
+                background_values = [bgw]
+
+    rows_data = _extract_r882_series_rows_from_text(measurement_items_text or detail_text or raw_text)
+    changed = False
+    changed = _fill_r882b_background_noise_placeholders(root, background_values) or changed
+    changed = _fill_r882b_p_series_tables(tables, rows_data) or changed
     return changed
 
 

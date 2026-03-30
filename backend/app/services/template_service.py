@@ -10,6 +10,7 @@ from ..config import OUTPUT_DIR, TEMPLATE_DIR
 from .field_dictionary import apply_field_dictionary
 from .docx_fill_service import (
     fill_generic_record_docx,
+    fill_modify_certificate_docx,
     fill_r846b_docx,
     fill_r802b_docx,
     build_r803b_editor_fields,
@@ -42,6 +43,7 @@ FIXED_DOCX_HANDLERS: dict[
     "r803b": fill_r803b_docx,
     "r825b": fill_r825b_docx,
     "r846b": fill_r846b_docx,
+    "modify_certificate_blueprint": fill_modify_certificate_docx,
 }
 
 
@@ -53,11 +55,19 @@ def render_report(
     template_name: str,
     context: dict[str, str],
     source_file_path: Path | None = None,
+    source_file_as_template: bool = False,
 ) -> tuple[str, Path]:
-    context = apply_field_dictionary(context, template_name=template_name)
-    template_path = TEMPLATE_DIR / template_name
+    effective_template_name = template_name
+    template_path: Path
+    if source_file_as_template and source_file_path is not None:
+        template_path = source_file_path
+        effective_template_name = source_file_path.name
+    else:
+        template_path = TEMPLATE_DIR / template_name
+
+    context = apply_field_dictionary(context, template_name=effective_template_name)
     if not template_path.exists():
-        raise FileNotFoundError(f"Template not found: {template_name}")
+        raise FileNotFoundError(f"Template not found: {effective_template_name}")
 
     report_id = uuid4().hex
     suffix = template_path.suffix.lower()
@@ -130,12 +140,14 @@ def get_template_editor_prefill(
     context: dict[str, str],
     source_file_path: Path | None = None,
 ) -> dict[str, str]:
+    context = _normalize_context_aliases(context)
     handler_key = resolve_handler_key(template_name) or _infer_fixed_handler_key(template_name)
     if handler_key == "r803b":
-        return build_r803b_editor_fields(
+        fields = build_r803b_editor_fields(
             context=context,
             source_file_path=source_file_path,
         )
+        return fields
     return {}
 
 
@@ -210,6 +222,8 @@ def _prefer_docx(templates: list[str]) -> str:
 
 def _infer_fixed_handler_key(template_name: str) -> str | None:
     normalized = _normalize_for_match(template_name)
+    if "修改证书蓝本" in template_name:
+        return "modify_certificate_blueprint"
     if re.search(r"r[-_ ]?802b", normalized, flags=re.IGNORECASE):
         return "r802b"
     if re.search(r"r[-_ ]?825b", normalized, flags=re.IGNORECASE):

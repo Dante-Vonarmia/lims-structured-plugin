@@ -40,3 +40,21 @@ editor:
     - key: general_check_full
       label: "校准结果/说明（续页）"
       wide: true
+    - key: shield_background_noise_0kv_pc
+      label: "屏蔽室0kV背景噪声 (pC)"
+      wide: false
+    - key: shield_background_noise_working_kv_pc
+      label: "屏蔽室工作电压背景噪声 (pC)"
+      wide: false
+    - key: shield_p1_dbm_values
+      label: "无屏蔽室功率 P1(dBm)"
+      wide: true
+    - key: shield_p2_dbm_values
+      label: "屏蔽室内功率 P2(dBm)"
+      wide: true
+    - key: shield_se_db_values
+      label: "屏蔽效能序列 SE(dB)"
+      wide: true
+    - key: shield_se_avg_db
+      label: "屏蔽效能平均值 SE(dB)"
+      wide: false

@@ -192,6 +192,8 @@ export function createSourceSplittingFeature(deps = {}) {
         reportId: "",
         reportDownloadUrl: "",
         reportFileName: "",
+        reportGenerateMode: "",
+        modeReports: {},
         generalCheckStruct: sourceItem.generalCheckStruct || null,
       };
     });
@@ -233,6 +235,8 @@ export function createSourceSplittingFeature(deps = {}) {
         reportId: "",
         reportDownloadUrl: "",
         reportFileName: "",
+        reportGenerateMode: "",
+        modeReports: {},
       };
     });
   }

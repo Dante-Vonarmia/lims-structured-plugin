@@ -54,6 +54,7 @@ class ReportRequest(BaseModel):
     template_name: str = "局放报告.html"
     fields: DeviceFields
     source_file_id: Optional[str] = None
+    source_file_as_template: bool = False
 
 
 class ReportValidation(BaseModel):

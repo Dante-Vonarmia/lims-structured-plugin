@@ -1,4 +1,7 @@
 export const TARGET_BASIC_FORM_FIELDS = [
+  { key: "certificate_no", label: "缆专检号" },
+  { key: "client_name", label: "委托单位" },
+  { key: "address", label: "地址" },
   { key: "device_name", label: "器具名称" },
   { key: "device_model", label: "型号" },
   { key: "device_code", label: "器具编号" },
@@ -9,11 +12,13 @@ export const TARGET_EDIT_GROUPS = [
   {
     title: "主要信息",
     fields: [
+      { key: "certificate_no", label: "缆专检号" },
+      { key: "client_name", label: "委托单位" },
+      { key: "address", label: "地址" },
       { key: "device_name", label: "器具名称" },
       { key: "device_model", label: "型号" },
       { key: "device_code", label: "器具编号" },
       { key: "manufacturer", label: "生产厂商" },
-      { key: "certificate_no", label: "缆专检号" },
     ],
   },
   {
