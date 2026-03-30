@@ -59,6 +59,8 @@ export function createBindEventsFeature(deps = {}) {
     validateItemForGeneration,
     extFromName,
   } = deps;
+    let blockDownloadUntil = 0;
+    let downloadPointerArmed = false;
     async function readDirectoryEntries(reader) {
       const all = [];
       while (true) {
@@ -157,6 +159,7 @@ export function createBindEventsFeature(deps = {}) {
         refreshTargetFieldFormBySelection();
         state.listFilter.activeFilterKey = "";
         state.activeId = id;
+        blockDownloadUntil = Date.now() + 450;
         renderQueue();
         renderTemplateSelect();
         await renderPreviews();
@@ -1124,8 +1127,24 @@ export function createBindEventsFeature(deps = {}) {
         }
       });
 
-      $("downloadCurrentBtn").addEventListener("click", async () => {
+      const downloadCurrentBtn = $("downloadCurrentBtn");
+      downloadCurrentBtn.addEventListener("pointerdown", () => {
+        downloadPointerArmed = true;
+      });
+      downloadCurrentBtn.addEventListener("pointercancel", () => {
+        downloadPointerArmed = false;
+      });
+      downloadCurrentBtn.addEventListener("pointerleave", () => {
+        downloadPointerArmed = false;
+      });
+      downloadCurrentBtn.addEventListener("blur", () => {
+        downloadPointerArmed = false;
+      });
+      downloadCurrentBtn.addEventListener("click", async () => {
         const item = getActiveItem();
+        if (!downloadPointerArmed) return;
+        downloadPointerArmed = false;
+        if (Date.now() < blockDownloadUntil) return;
         if (!item || !item.reportDownloadUrl || state.busy) return;
         try {
           setLoading(true, `导出中：${item.fileName}`);
@@ -1141,24 +1160,28 @@ export function createBindEventsFeature(deps = {}) {
         }
       });
 
-      $("runExcelBatchBtn").addEventListener("click", async () => {
-        const item = getActiveItem();
-        if (!item || state.busy) return;
-        try {
-          setLoading(true, `Excel批量中：${item.fileName}`);
-          await runExcelBatch(item);
-          setStatus(`Excel批量完成：${item.fileName}`);
-        } catch (error) {
-          item.status = "error";
-          item.message = error.message || "Excel 批量失败";
-          renderQueue();
-          setStatus(`Excel批量失败：${item.fileName}`);
-        } finally {
-          setLoading(false);
-        }
-      });
+      const runExcelBatchBtn = $("runExcelBatchBtn");
+      if (runExcelBatchBtn) {
+        runExcelBatchBtn.addEventListener("click", async () => {
+          const item = getActiveItem();
+          if (!item || state.busy) return;
+          try {
+            setLoading(true, `Excel批量中：${item.fileName}`);
+            await runExcelBatch(item);
+            setStatus(`Excel批量完成：${item.fileName}`);
+          } catch (error) {
+            item.status = "error";
+            item.message = error.message || "Excel 批量失败";
+            renderQueue();
+            setStatus(`Excel批量失败：${item.fileName}`);
+          } finally {
+            setLoading(false);
+          }
+        });
+      }
 
       $("generateModeSelect").addEventListener("change", async () => {
+        blockDownloadUntil = Date.now() + 400;
         const item = getActiveItem();
         const generateMode = getGenerateMode();
         if (item) {

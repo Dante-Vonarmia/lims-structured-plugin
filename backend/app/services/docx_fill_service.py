@@ -182,13 +182,13 @@ def fill_r802b_docx(
     if record_table is not None:
         _fill_r802b_record_table(record_table, payload)
     _fill_page_number_placeholders_in_root(root)
-    copied_general_check_table, copied_table = _copy_r802b_general_check_table_from_source(root, source_file_path)
+    copied_general_check_table, copied_tables = _copy_r802b_general_check_table_from_source(root, source_file_path)
     rel_updates: dict[str, bytes] = {}
-    if copied_general_check_table and copied_table is not None and source_file_path is not None:
-        rel_updates = _copy_docx_image_dependencies_for_table(
+    if copied_general_check_table and copied_tables and source_file_path is not None:
+        rel_updates = _copy_docx_image_dependencies_for_tables(
             template_path=template_path,
             source_file_path=source_file_path,
-            table_element=copied_table,
+            table_elements=copied_tables,
         )
     if not copied_general_check_table:
         _append_r802b_general_check_text_only(root, payload)
@@ -425,16 +425,22 @@ def fill_modify_certificate_docx(
     if tables:
         changed = _fill_modify_certificate_front_page_sections(tables, payload) or changed
         changed = _fill_modify_certificate_blueprint_sections(tables, payload, context) or changed
-    copied_continued_page_table, copied_tables = _copy_modify_certificate_continued_page_table_from_source(
+    copied_continued_page_table, _copied_tables = _copy_modify_certificate_continued_page_table_from_source(
         target_root=root,
         source_file_path=source_file_path,
     )
-    if copied_continued_page_table and copied_tables and source_file_path is not None:
-        rel_updates = _copy_docx_image_dependencies_for_tables(
-            template_path=template_path,
-            source_file_path=source_file_path,
-            table_elements=copied_tables,
-        )
+    if copied_continued_page_table and source_file_path is not None:
+        body = root.find("./w:body", NS)
+        if body is not None:
+            range_idx = _find_modify_certificate_continued_body_range(body)
+            if range_idx is not None:
+                start, end = range_idx
+                copied_nodes = list(body)[start:end]
+                rel_updates = _copy_docx_image_dependencies_for_nodes(
+                    template_path=template_path,
+                    source_file_path=source_file_path,
+                    nodes=copied_nodes,
+                )
         changed = True
     _fill_page_number_placeholders_in_root(root)
     changed = _fill_generic_base_labels_in_paragraphs(
@@ -573,8 +579,7 @@ def _fill_modify_certificate_middle_table(
         changed = _fill_modify_certificate_basis_rows(tbl, basis_lines) or changed
 
     measurement_rows = _resolve_measurement_rows_for_blueprint(context)
-    if measurement_rows:
-        changed = _fill_modify_certificate_measurement_rows(tbl, measurement_rows) or changed
+    changed = _fill_modify_certificate_measurement_rows(tbl, measurement_rows) or changed
 
     changed = _fill_modify_certificate_calibration_info_rows(tbl, payload, context) or changed
 
@@ -1512,29 +1517,74 @@ def _append_r802b_detail_blocks(
 def _copy_r802b_general_check_table_from_source(
     target_root: ET.Element,
     source_file_path: Path | None,
-) -> tuple[bool, ET.Element | None]:
+) -> tuple[bool, list[ET.Element]]:
     if source_file_path is None or not source_file_path.exists() or source_file_path.suffix.lower() != ".docx":
-        return False, None
+        return False, []
     try:
         with zipfile.ZipFile(source_file_path, "r") as zf:
             source_xml = zf.read(DOC_XML_PATH)
         source_root = ET.fromstring(source_xml)
     except Exception:
-        return False, None
+        return False, []
 
-    source_table = _find_general_check_table_element(source_root)
-    if source_table is None:
-        return False, None
+    source_body = source_root.find("./w:body", NS)
+    if source_body is None:
+        return False, []
+
+    source_range = _find_r802b_general_check_body_range(source_body)
+    if source_range is None:
+        return False, []
+    source_start, source_end = source_range
+    source_children = list(source_body)
+    source_block = source_children[source_start:source_end]
+    if not source_block:
+        return False, []
 
     body = target_root.find("./w:body", NS)
     if body is None:
-        return False, None
+        return False, []
 
     insert_index = _find_r802b_general_check_insert_index(body)
-    cloned_table = ET.fromstring(ET.tostring(source_table, encoding="utf-8"))
-    _sanitize_general_check_table_rows(cloned_table)
-    body.insert(insert_index, cloned_table)
-    return True, cloned_table
+    copied_nodes: list[ET.Element] = []
+    copied_tables: list[ET.Element] = []
+    for node in source_block:
+        cloned_node = ET.fromstring(ET.tostring(node, encoding="utf-8"))
+        body.insert(insert_index, cloned_node)
+        copied_nodes.append(cloned_node)
+        if cloned_node.tag == f"{{{W_NS}}}tbl":
+            copied_tables.append(cloned_node)
+        copied_tables.extend(cloned_node.findall(".//w:tbl", NS))
+        insert_index += 1
+    if not copied_nodes:
+        return False, []
+    return True, copied_tables
+
+
+def _find_r802b_general_check_body_range(body: ET.Element) -> tuple[int, int] | None:
+    children = list(body)
+    if not children:
+        return None
+
+    end = len(children)
+    for idx, child in enumerate(children):
+        if child.tag == f"{{{W_NS}}}sectPr":
+            end = idx
+            break
+
+    start = -1
+    for idx in range(end):
+        text = normalize_space(" ".join([(t.text or "") for t in children[idx].findall(".//w:t", NS)]))
+        if not text:
+            continue
+        if re.search(r"一般检查|General inspection", text, flags=re.IGNORECASE):
+            start = idx
+            break
+        if re.search(r"校准结果\s*/\s*说明|Results of calibration and additional explanation", text, flags=re.IGNORECASE):
+            start = idx
+            break
+    if start < 0 or start >= end:
+        return None
+    return start, end
 
 
 def _copy_modify_certificate_continued_page_table_from_source(
@@ -1550,37 +1600,73 @@ def _copy_modify_certificate_continued_page_table_from_source(
     except Exception:
         return False, []
 
-    source_tables = _find_modify_certificate_continued_page_tables(source_root)
-    target_tables = _find_modify_certificate_continued_page_tables(target_root)
-    if not source_tables or not target_tables:
+    source_body = source_root.find("./w:body", NS)
+    target_body = target_root.find("./w:body", NS)
+    if source_body is None or target_body is None:
         return False, []
+
+    source_range = _find_modify_certificate_continued_body_range(source_body)
+    target_range = _find_modify_certificate_continued_body_range(target_body)
+    if source_range is None or target_range is None:
+        return False, []
+
+    source_start, source_end = source_range
+    target_start, target_end = target_range
+
+    source_children = list(source_body)
+    target_children = list(target_body)
+    source_block = source_children[source_start:source_end]
+    if not source_block:
+        return False, []
+
+    for idx in range(target_end - 1, target_start - 1, -1):
+        target_body.remove(target_children[idx])
+
+    copied_nodes: list[ET.Element] = []
+    insert_idx = target_start
+    for node in source_block:
+        cloned_node = ET.fromstring(ET.tostring(node, encoding="utf-8"))
+        target_body.insert(insert_idx, cloned_node)
+        copied_nodes.append(cloned_node)
+        insert_idx += 1
 
     copied_tables: list[ET.Element] = []
-    replaced_any = False
-    replace_count = min(len(source_tables), len(target_tables))
-    for idx in range(replace_count):
-        cloned_table = ET.fromstring(ET.tostring(source_tables[idx], encoding="utf-8"))
-        replaced = _replace_xml_element(target_root, target_tables[idx], cloned_table)
-        if replaced:
-            copied_tables.append(cloned_table)
-            replaced_any = True
+    for node in copied_nodes:
+        if node.tag == f"{{{W_NS}}}tbl":
+            copied_tables.append(node)
+        copied_tables.extend(node.findall(".//w:tbl", NS))
 
-    if len(source_tables) > len(target_tables):
-        anchor: ET.Element | None = copied_tables[-1] if copied_tables else target_tables[-1]
-        for idx in range(len(target_tables), len(source_tables)):
-            if anchor is None:
-                break
-            cloned_table = ET.fromstring(ET.tostring(source_tables[idx], encoding="utf-8"))
-            inserted = _insert_xml_element_after(target_root, anchor, cloned_table)
-            if not inserted:
-                break
-            copied_tables.append(cloned_table)
-            anchor = cloned_table
-            replaced_any = True
-
-    if not replaced_any:
+    if not copied_nodes:
         return False, []
     return True, copied_tables
+
+
+def _find_modify_certificate_continued_body_range(body: ET.Element) -> tuple[int, int] | None:
+    children = list(body)
+    if not children:
+        return None
+
+    end = len(children)
+    for idx, child in enumerate(children):
+        if child.tag == f"{{{W_NS}}}sectPr":
+            end = idx
+            break
+
+    start = -1
+    for idx in range(end):
+        if _is_modify_certificate_continued_heading_child(children[idx]):
+            start = idx
+            break
+    if start < 0 or start >= end:
+        return None
+    return start, end
+
+
+def _is_modify_certificate_continued_heading_child(node: ET.Element) -> bool:
+    text = normalize_space(" ".join([(t.text or "") for t in node.findall(".//w:t", NS)]))
+    if not text:
+        return False
+    return bool(re.search(r"校准结果\s*/\s*说明|Results of calibration and additional explanation", text, flags=re.IGNORECASE))
 
 
 def _find_modify_certificate_continued_page_table(root: ET.Element) -> ET.Element | None:
@@ -1705,10 +1791,20 @@ def _copy_docx_image_dependencies_for_tables(
     source_file_path: Path,
     table_elements: list[ET.Element],
 ) -> dict[str, bytes]:
+    return _copy_docx_image_dependencies_for_nodes(
+        template_path=template_path,
+        source_file_path=source_file_path,
+        nodes=table_elements,
+    )
+
+
+def _copy_docx_image_dependencies_for_nodes(
+    template_path: Path,
+    source_file_path: Path,
+    nodes: list[ET.Element],
+) -> dict[str, bytes]:
     updates: dict[str, bytes] = {}
-    embed_ids: set[str] = set()
-    for table_element in table_elements:
-        embed_ids.update(_collect_embed_relationship_ids(table_element))
+    embed_ids = _collect_embed_relationship_ids_from_nodes(nodes)
     if not embed_ids:
         return updates
     try:
@@ -1784,8 +1880,7 @@ def _copy_docx_image_dependencies_for_tables(
                     added_exts.add(ext.lstrip(".").lower())
 
             if rid_mapping:
-                for table_element in table_elements:
-                    _remap_table_embed_rids(table_element, rid_mapping)
+                _remap_embed_rids_in_nodes(nodes, rid_mapping)
                 updates["__rels__"] = ET.tostring(target_rels_root, encoding="utf-8", xml_declaration=True)
                 if template_ct_xml is not None:
                     updated_ct = _ensure_content_types_for_image_exts(template_ct_xml, added_exts)
@@ -1796,17 +1891,22 @@ def _copy_docx_image_dependencies_for_tables(
 
 
 def _collect_embed_relationship_ids(node: ET.Element) -> set[str]:
+    return _collect_embed_relationship_ids_from_nodes([node])
+
+
+def _collect_embed_relationship_ids_from_nodes(nodes: list[ET.Element]) -> set[str]:
     result: set[str] = set()
     keys = (
         f"{{{R_NS}}}embed",
         f"{{{R_NS}}}link",
         f"{{{R_NS}}}id",
     )
-    for elem in node.iter():
-        for key in keys:
-            value = str(elem.attrib.get(key, "")).strip()
-            if value:
-                result.add(value)
+    for node in nodes:
+        for elem in node.iter():
+            for key in keys:
+                value = str(elem.attrib.get(key, "")).strip()
+                if value:
+                    result.add(value)
     return result
 
 
@@ -1838,6 +1938,10 @@ def _next_available_media_path(existing_media_paths: set[str], ext: str) -> str:
 
 
 def _remap_table_embed_rids(table_element: ET.Element, mapping: dict[str, str]) -> None:
+    _remap_embed_rids_in_nodes([table_element], mapping)
+
+
+def _remap_embed_rids_in_nodes(nodes: list[ET.Element], mapping: dict[str, str]) -> None:
     if not mapping:
         return
     keys = (
@@ -1845,11 +1949,12 @@ def _remap_table_embed_rids(table_element: ET.Element, mapping: dict[str, str]) 
         f"{{{R_NS}}}link",
         f"{{{R_NS}}}id",
     )
-    for elem in table_element.iter():
-        for key in keys:
-            old = str(elem.attrib.get(key, "")).strip()
-            if old and old in mapping:
-                elem.set(key, mapping[old])
+    for node in nodes:
+        for elem in node.iter():
+            for key in keys:
+                old = str(elem.attrib.get(key, "")).strip()
+                if old and old in mapping:
+                    elem.set(key, mapping[old])
 
 
 def _ensure_content_types_for_image_exts(content_types_xml: bytes, exts: set[str]) -> bytes:

@@ -18,10 +18,12 @@ if "yaml" not in sys.modules:
     sys.modules["yaml"] = yaml_stub
 
 from app.services.docx_fill_service import (
+    _copy_r802b_general_check_table_from_source,
     _copy_modify_certificate_continued_page_table_from_source,
     _extract_r882_background_noise_values,
     _extract_r882_series_rows_from_text,
     _fill_modify_certificate_blueprint_sections,
+    _fill_modify_certificate_measurement_rows,
     _find_modify_certificate_continued_page_table,
     fill_modify_certificate_docx,
     get_cell_text,
@@ -273,6 +275,119 @@ class DocxFillServiceTDD(unittest.TestCase):
         self.assertIn("SOURCE_ROW_3", target_text)
         self.assertNotIn("TARGET_ROW_1", target_text)
         self.assertNotIn("TARGET_ROW_2", target_text)
+
+    def test_should_fill_measurement_header_code_when_no_rows(self) -> None:
+        tbl = ET.Element(f"{{{W_NS}}}tbl")
+
+        title_row = ET.SubElement(tbl, f"{{{W_NS}}}tr")
+        title_cell = ET.SubElement(title_row, f"{{{W_NS}}}tc")
+        set_cell_text(title_cell, "本次校准所使用的主要计量标准器具：")
+
+        header_row = ET.SubElement(tbl, f"{{{W_NS}}}tr")
+        for text in ("器具名称\nInstrument name", "型号/规格\nModel/Specification", "", "测量范围\nMeasurement range"):
+            cell = ET.SubElement(header_row, f"{{{W_NS}}}tc")
+            set_cell_text(cell, text)
+
+        data_row = ET.SubElement(tbl, f"{{{W_NS}}}tr")
+        for text in ("钢直尺", "300m", "JL0A107-3", "(0-300)mm"):
+            cell = ET.SubElement(data_row, f"{{{W_NS}}}tc")
+            set_cell_text(cell, text)
+
+        summary_row = ET.SubElement(tbl, f"{{{W_NS}}}tr")
+        summary_cell = ET.SubElement(summary_row, f"{{{W_NS}}}tc")
+        set_cell_text(summary_cell, "以上计量标准器具的量值溯源至国家基准/测量标准。")
+
+        changed = _fill_modify_certificate_measurement_rows(tbl, [])
+        self.assertTrue(changed)
+
+        rows = tbl.findall("./w:tr", NS)
+        header_cells = rows[1].findall("./w:tc", NS)
+        header_code_text = get_cell_text(header_cells[2])
+        self.assertIn("编号", header_code_text)
+        self.assertIn("Number", header_code_text)
+
+    def test_should_replace_entire_continued_range_not_only_tables(self) -> None:
+        source_root = ET.Element(f"{{{W_NS}}}document")
+        source_body = ET.SubElement(source_root, f"{{{W_NS}}}body")
+        source_tbl = ET.SubElement(source_body, f"{{{W_NS}}}tbl")
+        source_tr = ET.SubElement(source_tbl, f"{{{W_NS}}}tr")
+        source_tc = ET.SubElement(source_tr, f"{{{W_NS}}}tc")
+        set_cell_text(source_tc, "校准结果/说明（续页）：")
+        source_p = ET.SubElement(source_body, f"{{{W_NS}}}p")
+        source_r = ET.SubElement(source_p, f"{{{W_NS}}}r")
+        source_t = ET.SubElement(source_r, f"{{{W_NS}}}t")
+        source_t.text = "SOURCE_PARAGRAPH_IN_CONTINUED_RANGE"
+        source_body.append(ET.Element(f"{{{W_NS}}}sectPr"))
+
+        target_root = ET.Element(f"{{{W_NS}}}document")
+        target_body = ET.SubElement(target_root, f"{{{W_NS}}}body")
+        target_tbl = ET.SubElement(target_body, f"{{{W_NS}}}tbl")
+        target_tr = ET.SubElement(target_tbl, f"{{{W_NS}}}tr")
+        target_tc = ET.SubElement(target_tr, f"{{{W_NS}}}tc")
+        set_cell_text(target_tc, "校准结果/说明（续页）：")
+        target_p = ET.SubElement(target_body, f"{{{W_NS}}}p")
+        target_r = ET.SubElement(target_p, f"{{{W_NS}}}r")
+        target_t = ET.SubElement(target_r, f"{{{W_NS}}}t")
+        target_t.text = "TARGET_PARAGRAPH_IN_CONTINUED_RANGE"
+        target_body.append(ET.Element(f"{{{W_NS}}}sectPr"))
+
+        source_xml = ET.tostring(source_root, encoding="utf-8", xml_declaration=True)
+        with tempfile.TemporaryDirectory() as td:
+            source_docx = Path(td) / "source-range.docx"
+            with zipfile.ZipFile(source_docx, "w") as zf:
+                zf.writestr("word/document.xml", source_xml)
+            copied, copied_tables = _copy_modify_certificate_continued_page_table_from_source(
+                target_root=target_root,
+                source_file_path=source_docx,
+            )
+            self.assertTrue(copied)
+            self.assertTrue(copied_tables)
+
+        target_text = ET.tostring(target_root, encoding="unicode")
+        self.assertIn("SOURCE_PARAGRAPH_IN_CONTINUED_RANGE", target_text)
+        self.assertNotIn("TARGET_PARAGRAPH_IN_CONTINUED_RANGE", target_text)
+
+    def test_should_copy_all_r802b_continued_pages_from_source_range(self) -> None:
+        source_root = ET.Element(f"{{{W_NS}}}document")
+        source_body = ET.SubElement(source_root, f"{{{W_NS}}}body")
+        source_intro_tbl = ET.SubElement(source_body, f"{{{W_NS}}}tbl")
+        intro_tr = ET.SubElement(source_intro_tbl, f"{{{W_NS}}}tr")
+        intro_tc = ET.SubElement(intro_tr, f"{{{W_NS}}}tc")
+        set_cell_text(intro_tc, "器具编号：R802B")
+
+        source_continued_tbl_1 = ET.SubElement(source_body, f"{{{W_NS}}}tbl")
+        src_1_tr = ET.SubElement(source_continued_tbl_1, f"{{{W_NS}}}tr")
+        src_1_tc = ET.SubElement(src_1_tr, f"{{{W_NS}}}tc")
+        set_cell_text(src_1_tc, "一、一般检查：SOURCE_PAGE_1")
+        source_continued_tbl_2 = ET.SubElement(source_body, f"{{{W_NS}}}tbl")
+        src_2_tr = ET.SubElement(source_continued_tbl_2, f"{{{W_NS}}}tr")
+        src_2_tc = ET.SubElement(src_2_tr, f"{{{W_NS}}}tc")
+        set_cell_text(src_2_tc, "二、SOURCE_PAGE_2")
+        source_body.append(ET.Element(f"{{{W_NS}}}sectPr"))
+
+        target_root = ET.Element(f"{{{W_NS}}}document")
+        target_body = ET.SubElement(target_root, f"{{{W_NS}}}body")
+        target_anchor_tbl = ET.SubElement(target_body, f"{{{W_NS}}}tbl")
+        target_anchor_tr = ET.SubElement(target_anchor_tbl, f"{{{W_NS}}}tr")
+        target_anchor_tc = ET.SubElement(target_anchor_tr, f"{{{W_NS}}}tc")
+        set_cell_text(target_anchor_tc, "器具编号 型号/规格")
+        target_body.append(ET.Element(f"{{{W_NS}}}sectPr"))
+
+        source_xml = ET.tostring(source_root, encoding="utf-8", xml_declaration=True)
+        with tempfile.TemporaryDirectory() as td:
+            source_docx = Path(td) / "source-r802b.docx"
+            with zipfile.ZipFile(source_docx, "w") as zf:
+                zf.writestr("word/document.xml", source_xml)
+            copied, copied_tables = _copy_r802b_general_check_table_from_source(
+                target_root=target_root,
+                source_file_path=source_docx,
+            )
+            self.assertTrue(copied)
+            self.assertEqual(len(copied_tables), 2)
+
+        target_text = ET.tostring(target_root, encoding="unicode")
+        self.assertIn("SOURCE_PAGE_1", target_text)
+        self.assertIn("SOURCE_PAGE_2", target_text)
 
 
 if __name__ == "__main__":
