@@ -58,3 +58,51 @@ test("incomplete base date does not force release date", () => {
   });
   assert.equal(next.release_date.value, "2025年12月31日");
 });
+
+test("partial part edit only syncs the same part to paired field", () => {
+  const next = applyDateLinkageRules({
+    changedField: "receive_date",
+    changedPart: "year",
+    shiftDateText,
+    fields: {
+      receive_date: { year: "2027", month: "03", day: "" },
+      calibration_date: { year: "2026", month: "11", day: "08" },
+      release_date: { year: "2026", month: "11", day: "09" },
+    },
+  });
+  assert.equal(next.calibration_date.year, "2027");
+  assert.equal(next.calibration_date.month, "11");
+  assert.equal(next.calibration_date.day, "08");
+  assert.equal(next.calibration_date.value, "2027年11月08日");
+});
+
+test("partial month/day input keeps release date unchanged", () => {
+  const next = applyDateLinkageRules({
+    changedField: "calibration_date",
+    changedPart: "month",
+    shiftDateText,
+    fields: {
+      receive_date: { year: "2026", month: "03", day: "19" },
+      calibration_date: { year: "2026", month: "04", day: "" },
+      release_date: { year: "2026", month: "03", day: "20" },
+    },
+  });
+  assert.equal(next.release_date.value, "2026年03月20日");
+});
+
+test("clearing year part does not throw and only clears paired year", () => {
+  const next = applyDateLinkageRules({
+    changedField: "receive_date",
+    changedPart: "year",
+    shiftDateText,
+    fields: {
+      receive_date: { year: "", month: "03", day: "19" },
+      calibration_date: { year: "2026", month: "03", day: "19" },
+      release_date: { year: "2026", month: "03", day: "20" },
+    },
+  });
+  assert.equal(next.calibration_date.year, "");
+  assert.equal(next.calibration_date.month, "03");
+  assert.equal(next.calibration_date.day, "19");
+  assert.equal(next.release_date.value, "2026年03月20日");
+});

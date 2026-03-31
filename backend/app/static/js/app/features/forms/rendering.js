@@ -279,9 +279,22 @@ export function createFormRenderingFeature(deps = {}) {
         || ["收样日期", "校准日期", "发布日期"].includes(fieldLabel);
       if (isDateField) {
         const parsed = parseDateParts(value);
-        const year = parsed ? String(parsed.year || "") : "";
-        const month = parsed ? String(parsed.month || "") : "";
-        const day = parsed ? String(parsed.day || "") : "";
+        const parseLooseDateParts = (dateText) => {
+          const text = String(dateText || "").trim();
+          if (!text) return { year: "", month: "", day: "" };
+          const y = text.match(/(\d{1,4})\s*年/);
+          const m = text.match(/(\d{1,2})\s*月/);
+          const d = text.match(/(\d{1,2})\s*日/);
+          return {
+            year: y ? String(y[1] || "") : "",
+            month: m ? String(m[1] || "") : "",
+            day: d ? String(d[1] || "") : "",
+          };
+        };
+        const normalizedDateParts = parsed || parseLooseDateParts(value);
+        const year = String((normalizedDateParts && normalizedDateParts.year) || "");
+        const month = String((normalizedDateParts && normalizedDateParts.month) || "");
+        const day = String((normalizedDateParts && normalizedDateParts.day) || "");
         return `
             <label class="source-form-item slot-field ${isProblem ? "is-problem" : ""}">
               <span>${escapeHtml(field.label)}</span>

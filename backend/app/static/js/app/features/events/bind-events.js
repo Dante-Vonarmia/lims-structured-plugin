@@ -587,7 +587,7 @@ export function createBindEventsFeature(deps = {}) {
         const parseLooseDateParts = (dateText) => {
           const text = String(dateText || "").trim();
           if (!text) return { year: "", month: "", day: "" };
-          const y = text.match(/(\d{1,4})\s*年?/);
+          const y = text.match(/(\d{1,4})\s*年/);
           const m = text.match(/(\d{1,2})\s*月/);
           const d = text.match(/(\d{1,2})\s*日/);
           return {
@@ -630,7 +630,7 @@ export function createBindEventsFeature(deps = {}) {
           target.removeAttribute("data-date-exact");
         }
         if (isDateKey && isMultiMode) {
-          refreshTargetFieldFormBySelection();
+          if (event.type === "change") refreshTargetFieldFormBySelection();
         } else if (isDateKey && !isMultiMode) {
           const formRoot = $("targetFieldForm");
           const syncDateFieldDom = (fieldKey, fieldValue) => {
