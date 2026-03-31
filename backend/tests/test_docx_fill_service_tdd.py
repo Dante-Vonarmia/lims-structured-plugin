@@ -31,10 +31,39 @@ from app.services.docx_fill_service import (
     NS,
     W_NS,
     _resolve_detail_general_check_for_generic_fill,
+    _sanitize_general_check_table_rows,
+    _strip_general_check_required_marker,
+    _trim_general_check_note_block_for_record_fill,
 )
 
 
 class DocxFillServiceTDD(unittest.TestCase):
+    def test_should_strip_general_check_required_marker(self) -> None:
+        tbl = ET.Element(f"{{{W_NS}}}tbl")
+        row = ET.SubElement(tbl, f"{{{W_NS}}}tr")
+        cell = ET.SubElement(row, f"{{{W_NS}}}tc")
+        set_cell_text(cell, "一般检查（*）：")
+
+        changed = _strip_general_check_required_marker(tbl)
+
+        self.assertTrue(changed)
+        self.assertEqual(get_cell_text(cell), "一般检查：")
+
+    def test_should_strip_split_required_marker_nodes(self) -> None:
+        p = ET.Element(f"{{{W_NS}}}p")
+        r1 = ET.SubElement(p, f"{{{W_NS}}}r")
+        t1 = ET.SubElement(r1, f"{{{W_NS}}}t")
+        t1.text = "一般检查"
+        r2 = ET.SubElement(p, f"{{{W_NS}}}r")
+        t2 = ET.SubElement(r2, f"{{{W_NS}}}t")
+        t2.text = "（*）："
+
+        changed = _strip_general_check_required_marker(p)
+
+        self.assertTrue(changed)
+        self.assertEqual(t1.text, "一般检查")
+        self.assertEqual(t2.text, "：")
+
     def test_should_prefer_raw_record_when_field_block_is_sparse(self) -> None:
         sparse_field_block = "\n".join(
             [
@@ -151,6 +180,48 @@ class DocxFillServiceTDD(unittest.TestCase):
         self.assertIn("一、 一般检查（*）：", filled_text)
         self.assertIn("旋转夹头能绕试件轴线双向旋转", filled_text)
         self.assertNotIn("注：", filled_text)
+
+    def test_should_trim_note_block_for_generic_record_fill(self) -> None:
+        source = "\n".join(
+            [
+                "一、\t一般检查：",
+                "(1)\t旋转夹头能绕试件轴线双向旋转。",
+                "注：",
+                "(1)\t使用过程中如对校准仪器技术指标产生怀疑，请重新校准。",
+            ]
+        )
+        got = _trim_general_check_note_block_for_record_fill(source)
+        self.assertIn("一、\t一般检查：", got)
+        self.assertIn("(1)\t旋转夹头能绕试件轴线双向旋转。", got)
+        self.assertNotIn("注：", got)
+        self.assertNotIn("请重新校准", got)
+
+    def test_should_remove_note_rows_when_sanitizing_r802_general_check_table(self) -> None:
+        tbl = ET.Element(f"{{{W_NS}}}tbl")
+
+        row1 = ET.SubElement(tbl, f"{{{W_NS}}}tr")
+        cell11 = ET.SubElement(row1, f"{{{W_NS}}}tc")
+        set_cell_text(cell11, "一般检查：")
+
+        row2 = ET.SubElement(tbl, f"{{{W_NS}}}tr")
+        cell21 = ET.SubElement(row2, f"{{{W_NS}}}tc")
+        set_cell_text(cell21, "(1) 旋转夹头能绕试件轴线双向旋转。")
+
+        row3 = ET.SubElement(tbl, f"{{{W_NS}}}tr")
+        cell31 = ET.SubElement(row3, f"{{{W_NS}}}tc")
+        set_cell_text(cell31, "注：")
+
+        row4 = ET.SubElement(tbl, f"{{{W_NS}}}tr")
+        cell41 = ET.SubElement(row4, f"{{{W_NS}}}tc")
+        set_cell_text(cell41, "(1) 使用过程中如对校准仪器技术指标产生怀疑，请重新校准。")
+
+        _sanitize_general_check_table_rows(tbl)
+
+        text = " ".join([(node.text or "") for node in tbl.findall(".//w:t", NS)])
+        self.assertIn("一般检查", text)
+        self.assertIn("旋转夹头能绕试件轴线双向旋转", text)
+        self.assertNotIn("注：", text)
+        self.assertNotIn("请重新校准", text)
 
     def test_should_fill_modify_certificate_continued_page_certificate_no(self) -> None:
         tbl = ET.Element(f"{{{W_NS}}}tbl")

@@ -321,6 +321,7 @@ def fill_r825b_docx(
 
     _fill_r825b_record_table(record_table, payload)
     _fill_page_number_placeholders_in_root(root)
+    _strip_general_check_required_marker(root)
 
     _preserve_original_namespaces(root, original_namespaces)
     updated_xml = ET.tostring(root, encoding="utf-8", xml_declaration=True)
@@ -389,6 +390,7 @@ def fill_r846b_docx(
         changed = _fill_generic_result_checks_by_semantics(tables, payload) or changed
     _fill_page_number_placeholders_in_root(root)
     changed = _fill_generic_base_labels_in_paragraphs(root, payload) or changed
+    changed = _strip_general_check_required_marker(root) or changed
 
     _preserve_original_namespaces(root, original_namespaces)
     updated_xml = ET.tostring(root, encoding="utf-8", xml_declaration=True)
@@ -417,6 +419,7 @@ def fill_generic_record_docx(
     if not payload:
         return False
     detail_general_check = _resolve_detail_general_check_for_generic_fill(context)
+    detail_general_check = _trim_general_check_note_block_for_record_fill(detail_general_check)
     if detail_general_check:
         payload["detail_general_check"] = detail_general_check
     payload["__raw_record_text"] = normalize_multiline_text(context.get("raw_record", ""), normalize_space=normalize_space)
@@ -458,6 +461,7 @@ def fill_generic_record_docx(
         changed = _fill_generic_result_checks_in_tables(tables) or changed
     _fill_page_number_placeholders_in_root(root)
     changed = _fill_generic_base_labels_in_paragraphs(root, payload) or changed
+    changed = _strip_general_check_required_marker(root) or changed
 
     _write_docx_with_updated_root(
         template_path=template_path,
@@ -467,6 +471,31 @@ def fill_generic_record_docx(
         header_payload=payload,
     )
     return True
+
+
+def _trim_general_check_note_block_for_record_fill(text: str) -> str:
+    value = normalize_multiline_text_preserve_tabs(text or "", normalize_space=normalize_space)
+    if not value:
+        return ""
+    lines: list[str] = []
+    for raw in value.splitlines():
+        line = str(raw or "").strip()
+        if re.search(r"^注[:：]?|^Notes?[:：]?", line, flags=re.IGNORECASE):
+            break
+        lines.append(raw)
+    return normalize_multiline_text_preserve_tabs("\n".join(lines), normalize_space=normalize_space)
+
+
+def _strip_general_check_required_marker(root: ET.Element) -> bool:
+    changed = False
+    for node in root.findall(".//w:t", NS):
+        original = str(node.text or "")
+        updated = re.sub(r"(一般检查)\s*[（(]\s*\*\s*[）)]", r"\1", original)
+        updated = re.sub(r"[（(]\s*\*\s*[）)]", "", updated)
+        if updated != original:
+            node.text = updated
+            changed = True
+    return changed
 
 
 def fill_modify_certificate_docx(
@@ -1658,6 +1687,7 @@ def _copy_r802b_general_check_table_from_source(
     copied_tables: list[ET.Element] = []
     for node in source_block:
         cloned_node = ET.fromstring(ET.tostring(node, encoding="utf-8"))
+        _strip_general_check_required_marker(cloned_node)
         if _should_skip_r802b_continued_node(cloned_node):
             continue
         if cloned_node.tag == f"{{{W_NS}}}tbl":
@@ -1932,7 +1962,7 @@ def _sanitize_general_check_table_rows(tbl: ET.Element) -> None:
     keep_until = len(rows)
     for idx, row in enumerate(rows):
         text = normalize_space(" ".join([(node.text or "") for node in row.findall(".//w:t", NS)]))
-        if re.search(r"备注|Remarks|检测员|校准员|核验员|(?:以下空白|\(以下空白\)|（以下空白）)", text, flags=re.IGNORECASE):
+        if re.search(r"注[:：]?|Notes?[:：]?|备注|Remarks|检测员|校准员|核验员|(?:以下空白|\(以下空白\)|（以下空白）)", text, flags=re.IGNORECASE):
             keep_until = idx
             break
 
