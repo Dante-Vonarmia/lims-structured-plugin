@@ -1232,17 +1232,44 @@ export function createBindEventsFeature(deps = {}) {
         blockDownloadUntil = Date.now() + 400;
         const item = getActiveItem();
         const generateMode = getGenerateMode();
-        if (item) {
-          const modeReports = item.modeReports && typeof item.modeReports === "object" ? item.modeReports : {};
+        const resolveModeReport = (targetItem) => {
+          const modeReports = targetItem && targetItem.modeReports && typeof targetItem.modeReports === "object"
+            ? targetItem.modeReports
+            : {};
           const modeReport = modeReports[generateMode] && typeof modeReports[generateMode] === "object"
             ? modeReports[generateMode]
             : null;
+          const hasModeReport = !!String((modeReport && modeReport.reportDownloadUrl) || "").trim();
+          return { modeReport, hasModeReport };
+        };
+        state.queue.forEach((targetItem) => {
+          if (!targetItem || typeof targetItem !== "object") return;
+          const { hasModeReport } = resolveModeReport(targetItem);
+          if (hasModeReport) {
+            targetItem.status = "generated";
+            targetItem.reportGenerateMode = generateMode;
+            if (!String(targetItem.message || "").includes("字段不全")) targetItem.message = "已生成";
+            return;
+          }
+          targetItem.reportGenerateMode = "";
+          if (targetItem.status !== "generated") return;
+          const validation = validateItemForGeneration(targetItem, generateMode);
+          if (validation.ok) {
+            targetItem.status = "ready";
+            targetItem.message = "可生成";
+          } else {
+            targetItem.status = "incomplete";
+            targetItem.message = "待补全";
+          }
+        });
+        if (item) {
+          const { modeReport, hasModeReport } = resolveModeReport(item);
           item.reportId = String((modeReport && modeReport.reportId) || "");
           item.reportDownloadUrl = String((modeReport && modeReport.reportDownloadUrl) || "");
           item.reportFileName = String((modeReport && modeReport.reportFileName) || "");
-          item.reportGenerateMode = modeReport ? generateMode : "";
-          renderQueue();
+          item.reportGenerateMode = hasModeReport ? generateMode : "";
         }
+        renderQueue();
         syncGenerateModeUiText();
         await renderTargetPreview(getActiveItem());
       });
