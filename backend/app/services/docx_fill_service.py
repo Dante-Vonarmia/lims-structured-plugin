@@ -553,6 +553,8 @@ def _fill_modify_certificate_blueprint_sections(
         table_text = normalize_space(" ".join([get_cell_text(tc) for tc in tbl.findall(".//w:tc", NS)]))
         if not table_text:
             continue
+        if re.search(r"缆\s*专\s*检\s*号|Certificate\s*series\s*number", table_text, flags=re.IGNORECASE):
+            changed = _fill_modify_certificate_continued_certificate_no(tbl, payload, context) or changed
         if (
             ("Main measurement standard instruments" in table_text or "主要计量标准器具" in table_text)
             and ("Calibration Information" in table_text or "校准信息" in table_text)
@@ -574,6 +576,8 @@ def _fill_modify_certificate_middle_table(
         return False
     changed = False
 
+    changed = _fill_modify_certificate_continued_certificate_no(tbl, payload, context) or changed
+
     basis_lines = _resolve_basis_lines_for_blueprint(payload, context)
     if basis_lines:
         changed = _fill_modify_certificate_basis_rows(tbl, basis_lines) or changed
@@ -583,6 +587,40 @@ def _fill_modify_certificate_middle_table(
 
     changed = _fill_modify_certificate_calibration_info_rows(tbl, payload, context) or changed
 
+    return changed
+
+
+def _fill_modify_certificate_continued_certificate_no(
+    tbl: ET.Element,
+    payload: dict[str, Any],
+    context: dict[str, str],
+) -> bool:
+    certificate_no = normalize_space(payload.get("certificate_no", "")) or normalize_space(context.get("certificate_no", ""))
+    if not certificate_no:
+        return False
+
+    changed = False
+    rows = tbl.findall("./w:tr", NS)
+    for row in rows:
+        cells = row.findall("./w:tc", NS)
+        if not cells:
+            continue
+        for idx, cell in enumerate(cells):
+            text = normalize_space(get_cell_text(cell))
+            if not text:
+                continue
+            if not re.search(r"缆\s*专\s*检\s*号|Certificate\s*series\s*number", text, flags=re.IGNORECASE):
+                continue
+            next_idx = idx + 1
+            if next_idx < len(cells):
+                next_text = normalize_space(get_cell_text(cells[next_idx]))
+                if not re.search(r"缆\s*专\s*检\s*号|Certificate\s*series\s*number", next_text, flags=re.IGNORECASE):
+                    set_cell_text(cells[next_idx], certificate_no)
+                    changed = True
+                    break
+            set_cell_text(cells[idx], f"缆专检号：{certificate_no}")
+            changed = True
+            break
     return changed
 
 

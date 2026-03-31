@@ -152,6 +152,52 @@ class DocxFillServiceTDD(unittest.TestCase):
         self.assertIn("旋转夹头能绕试件轴线双向旋转", filled_text)
         self.assertNotIn("注：", filled_text)
 
+    def test_should_fill_modify_certificate_continued_page_certificate_no(self) -> None:
+        tbl = ET.Element(f"{{{W_NS}}}tbl")
+
+        cert_row = ET.SubElement(tbl, f"{{{W_NS}}}tr")
+        cert_label = ET.SubElement(cert_row, f"{{{W_NS}}}tc")
+        cert_value = ET.SubElement(cert_row, f"{{{W_NS}}}tc")
+        set_cell_text(cert_label, "缆专检号：")
+        set_cell_text(cert_value, "")
+
+        marker_row = ET.SubElement(tbl, f"{{{W_NS}}}tr")
+        marker_cell = ET.SubElement(marker_row, f"{{{W_NS}}}tc")
+        set_cell_text(marker_cell, "Main measurement standard instruments Calibration Information Received date")
+        for _ in range(2):
+            extra_row = ET.SubElement(tbl, f"{{{W_NS}}}tr")
+            extra_cell = ET.SubElement(extra_row, f"{{{W_NS}}}tc")
+            set_cell_text(extra_cell, "")
+
+        changed = _fill_modify_certificate_blueprint_sections(
+            [tbl],
+            payload={"certificate_no": "CC26-0202C-10"},
+            context={},
+        )
+        self.assertTrue(changed)
+
+        rows = tbl.findall("./w:tr", NS)
+        filled_cells = rows[0].findall("./w:tc", NS)
+        self.assertEqual(get_cell_text(filled_cells[1]), "CC26-0202C-10")
+
+    def test_should_fill_modify_certificate_top_header_certificate_no(self) -> None:
+        tbl = ET.Element(f"{{{W_NS}}}tbl")
+        row = ET.SubElement(tbl, f"{{{W_NS}}}tr")
+        label_cell = ET.SubElement(row, f"{{{W_NS}}}tc")
+        value_cell = ET.SubElement(row, f"{{{W_NS}}}tc")
+        set_cell_text(label_cell, "缆专检号：")
+        set_cell_text(value_cell, "")
+
+        changed = _fill_modify_certificate_blueprint_sections(
+            [tbl],
+            payload={"certificate_no": "CC25-0202C-14"},
+            context={},
+        )
+        self.assertTrue(changed)
+
+        cells = row.findall("./w:tc", NS)
+        self.assertEqual(get_cell_text(cells[1]), "CC25-0202C-14")
+
     def test_should_copy_continued_page_table_from_source_in_modify_certificate_mode(self) -> None:
         template_path = BACKEND_DIR / "templates" / "修改证书蓝本.docx"
         sentinel = "SOURCE_CONTINUED_PAGE_SENTINEL"
