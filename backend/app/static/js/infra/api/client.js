@@ -71,6 +71,21 @@ export async function runGeneralCheckStructureExtractApi(fileId) {
   });
 }
 
+export async function runDocxEmbeddedInspectApi(fileId) {
+  if (!fileId) return {
+    embedded_excel_count: 0,
+    chart_count: 0,
+    chart_linked_excel_count: 0,
+    has_embedded_excel: false,
+    has_chart: false,
+    has_chart_linked_excel: false,
+    has_embedded_objects: false,
+  };
+  return fetchJson(`/api/report/docx-embedded-inspect?file_id=${encodeURIComponent(fileId)}`, {
+    cache: "no-store",
+  });
+}
+
 export async function runTemplateMatchApi(rawText, fileName, extra = {}) {
   return fetchJson("/api/templates/match", {
     method: "POST",

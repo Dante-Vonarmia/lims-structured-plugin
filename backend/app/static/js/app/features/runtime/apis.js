@@ -6,6 +6,7 @@ export function createRuntimeApisFeature(deps = {}) {
     runExtractApi,
     runInstrumentTableExtractApi,
     runGeneralCheckStructureExtractApi,
+    runDocxEmbeddedInspectApi,
     runTemplateMatchApi,
     runTemplateFeedbackApi,
     runExcelInspectApi,
@@ -29,6 +30,10 @@ export function createRuntimeApisFeature(deps = {}) {
 
   async function runGeneralCheckStructureExtract(fileId) {
     return runGeneralCheckStructureExtractApi(fileId);
+  }
+
+  async function runDocxEmbeddedInspect(fileId) {
+    return runDocxEmbeddedInspectApi(fileId);
   }
 
   function applyStructuredMeasurementItems(fields, extractData) {
@@ -79,6 +84,7 @@ export function createRuntimeApisFeature(deps = {}) {
     runExtract,
     runInstrumentTableExtract,
     runGeneralCheckStructureExtract,
+    runDocxEmbeddedInspect,
     applyStructuredMeasurementItems,
     runTemplateMatch,
     runTemplateFeedback,

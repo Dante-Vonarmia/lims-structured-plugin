@@ -14,6 +14,9 @@ export function createGeneralCheckFeature(deps = {}) {
     extractBlockByLine,
     enrichGeneralCheckWithDocxImages,
   } = deps;
+    function renderEmbeddedModuleHint() {
+      return '<span style="color:#64748b;">[内嵌模块，预览中不显示]</span>';
+    }
     function formatGeneralCheckMathText(value) {
       const raw = String(value || "");
       if (!raw) return "";
@@ -165,7 +168,7 @@ export function createGeneralCheckFeature(deps = {}) {
         `data-col="${colIdx}"`,
       ];
       if (hasDocxImageToken(cellText)) {
-        return `<td class="general-check-media-cell">${renderRichCellHtml(cellText)}</td>`;
+        return `<td class="general-check-media-cell">${renderEmbeddedModuleHint()}</td>`;
       }
       if (options && options.widthStyle) {
         return `<td style="${options.widthStyle}" ${baseAttrs.join(" ")} contenteditable="true">${escapeHtml(cellText)}</td>`;
@@ -185,8 +188,18 @@ export function createGeneralCheckFeature(deps = {}) {
       return `<div class="general-check-image-gallery">${imgs}</div>`;
     }
 
-    function buildGeneralCheckRowsFromTableStruct(tableStruct) {
+    function getGeneralCheckTableModels(tableStruct) {
       const model = (tableStruct && typeof tableStruct === "object") ? tableStruct : null;
+      if (!model) return [];
+      const tables = Array.isArray(model.tables) ? model.tables : null;
+      if (tables && tables.length) {
+        return tables.filter((x) => x && typeof x === "object");
+      }
+      return [model];
+    }
+
+    function buildGeneralCheckRowsFromTableStruct(tableStruct) {
+      const model = getGeneralCheckTableModels(tableStruct)[0] || null;
       const rowCount = Number((model && model.rows) || 0) || 0;
       const colCount = Number((model && model.cols) || 0) || 0;
       const cells = Array.isArray(model && model.cells) ? model.cells : [];
@@ -230,6 +243,12 @@ export function createGeneralCheckFeature(deps = {}) {
         if (/第\s*\d+\s*页\s*[\/／]\s*共\s*\d+\s*页/i.test(text)) return true;
         if (/page\s*of\s*total\s*pages/i.test(text)) return true;
         if (/page\s+\d+\s+of\s+\d+/i.test(text)) return true;
+        if (/校准证书续页专用/i.test(text)) return true;
+        if (/continued\s+page\s+of\s+calibration\s+certificate/i.test(text)) return true;
+        if (/上海国缆检测/.test(text)) return true;
+        if (/shanghai\s+national\s+center\s+of\s+testing/i.test(text)) return true;
+        if (/certificate\s+series\s+number/i.test(text)) return true;
+        if (/缆专检号[:：]?/.test(text)) return true;
         if (/中国合格评定国家认可委员会|No\.?\s*CNAS/i.test(text)) return true;
         if (/本次校准所依据的技术规范|Reference documents for the calibration/i.test(text)) return true;
         if (/本次校准所使用的主要计量标准器具|Main measurement standard instruments/i.test(text)) return true;
@@ -292,144 +311,162 @@ export function createGeneralCheckFeature(deps = {}) {
 
     function renderGeneralCheckStructuredTable(tableStruct, options = {}) {
       const readOnly = !!(options && options.readOnly);
-      const model = (tableStruct && typeof tableStruct === "object") ? tableStruct : null;
-      const rowCount = Number((model && model.rows) || 0) || 0;
-      const colCount = Number((model && model.cols) || 0) || 0;
-      const cells = Array.isArray(model && model.cells) ? model.cells : [];
-      if (rowCount <= 0 || colCount <= 0 || !cells.length) return "";
+      const models = getGeneralCheckTableModels(tableStruct);
+      if (!models.length) return "";
 
-      const grid = Array.from({ length: rowCount }, () => Array(colCount).fill(null));
-      for (const rawCell of cells) {
-        const cell = rawCell && typeof rawCell === "object" ? rawCell : {};
-        const r = Number(cell.r || 0) || 0;
-        const c = Number(cell.c || 0) || 0;
-        const rowspan = Math.max(1, Number(cell.rowspan || 1) || 1);
-        const colspan = Math.max(1, Number(cell.colspan || 1) || 1);
-        if (r < 0 || c < 0 || r >= rowCount || c >= colCount) continue;
-        grid[r][c] = { ...cell, r, c, rowspan, colspan };
-        for (let rr = r; rr < Math.min(rowCount, r + rowspan); rr += 1) {
-          for (let cc = c; cc < Math.min(colCount, c + colspan); cc += 1) {
-            if (rr === r && cc === c) continue;
-            grid[rr][cc] = "__covered__";
+      const renderSingleStructuredTable = (model, modelIdx) => {
+        const multiMode = models.length > 1;
+        const rowCount = Number((model && model.rows) || 0) || 0;
+        const colCount = Number((model && model.cols) || 0) || 0;
+        const cells = Array.isArray(model && model.cells) ? model.cells : [];
+        if (rowCount <= 0 || colCount <= 0 || !cells.length) return "";
+
+        const grid = Array.from({ length: rowCount }, () => Array(colCount).fill(null));
+        for (const rawCell of cells) {
+          const cell = rawCell && typeof rawCell === "object" ? rawCell : {};
+          const r = Number(cell.r || 0) || 0;
+          const c = Number(cell.c || 0) || 0;
+          const rowspan = Math.max(1, Number(cell.rowspan || 1) || 1);
+          const colspan = Math.max(1, Number(cell.colspan || 1) || 1);
+          if (r < 0 || c < 0 || r >= rowCount || c >= colCount) continue;
+          grid[r][c] = { ...cell, r, c, rowspan, colspan };
+          for (let rr = r; rr < Math.min(rowCount, r + rowspan); rr += 1) {
+            for (let cc = c; cc < Math.min(colCount, c + colspan); cc += 1) {
+              if (rr === r && cc === c) continue;
+              grid[rr][cc] = "__covered__";
+            }
           }
         }
-      }
 
-      const tableRowsRaw = [];
-      for (let r = 0; r < rowCount; r += 1) {
-        const rowCells = [];
-        for (let c = 0; c < colCount; c += 1) {
-          const slot = grid[r][c];
-          if (slot === "__covered__") {
-            rowCells.push({ kind: "covered", col: c });
-            continue;
+        const tableRowsRaw = [];
+        for (let r = 0; r < rowCount; r += 1) {
+          const rowCells = [];
+          for (let c = 0; c < colCount; c += 1) {
+            const slot = grid[r][c];
+            if (slot === "__covered__") {
+              rowCells.push({ kind: "covered", col: c });
+              continue;
+            }
+            if (!slot) {
+              rowCells.push({ kind: "empty", col: c });
+              continue;
+            }
+            const text = formatGeneralCheckMathText(String(slot.text || ""));
+            const align = String(slot.align || "left").toLowerCase();
+            const valign = String(slot.valign || "top").toLowerCase();
+            const style = [];
+            if (["left", "center", "right"].includes(align)) style.push(`text-align:${align}`);
+            if (["top", "middle", "bottom"].includes(valign)) style.push(`vertical-align:${valign}`);
+            rowCells.push({
+              kind: "slot",
+              col: c,
+              slot,
+              text,
+              style: style.join(";"),
+            });
           }
-          if (!slot) {
-            rowCells.push({ kind: "empty", col: c });
-            continue;
-          }
-          const text = formatGeneralCheckMathText(String(slot.text || ""));
-          const align = String(slot.align || "left").toLowerCase();
-          const valign = String(slot.valign || "top").toLowerCase();
-          const style = [];
-          if (["left", "center", "right"].includes(align)) style.push(`text-align:${align}`);
-          if (["top", "middle", "bottom"].includes(valign)) style.push(`vertical-align:${valign}`);
-          rowCells.push({
-            kind: "slot",
-            col: c,
-            slot,
-            text,
-            style: style.join(";"),
-          });
+          tableRowsRaw.push({ cells: rowCells, texts: Array.from({ length: colCount }, (_, c) => {
+            const slot = grid[r][c];
+            return slot && slot !== "__covered__" ? String(slot.text || "").trim() : "";
+          }) });
         }
-        tableRowsRaw.push({ cells: rowCells, texts: Array.from({ length: colCount }, (_, c) => {
-          const slot = grid[r][c];
-          return slot && slot !== "__covered__" ? String(slot.text || "").trim() : "";
-        }) });
-      }
-      const isGeneralCheckTitleRow = (row) => {
-        const line = ((row && row.texts) || []).join(" ").replace(/\s+/g, " ").trim();
-        if (!line) return false;
-        if (/校准结果\/说明（续页）/.test(line)) return true;
-        if (/Results\s+of\s+calibration\s+and\s+additional\s+explanation/i.test(line)) return true;
-        return false;
-      };
-      const isGeneralCheckNoiseLine = (line) => {
-        const text = String(line || "").replace(/\s+/g, " ").trim();
-        if (!text) return true;
-        if (/第\s*\d+\s*页\s*[\/／]\s*共\s*\d+\s*页/i.test(text)) return true;
-        if (/page\s*of\s*total\s*pages/i.test(text)) return true;
-        if (/page\s+\d+\s+of\s+\d+/i.test(text)) return true;
-        if (/中国合格评定国家认可委员会|No\.?\s*CNAS/i.test(text)) return true;
-        if (/本次校准所依据的技术规范|Reference documents for the calibration/i.test(text)) return true;
-        if (/本次校准所使用的主要计量标准器具|Main measurement standard instruments/i.test(text)) return true;
-        if (/(?:其它|其他)校准信息|Calibration Information/i.test(text)) return true;
-        if (/^备注[:：]?|^Remarks[:：]?/i.test(text)) return true;
-        return false;
-      };
-      const visibleRowsRaw = tableRowsRaw.filter((row) => {
-        if (isGeneralCheckTitleRow(row)) return false;
-        const line = (row.texts || []).join(" ");
-        return !isGeneralCheckNoiseLine(line);
-      });
-      const startIdx = visibleRowsRaw.findIndex((row) => {
-        const line = (row.texts || []).join(" ");
-        return /(?:^|[\s])(?:一[、.．)]\s*)?一般检查|General inspection/i.test(line) || /^\(\d+\)/.test(String(line || "").trim());
-      });
-      const scopedRows = startIdx >= 0 ? visibleRowsRaw.slice(startIdx) : [];
-      const cutIdx = scopedRows.findIndex((row) => {
-        const line = (row.texts || []).join(" ");
-        return /(?:以下空白|\(以下空白\)|（以下空白）)/.test(line) || /^注[:：]?|^Notes?[:：]?/i.test(String(line || "").trim());
-      });
-      const bodyRows = cutIdx >= 0 ? scopedRows.slice(0, cutIdx) : scopedRows;
-      let maxUsedCol = -1;
-      bodyRows.forEach((row) => {
-        const texts = Array.isArray(row && row.texts) ? row.texts : [];
-        texts.forEach((cellText, colIdx) => {
-          if (String(cellText || "").trim()) maxUsedCol = Math.max(maxUsedCol, colIdx);
+        const isGeneralCheckTitleRow = (row) => {
+          const line = ((row && row.texts) || []).join(" ").replace(/\s+/g, " ").trim();
+          if (!line) return false;
+          if (/校准结果\/说明（续页）/.test(line)) return true;
+          if (/Results\s+of\s+calibration\s+and\s+additional\s+explanation/i.test(line)) return true;
+          return false;
+        };
+        const isGeneralCheckNoiseLine = (line) => {
+          const text = String(line || "").replace(/\s+/g, " ").trim();
+          if (!text) return true;
+          if (/第\s*\d+\s*页\s*[\/／]\s*共\s*\d+\s*页/i.test(text)) return true;
+          if (/page\s*of\s*total\s*pages/i.test(text)) return true;
+          if (/page\s+\d+\s+of\s+\d+/i.test(text)) return true;
+          if (/校准证书续页专用/i.test(text)) return true;
+          if (/continued\s+page\s+of\s+calibration\s+certificate/i.test(text)) return true;
+          if (/上海国缆检测/.test(text)) return true;
+          if (/shanghai\s+national\s+center\s+of\s+testing/i.test(text)) return true;
+          if (/certificate\s+series\s+number/i.test(text)) return true;
+          if (/缆专检号[:：]?/.test(text)) return true;
+          if (/中国合格评定国家认可委员会|No\.?\s*CNAS/i.test(text)) return true;
+          if (/本次校准所依据的技术规范|Reference documents for the calibration/i.test(text)) return true;
+          if (/本次校准所使用的主要计量标准器具|Main measurement standard instruments/i.test(text)) return true;
+          if (/(?:其它|其他)校准信息|Calibration Information/i.test(text)) return true;
+          if (/^备注[:：]?|^Remarks[:：]?/i.test(text)) return true;
+          return false;
+        };
+        const visibleRowsRaw = tableRowsRaw.filter((row) => {
+          if (isGeneralCheckTitleRow(row)) return false;
+          const line = (row.texts || []).join(" ");
+          return !isGeneralCheckNoiseLine(line);
         });
-      });
-      const lastCol = Math.min(colCount - 1, Math.max(1, maxUsedCol));
-      const renderCell = (entry) => {
-        if (!entry || entry.kind === "covered") return "";
-        if (entry.kind === "empty") return "<td></td>";
-        const slot = entry.slot || {};
-        const text = String(entry.text || "");
-        const attrs = [];
-        if (slot.rowspan > 1) attrs.push(`rowspan="${slot.rowspan}"`);
-        const safeColspan = Math.max(1, Math.min(Number(slot.colspan || 1) || 1, lastCol - Number(entry.col || 0) + 1));
-        if (safeColspan > 1) attrs.push(`colspan="${safeColspan}"`);
-        const styleText = String(entry.style || "").trim();
-        if (styleText) attrs.push(`style="${styleText}"`);
-        if (!readOnly && hasDocxImageToken(text)) {
-          return `<td ${attrs.join(" ")} class="general-check-media-cell">${renderRichCellHtml(text)}</td>`;
-        }
-        if (readOnly) return `<td ${attrs.join(" ")}>${renderRichCellHtml(text)}</td>`;
-        const baseAttrs = [
-          'class="general-check-wysiwyg-cell"',
-          'data-field="general_check_cell"',
-          'data-struct-cell="1"',
-          `data-row="${slot.r}"`,
-          `data-col="${slot.c}"`,
-          'contenteditable="true"',
-        ];
-        return `<td ${[...attrs, ...baseAttrs].join(" ")}>${escapeHtml(text)}</td>`;
+        const startIdx = visibleRowsRaw.findIndex((row) => {
+          const line = (row.texts || []).join(" ");
+          return /(?:^|[\s])(?:一[、.．)]\s*)?一般检查|General inspection/i.test(line)
+            || /^\(\d+\)/.test(String(line || "").trim())
+            || /^(?:[一二三四五六七八九十]+[、.．)]|[0-9]+[、.．)])/i.test(String(line || "").trim());
+        });
+        const scopedRows = startIdx >= 0 ? visibleRowsRaw.slice(startIdx) : (multiMode ? visibleRowsRaw : []);
+        const cutIdx = scopedRows.findIndex((row) => {
+          const line = (row.texts || []).join(" ");
+          return /(?:以下空白|\(以下空白\)|（以下空白）)/.test(line) || /^注[:：]?|^Notes?[:：]?/i.test(String(line || "").trim());
+        });
+        const bodyRows = cutIdx >= 0 ? scopedRows.slice(0, cutIdx) : scopedRows;
+        let maxUsedCol = -1;
+        bodyRows.forEach((row) => {
+          const texts = Array.isArray(row && row.texts) ? row.texts : [];
+          texts.forEach((cellText, colIdx) => {
+            if (String(cellText || "").trim()) maxUsedCol = Math.max(maxUsedCol, colIdx);
+          });
+        });
+        const lastCol = Math.min(colCount - 1, Math.max(1, maxUsedCol));
+        const renderCell = (entry) => {
+          if (!entry || entry.kind === "covered") return "";
+          if (entry.kind === "empty") return "<td></td>";
+          const slot = entry.slot || {};
+          const text = String(entry.text || "");
+          const attrs = [];
+          if (slot.rowspan > 1) attrs.push(`rowspan="${slot.rowspan}"`);
+          const safeColspan = Math.max(1, Math.min(Number(slot.colspan || 1) || 1, lastCol - Number(entry.col || 0) + 1));
+          if (safeColspan > 1) attrs.push(`colspan="${safeColspan}"`);
+          const styleText = String(entry.style || "").trim();
+          if (styleText) attrs.push(`style="${styleText}"`);
+          if (hasDocxImageToken(text)) {
+            return `<td ${attrs.join(" ")}>${renderEmbeddedModuleHint()}</td>`;
+          }
+          if (readOnly) return `<td ${attrs.join(" ")}>${renderRichCellHtml(text)}</td>`;
+          const baseAttrs = [
+            'class="general-check-wysiwyg-cell"',
+            'data-field="general_check_cell"',
+            'data-struct-cell="1"',
+            `data-row="${slot.r}"`,
+            `data-col="${slot.c}"`,
+            'contenteditable="true"',
+          ];
+          return `<td ${[...attrs, ...baseAttrs].join(" ")}>${escapeHtml(text)}</td>`;
+        };
+        const tableRows = bodyRows.map((row) => {
+          const rowCells = Array.isArray(row && row.cells) ? row.cells : [];
+          const rowHtml = rowCells
+            .filter((entry) => Number(entry && entry.col) <= lastCol)
+            .map((entry) => renderCell(entry))
+            .join("");
+          const baseRow = `<tr>${rowHtml}</tr>`;
+          return baseRow;
+        });
+        if (!tableRows.length) return "";
+        return `
+          <div class="source-recog-block source-recog-block-formatted" data-general-check-table-index="${modelIdx}">
+            <table class="source-recog-block-table general-check-table">
+              <tbody>${tableRows.join("")}</tbody>
+            </table>
+          </div>
+        `;
       };
-      const tableRows = bodyRows.map((row) => {
-        const cells = Array.isArray(row && row.cells) ? row.cells : [];
-        const rowHtml = cells
-          .filter((entry) => Number(entry && entry.col) <= lastCol)
-          .map((entry) => renderCell(entry))
-          .join("");
-        return `<tr>${rowHtml}</tr>`;
-      });
-      return `
-        <div class="source-recog-block source-recog-block-formatted">
-          <table class="source-recog-block-table general-check-table">
-            <tbody>${tableRows.join("")}</tbody>
-          </table>
-        </div>
-      `;
+
+      const htmlList = models.map((model, modelIdx) => renderSingleStructuredTable(model, modelIdx)).filter(Boolean);
+      return htmlList.join("");
     }
 
     function trimGeneralCheckRowsForSourceReadOnly(rows) {
@@ -515,10 +552,17 @@ export function createGeneralCheckFeature(deps = {}) {
 
       const bodyHtml = rows.map((row, rowIdx) => `<tr>${row.map((cell, colIdx) => {
         if (readOnly) {
-          if (data.twoColumn && colIdx === 0) {
-            return `<td style="width:120px;">${renderRichCellHtml(formatGeneralCheckMathText(cell))}</td>`;
+          const formatted = formatGeneralCheckMathText(cell);
+          if (hasDocxImageToken(formatted)) {
+            if (data.twoColumn && colIdx === 0) {
+              return `<td style="width:120px;">${renderEmbeddedModuleHint()}</td>`;
+            }
+            return `<td>${renderEmbeddedModuleHint()}</td>`;
           }
-          return `<td>${renderRichCellHtml(formatGeneralCheckMathText(cell))}</td>`;
+          if (data.twoColumn && colIdx === 0) {
+            return `<td style="width:120px;">${renderRichCellHtml(formatted)}</td>`;
+          }
+          return `<td>${renderRichCellHtml(formatted)}</td>`;
         }
         if (data.twoColumn && colIdx === 0) {
           return renderGeneralCheckEditorCell(String(cell || ""), rowIdx, colIdx, { widthStyle: "width:120px;" });

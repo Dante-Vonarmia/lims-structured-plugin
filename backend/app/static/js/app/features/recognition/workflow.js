@@ -84,7 +84,16 @@ export function createRecognitionWorkflowFeature(deps = {}) {
     renderQueue();
     const ocr = await runOcr(item.fileId);
     item.rawText = ocr.raw_text || "";
+    item.ocrStructured = (ocr && ocr.structured) || {};
     const ext = extFromName(item.fileName || "");
+    if (ext === ".docx") {
+      const docxStruct = (item.ocrStructured && item.ocrStructured.docx) || {};
+      const embeddedExcelCount = Number(docxStruct.embedded_excel_count || 0);
+      const chartCount = Number(docxStruct.chart_count || 0);
+      if (embeddedExcelCount > 0 || chartCount > 0) {
+        appendLog(`DOCX内嵌对象检测 ${item.fileName}：Excel=${embeddedExcelCount} 图表=${chartCount}`);
+      }
+    }
     const blocks = ext === ".docx" ? [item.rawText] : splitRecordBlocks(item.rawText);
     item.recordCount = Math.max(blocks.length, 1);
     let structuredInstrumentData = null;
@@ -100,7 +109,10 @@ export function createRecognitionWorkflowFeature(deps = {}) {
       }
       try {
         const structRes = await runGeneralCheckStructureExtract(item.fileId);
-        if (structRes && structRes.table && Array.isArray(structRes.table.cells) && structRes.table.cells.length) {
+        const tableModel = structRes && structRes.table && typeof structRes.table === "object" ? structRes.table : null;
+        const hasSingle = !!(tableModel && Array.isArray(tableModel.cells) && tableModel.cells.length);
+        const hasMulti = !!(tableModel && Array.isArray(tableModel.tables) && tableModel.tables.length);
+        if (hasSingle || hasMulti) {
           generalCheckStructureData = structRes.table;
         }
       } catch (error) {

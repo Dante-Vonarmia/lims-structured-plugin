@@ -71,6 +71,7 @@ from ..services.instrument_catalog_service import (
 )
 
 router = APIRouter()
+REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 
 @router.post("/extract", response_model=DeviceFields)
 def extract(request: ExtractRequest) -> DeviceFields:
@@ -490,6 +491,24 @@ def extract_general_check_structure(file_id: str) -> dict[str, object]:
     return {"table": table}
 
 
+@router.get("/report/docx-embedded-inspect")
+def inspect_docx_embedded_objects(file_id: str) -> dict[str, object]:
+    file_path = _find_uploaded_file(file_id)
+    if not file_path:
+        raise HTTPException(status_code=404, detail="File not found")
+    if file_path.suffix.lower() != ".docx":
+        return {
+            "embedded_excel_count": 0,
+            "chart_count": 0,
+            "chart_linked_excel_count": 0,
+            "has_embedded_excel": False,
+            "has_chart": False,
+            "has_chart_linked_excel": False,
+            "has_embedded_objects": False,
+        }
+    return _inspect_docx_embedded_objects(file_path)
+
+
 def _find_report_file(report_id: str):
     matches = sorted(OUTPUT_DIR.glob(f"{report_id}__*"))
     if not matches:
@@ -551,6 +570,50 @@ def _guess_media_type(file_path):
     if suffix == ".zip":
         return "application/zip"
     return "application/octet-stream"
+
+
+def _inspect_docx_embedded_objects(file_path: Path) -> dict[str, object]:
+    try:
+        with zipfile.ZipFile(file_path, "r") as zf:
+            names = [str(name or "") for name in zf.namelist()]
+            rel_paths = [x for x in names if re.match(r"^word/charts/_rels/chart[0-9]+\.xml\.rels$", x)]
+            chart_linked_excel_count = 0
+            for rel_path in rel_paths:
+                try:
+                    rel_xml = zf.read(rel_path)
+                except Exception:
+                    continue
+                try:
+                    rel_root = ET.fromstring(rel_xml)
+                except Exception:
+                    continue
+                for rel_node in rel_root.findall(f".//{{{REL_NS}}}Relationship"):
+                    target = str(rel_node.attrib.get("Target", "") or "").strip()
+                    if re.search(r"(\.\./)?embeddings/.*\.xlsx$", target, flags=re.IGNORECASE):
+                        chart_linked_excel_count += 1
+    except Exception:
+        return {
+            "embedded_excel_count": 0,
+            "chart_count": 0,
+            "chart_linked_excel_count": 0,
+            "has_embedded_excel": False,
+            "has_chart": False,
+            "has_chart_linked_excel": False,
+            "has_embedded_objects": False,
+        }
+
+    embedded_excel_count = len([x for x in names if re.match(r"^word/embeddings/.*\.xlsx$", x)])
+    chart_count = len([x for x in names if re.match(r"^word/charts/chart[0-9]+\.xml$", x)])
+
+    return {
+        "embedded_excel_count": embedded_excel_count,
+        "chart_count": chart_count,
+        "chart_linked_excel_count": chart_linked_excel_count,
+        "has_embedded_excel": embedded_excel_count > 0,
+        "has_chart": chart_count > 0,
+        "has_chart_linked_excel": chart_linked_excel_count > 0,
+        "has_embedded_objects": embedded_excel_count > 0 or chart_count > 0 or chart_linked_excel_count > 0,
+    }
 
 def _build_report_validation(file_path: Path) -> ReportValidation:
     if not file_path.exists():

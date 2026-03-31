@@ -253,13 +253,13 @@ def fill_r802b_docx(
     if record_table is not None:
         _fill_r802b_record_table(record_table, payload)
     _fill_page_number_placeholders_in_root(root)
-    copied_general_check_table, copied_tables = _copy_r802b_general_check_table_from_source(root, source_file_path)
+    copied_general_check_table, copied_nodes = _copy_r802b_general_check_table_from_source(root, source_file_path)
     rel_updates: dict[str, bytes] = {}
-    if copied_general_check_table and copied_tables and source_file_path is not None:
-        rel_updates = _copy_docx_image_dependencies_for_tables(
+    if copied_general_check_table and copied_nodes and source_file_path is not None:
+        rel_updates = _copy_docx_image_dependencies_for_nodes(
             template_path=template_path,
             source_file_path=source_file_path,
-            table_elements=copied_tables,
+            nodes=copied_nodes,
         )
     if not copied_general_check_table:
         _append_r802b_general_check_text_only(root, payload)
@@ -1684,25 +1684,23 @@ def _copy_r802b_general_check_table_from_source(
 
     insert_index = _find_r802b_general_check_insert_index(body)
     copied_nodes: list[ET.Element] = []
-    copied_tables: list[ET.Element] = []
     for node in source_block:
         cloned_node = ET.fromstring(ET.tostring(node, encoding="utf-8"))
         _strip_general_check_required_marker(cloned_node)
-        if _should_skip_r802b_continued_node(cloned_node):
+        # Keep source continued page block as-is for faithful rendering.
+        if _should_skip_r802b_copied_node(cloned_node):
             continue
+        _trim_r802b_note_rows_in_node(cloned_node)
         if cloned_node.tag == f"{{{W_NS}}}tbl":
             _sanitize_general_check_table_rows(cloned_node)
-            if _is_empty_table_after_sanitize(cloned_node):
-                continue
+        if cloned_node.tag == f"{{{W_NS}}}tbl" and _is_empty_table_after_sanitize(cloned_node):
+            continue
         body.insert(insert_index, cloned_node)
         copied_nodes.append(cloned_node)
-        if cloned_node.tag == f"{{{W_NS}}}tbl":
-            copied_tables.append(cloned_node)
-        copied_tables.extend(cloned_node.findall(".//w:tbl", NS))
         insert_index += 1
     if not copied_nodes:
         return False, []
-    return True, copied_tables
+    return True, copied_nodes
 
 
 def _find_r802b_general_check_body_range(body: ET.Element) -> tuple[int, int] | None:
@@ -2018,6 +2016,52 @@ def _should_skip_r802b_continued_node(node: ET.Element) -> bool:
             flags=re.IGNORECASE,
         )
     )
+
+
+def _should_skip_r802b_copied_node(node: ET.Element) -> bool:
+    text = normalize_space(" ".join([(t.text or "") for t in node.findall(".//w:t", NS)]))
+    if not text:
+        return False
+    # Skip copied page header/footer blocks.
+    if re.search(r"校准证书续页专用|Continued page of calibration certificate", text, flags=re.IGNORECASE):
+        return True
+    if re.search(r"上海国缆检测股份有限公司|Shanghai National Center of Testing and Inspection", text, flags=re.IGNORECASE) and re.search(
+        r"缆专检号|Certificate series number",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        return True
+    # Skip standalone continued-page title block; keep only the content below it.
+    if re.search(r"校准结果\s*/\s*说明|Results of calibration and additional explanation", text, flags=re.IGNORECASE):
+        has_body_marker = bool(
+            re.search(
+                r"(?:^|[\s])(?:[一二三四五六七八九十]+[、.．)]|\(\s*\d+\s*\)|（\s*\d+\s*）)|双脉冲|频带宽度|放电量表|衰减系数",
+                text,
+                flags=re.IGNORECASE,
+            )
+        )
+        if not has_body_marker:
+            return True
+    return False
+
+
+def _trim_r802b_note_rows_in_node(node: ET.Element) -> None:
+    for tbl in node.findall(".//w:tbl", NS):
+        rows = list(tbl.findall("./w:tr", NS))
+        if not rows:
+            continue
+        cut_idx = -1
+        for idx, row in enumerate(rows):
+            row_text = normalize_space(" ".join([(t.text or "") for t in row.findall(".//w:t", NS)]))
+            if not row_text:
+                continue
+            if re.search(r"注[:：]?|Notes?[:：]?|备注[:：]?|Remarks[:：]?|(?:以下空白|\(以下空白\)|（以下空白）)", row_text, flags=re.IGNORECASE):
+                cut_idx = idx
+                break
+        if cut_idx < 0:
+            continue
+        for idx in range(len(rows) - 1, cut_idx - 1, -1):
+            tbl.remove(rows[idx])
 
 
 def _is_empty_table_after_sanitize(tbl: ET.Element) -> bool:

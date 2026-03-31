@@ -177,7 +177,54 @@ def _recognize_docx(file_path: Path) -> tuple[str, list[str], str, dict[str, obj
     text = _extract_docx_text(file_path)
     normalized = normalize_text(text)
     lines = split_lines(normalized)
-    return normalized, lines, "docx", {}
+    structured = {"docx": _inspect_docx_embedded_objects(file_path)}
+    return normalized, lines, "docx", structured
+
+
+def _inspect_docx_embedded_objects(file_path: Path) -> dict[str, object]:
+    try:
+        with zipfile.ZipFile(file_path, "r") as zf:
+            names = [str(info.filename or "") for info in zf.infolist()]
+    except Exception:
+        return {
+            "embedded_excel_count": 0,
+            "chart_count": 0,
+            "embedded_ole_bin_count": 0,
+            "active_x_count": 0,
+            "ole_object_count": 0,
+            "has_embedded_excel": False,
+            "has_chart": False,
+            "has_embedded_objects": False,
+        }
+
+    embedded_excel_paths = sorted([x for x in names if re.match(r"^word/embeddings/.*\.xlsx$", x)])
+    chart_paths = sorted([x for x in names if re.match(r"^word/charts/chart[0-9]+\.xml$", x)])
+    embedded_ole_bin_paths = sorted([x for x in names if re.match(r"^word/embeddings/.*\.bin$", x)])
+    active_x_paths = sorted([x for x in names if re.match(r"^word/activeX/", x)])
+    ole_object_paths = sorted([x for x in names if re.match(r"^word/oleObject", x)])
+
+    embedded_excel_count = len(embedded_excel_paths)
+    chart_count = len(chart_paths)
+    embedded_ole_bin_count = len(embedded_ole_bin_paths)
+    active_x_count = len(active_x_paths)
+    ole_object_count = len(ole_object_paths)
+
+    return {
+        "embedded_excel_count": embedded_excel_count,
+        "chart_count": chart_count,
+        "embedded_ole_bin_count": embedded_ole_bin_count,
+        "active_x_count": active_x_count,
+        "ole_object_count": ole_object_count,
+        "has_embedded_excel": embedded_excel_count > 0,
+        "has_chart": chart_count > 0,
+        "has_embedded_objects": (
+            embedded_excel_count > 0
+            or chart_count > 0
+            or embedded_ole_bin_count > 0
+            or active_x_count > 0
+            or ole_object_count > 0
+        ),
+    }
 
 
 def _extract_docx_text(file_path: Path) -> str:

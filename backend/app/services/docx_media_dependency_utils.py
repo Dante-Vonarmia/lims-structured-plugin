@@ -78,32 +78,74 @@ def _copy_docx_image_dependencies_for_nodes(
 
             rid_mapping: dict[str, str] = {}
             added_exts: set[str] = set()
+            copied_non_image_overrides: set[str] = set()
+            copied_non_image_defaults: set[str] = set()
 
             for old_rid in sorted(embed_ids):
                 rel_info = source_rel_map.get(old_rid)
                 if not rel_info:
                     continue
                 rel_type, rel_target, rel_mode = rel_info
-                if not rel_type.lower().endswith("/image"):
-                    continue
                 if rel_mode.lower() == "external":
                     continue
-                source_media_path = _resolve_docx_rel_target_path(rel_target)
-                if not source_media_path or source_media_path not in source_names:
+                source_path = _resolve_docx_rel_target_path(rel_target)
+                if not source_path or source_path not in source_names:
                     continue
                 try:
-                    raw = source_reader.read(source_media_path)
+                    raw = source_reader.read(source_path)
                 except Exception:
                     continue
                 if not raw:
                     continue
-                ext = Path(source_media_path).suffix.lower() or ".png"
-                media_zip_path = _next_available_media_path(template_media_names, ext)
-                template_media_names.add(media_zip_path)
-                rel_target_path = posixpath.relpath(media_zip_path, "word")
-
                 new_rid = _next_available_rid(existing_rids)
                 existing_rids.add(new_rid)
+                rel_target_path = ""
+
+                if rel_type.lower().endswith("/image"):
+                    ext = Path(source_path).suffix.lower() or ".png"
+                    media_zip_path = _next_available_media_path(template_media_names, ext)
+                    template_media_names.add(media_zip_path)
+                    rel_target_path = posixpath.relpath(media_zip_path, "word")
+                    updates[media_zip_path] = raw
+                    if ext:
+                        added_exts.add(ext.lstrip(".").lower())
+                else:
+                    # Keep the original target path for non-image parts (chart/embeddings/ole)
+                    # so internal sidecar rel paths remain valid.
+                    rel_target_path = rel_target
+                    normalized_path = _resolve_docx_rel_target_path(rel_target_path)
+                    if normalized_path:
+                        updates[normalized_path] = raw
+                        ext = Path(normalized_path).suffix.lower().lstrip(".")
+                        if ext:
+                            copied_non_image_defaults.add(ext)
+                        if normalized_path.startswith("word/charts/") and normalized_path.endswith(".xml"):
+                            copied_non_image_overrides.add("/" + normalized_path)
+                            chart_rels_path = f"word/charts/_rels/{Path(normalized_path).name}.rels"
+                            if chart_rels_path in source_names:
+                                try:
+                                    chart_rels_xml = source_reader.read(chart_rels_path)
+                                    updates[chart_rels_path] = chart_rels_xml
+                                    chart_rels_root = ET.fromstring(chart_rels_xml)
+                                except Exception:
+                                    chart_rels_root = None
+                                if chart_rels_root is not None:
+                                    for c_rel in chart_rels_root.findall(f".//{{{REL_NS}}}Relationship"):
+                                        c_target = str(c_rel.attrib.get("Target", "")).strip()
+                                        c_mode = str(c_rel.attrib.get("TargetMode", "")).strip().lower()
+                                        if not c_target or c_mode == "external":
+                                            continue
+                                        c_abs = _resolve_docx_rel_target_path(posixpath.join("charts", c_target))
+                                        if not c_abs or c_abs not in source_names:
+                                            continue
+                                        try:
+                                            updates[c_abs] = source_reader.read(c_abs)
+                                        except Exception:
+                                            continue
+                                        c_ext = Path(c_abs).suffix.lower().lstrip(".")
+                                        if c_ext:
+                                            copied_non_image_defaults.add(c_ext)
+
                 existing_targets.add(rel_target_path)
                 new_rel = ET.Element(f"{{{REL_NS}}}Relationship")
                 new_rel.set("Id", new_rid)
@@ -111,15 +153,17 @@ def _copy_docx_image_dependencies_for_nodes(
                 new_rel.set("Target", rel_target_path)
                 target_rels_root.append(new_rel)
                 rid_mapping[old_rid] = new_rid
-                updates[media_zip_path] = raw
-                if ext:
-                    added_exts.add(ext.lstrip(".").lower())
 
             if rid_mapping:
                 _remap_embed_rids_in_nodes(nodes, rid_mapping)
                 updates["__rels__"] = ET.tostring(target_rels_root, encoding="utf-8", xml_declaration=True)
                 if template_ct_xml is not None:
                     updated_ct = _ensure_content_types_for_image_exts(template_ct_xml, added_exts)
+                    updated_ct = _ensure_content_types_for_non_image_parts(
+                        updated_ct,
+                        defaults=copied_non_image_defaults,
+                        chart_overrides=copied_non_image_overrides,
+                    )
                     updates["__ct__"] = updated_ct
     except Exception:
         return {}
@@ -223,4 +267,48 @@ def _ensure_content_types_for_image_exts(content_types_xml: bytes, exts: set[str
         node.set("ContentType", content_type)
         root.append(node)
         existing.add(ext)
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def _ensure_content_types_for_non_image_parts(
+    content_types_xml: bytes,
+    defaults: set[str],
+    chart_overrides: set[str],
+) -> bytes:
+    if not defaults and not chart_overrides:
+        return content_types_xml
+    try:
+        root = ET.fromstring(content_types_xml)
+    except Exception:
+        return content_types_xml
+
+    default_types = {
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "bin": "application/vnd.openxmlformats-officedocument.oleObject",
+        "rels": "application/vnd.openxmlformats-package.relationships+xml",
+        "xml": "application/xml",
+    }
+    existing_defaults = {str(x.attrib.get("Extension", "")).strip().lower() for x in root.findall(f".//{{{CT_NS}}}Default")}
+    for ext in sorted(defaults):
+        if not ext or ext in existing_defaults:
+            continue
+        ctype = default_types.get(ext)
+        if not ctype:
+            continue
+        node = ET.Element(f"{{{CT_NS}}}Default")
+        node.set("Extension", ext)
+        node.set("ContentType", ctype)
+        root.append(node)
+        existing_defaults.add(ext)
+
+    existing_overrides = {str(x.attrib.get("PartName", "")).strip() for x in root.findall(f".//{{{CT_NS}}}Override")}
+    for part_name in sorted(chart_overrides):
+        if not part_name or part_name in existing_overrides:
+            continue
+        node = ET.Element(f"{{{CT_NS}}}Override")
+        node.set("PartName", part_name)
+        node.set("ContentType", "application/vnd.openxmlformats-officedocument.drawingml.chart+xml")
+        root.append(node)
+        existing_overrides.add(part_name)
+
     return ET.tostring(root, encoding="utf-8", xml_declaration=True)
