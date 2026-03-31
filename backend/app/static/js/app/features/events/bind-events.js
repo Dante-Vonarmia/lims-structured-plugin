@@ -1,3 +1,5 @@
+import { applyDateLinkageRules } from "../rules/date-linkage.js";
+
 export function createBindEventsFeature(deps = {}) {
   const {
     $, state,
@@ -377,68 +379,66 @@ export function createBindEventsFeature(deps = {}) {
           else hiddenInput.removeAttribute("data-date-exact");
           hiddenInput.dispatchEvent(new Event(event.type === "change" ? "change" : "input", { bubbles: true }));
 
-          // 收样日期 <-> 校准日期：同位同步（年对年、月对月、日对日），发布日期不参与。
-          const pairField = dateField === "receive_date"
-            ? "calibration_date"
-            : (dateField === "calibration_date" ? "receive_date" : "");
-          if (pairField && formRoot instanceof HTMLElement) {
-            const pairPart = formRoot.querySelector(`input[data-date-field="${pairField}"][data-date-part="${datePart}"]`);
-            const pairYear = formRoot.querySelector(`input[data-date-field="${pairField}"][data-date-part="year"]`);
-            const pairMonth = formRoot.querySelector(`input[data-date-field="${pairField}"][data-date-part="month"]`);
-            const pairDay = formRoot.querySelector(`input[data-date-field="${pairField}"][data-date-part="day"]`);
-            const pairHidden = formRoot.querySelector(`input[type="hidden"][data-field="${pairField}"]`);
-            if (
-              pairPart instanceof HTMLInputElement
-              && pairYear instanceof HTMLInputElement
-              && pairMonth instanceof HTMLInputElement
-              && pairDay instanceof HTMLInputElement
-              && pairHidden instanceof HTMLInputElement
-            ) {
-              const nextPartValue = datePart === "year"
-                ? year
-                : (datePart === "month" ? month : day);
-              if (pairPart.value !== nextPartValue) pairPart.value = nextPartValue;
-              const pairComposed = `${pairYear.value}${pairYear.value ? "年" : ""}${pairMonth.value ? `${pairMonth.value}月` : ""}${pairDay.value ? `${pairDay.value}日` : ""}`;
-              if (pairHidden.value !== pairComposed) {
-                pairHidden.value = pairComposed;
-                pairHidden.dispatchEvent(new Event(event.type === "change" ? "change" : "input", { bubbles: true }));
+          if (formRoot instanceof HTMLElement) {
+            const readDateField = (fieldName) => {
+              const yearInputEl = formRoot.querySelector(`input[data-date-field="${fieldName}"][data-date-part="year"]`);
+              const monthInputEl = formRoot.querySelector(`input[data-date-field="${fieldName}"][data-date-part="month"]`);
+              const dayInputEl = formRoot.querySelector(`input[data-date-field="${fieldName}"][data-date-part="day"]`);
+              const hiddenInputEl = formRoot.querySelector(`input[type="hidden"][data-field="${fieldName}"]`);
+              if (
+                !(yearInputEl instanceof HTMLInputElement)
+                || !(monthInputEl instanceof HTMLInputElement)
+                || !(dayInputEl instanceof HTMLInputElement)
+                || !(hiddenInputEl instanceof HTMLInputElement)
+              ) return null;
+              return {
+                year: String(yearInputEl.value || ""),
+                month: String(monthInputEl.value || ""),
+                day: String(dayInputEl.value || ""),
+                value: String(hiddenInputEl.value || ""),
+                exact: hiddenInputEl.getAttribute("data-date-exact") === "1",
+              };
+            };
+            const writeDateField = (fieldName, nextField) => {
+              if (!nextField || typeof nextField !== "object") return;
+              const yearInputEl = formRoot.querySelector(`input[data-date-field="${fieldName}"][data-date-part="year"]`);
+              const monthInputEl = formRoot.querySelector(`input[data-date-field="${fieldName}"][data-date-part="month"]`);
+              const dayInputEl = formRoot.querySelector(`input[data-date-field="${fieldName}"][data-date-part="day"]`);
+              const hiddenInputEl = formRoot.querySelector(`input[type="hidden"][data-field="${fieldName}"]`);
+              if (
+                !(yearInputEl instanceof HTMLInputElement)
+                || !(monthInputEl instanceof HTMLInputElement)
+                || !(dayInputEl instanceof HTMLInputElement)
+                || !(hiddenInputEl instanceof HTMLInputElement)
+              ) return;
+              const nextYear = String(nextField.year || "");
+              const nextMonth = String(nextField.month || "");
+              const nextDay = String(nextField.day || "");
+              const nextValue = String(nextField.value || "");
+              if (yearInputEl.value !== nextYear) yearInputEl.value = nextYear;
+              if (monthInputEl.value !== nextMonth) monthInputEl.value = nextMonth;
+              if (dayInputEl.value !== nextDay) dayInputEl.value = nextDay;
+              if (hiddenInputEl.value !== nextValue) {
+                hiddenInputEl.value = nextValue;
+                if (nextField.exact) hiddenInputEl.setAttribute("data-date-exact", "1");
+                else hiddenInputEl.removeAttribute("data-date-exact");
+                hiddenInputEl.dispatchEvent(new Event(event.type === "change" ? "change" : "input", { bubbles: true }));
               }
-            }
-          }
-
-          // 发布日期：永远保持为收样/校准日期 +1 天。
-          if ((dateField === "receive_date" || dateField === "calibration_date") && formRoot instanceof HTMLElement) {
-            const releaseYear = formRoot.querySelector('input[data-date-field="release_date"][data-date-part="year"]');
-            const releaseMonth = formRoot.querySelector('input[data-date-field="release_date"][data-date-part="month"]');
-            const releaseDay = formRoot.querySelector('input[data-date-field="release_date"][data-date-part="day"]');
-            const releaseHidden = formRoot.querySelector('input[type="hidden"][data-field="release_date"]');
-            if (
-              releaseYear instanceof HTMLInputElement
-              && releaseMonth instanceof HTMLInputElement
-              && releaseDay instanceof HTMLInputElement
-              && releaseHidden instanceof HTMLInputElement
-              && year
-              && month
-              && day
-              && typeof shiftDateText === "function"
-            ) {
-              const baseDateText = `${year}年${month}月${day}日`;
-              const nextRelease = String(shiftDateText(baseDateText, 1) || "");
-              const match = nextRelease.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
-              if (match) {
-                const nextYear = String(match[1] || "");
-                const nextMonth = String(Number.parseInt(match[2] || "0", 10) || 0).padStart(2, "0");
-                const nextDay = String(Number.parseInt(match[3] || "0", 10) || 0).padStart(2, "0");
-                if (releaseYear.value !== nextYear) releaseYear.value = nextYear;
-                if (releaseMonth.value !== nextMonth) releaseMonth.value = nextMonth;
-                if (releaseDay.value !== nextDay) releaseDay.value = nextDay;
-                if (releaseHidden.value !== nextRelease) {
-                  releaseHidden.value = nextRelease;
-                  releaseHidden.setAttribute("data-date-exact", "1");
-                  releaseHidden.dispatchEvent(new Event(event.type === "change" ? "change" : "input", { bubbles: true }));
-                }
-              }
-            }
+            };
+            const fields = {
+              receive_date: readDateField("receive_date"),
+              calibration_date: readDateField("calibration_date"),
+              release_date: readDateField("release_date"),
+            };
+            const nextFields = applyDateLinkageRules({
+              changedField: dateField,
+              changedPart: datePart,
+              fields,
+              shiftDateText,
+            });
+            writeDateField("receive_date", nextFields.receive_date);
+            writeDateField("calibration_date", nextFields.calibration_date);
+            writeDateField("release_date", nextFields.release_date);
           }
           return;
         }
