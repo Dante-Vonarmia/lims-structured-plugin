@@ -40,6 +40,8 @@ export function createRuntimeListUiFeature(deps = {}) {
     const nextItem = list[nextIndex];
     if (!nextItem || nextItem.id === state.activeId) return;
     state.activeId = nextItem.id;
+    state.selectedIds.clear();
+    state.selectedIds.add(nextItem.id);
     state.listFilter.activeFilterKey = "";
     const renderQueue = typeof getRenderQueue === "function" ? getRenderQueue() : null;
     const renderTemplateSelect = typeof getRenderTemplateSelect === "function" ? getRenderTemplateSelect() : null;
