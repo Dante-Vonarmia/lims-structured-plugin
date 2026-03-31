@@ -5,6 +5,7 @@ __pycache__/
 backend/outputs/
 backend/uploads/
 backend/raw-records/
+data/outputs/
 backend/.build-win-installer/
 backend/app/rules/template_feedback_defaults.yaml
 backend/app/rules/template_feedback_pending.yaml
