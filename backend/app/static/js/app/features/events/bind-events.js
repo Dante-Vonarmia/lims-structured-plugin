@@ -53,6 +53,7 @@ export function createBindEventsFeature(deps = {}) {
     setSourceViewMode,
     setStatus,
     syncGenerateModeUiText,
+    shiftDateText,
     triggerDownload,
     updateSelectedCountText,
     updateSourceDeviceNameText,
@@ -401,6 +402,41 @@ export function createBindEventsFeature(deps = {}) {
               if (pairHidden.value !== pairComposed) {
                 pairHidden.value = pairComposed;
                 pairHidden.dispatchEvent(new Event(event.type === "change" ? "change" : "input", { bubbles: true }));
+              }
+            }
+          }
+
+          // 发布日期：永远保持为收样/校准日期 +1 天。
+          if ((dateField === "receive_date" || dateField === "calibration_date") && formRoot instanceof HTMLElement) {
+            const releaseYear = formRoot.querySelector('input[data-date-field="release_date"][data-date-part="year"]');
+            const releaseMonth = formRoot.querySelector('input[data-date-field="release_date"][data-date-part="month"]');
+            const releaseDay = formRoot.querySelector('input[data-date-field="release_date"][data-date-part="day"]');
+            const releaseHidden = formRoot.querySelector('input[type="hidden"][data-field="release_date"]');
+            if (
+              releaseYear instanceof HTMLInputElement
+              && releaseMonth instanceof HTMLInputElement
+              && releaseDay instanceof HTMLInputElement
+              && releaseHidden instanceof HTMLInputElement
+              && year
+              && month
+              && day
+              && typeof shiftDateText === "function"
+            ) {
+              const baseDateText = `${year}年${month}月${day}日`;
+              const nextRelease = String(shiftDateText(baseDateText, 1) || "");
+              const match = nextRelease.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
+              if (match) {
+                const nextYear = String(match[1] || "");
+                const nextMonth = String(Number.parseInt(match[2] || "0", 10) || 0).padStart(2, "0");
+                const nextDay = String(Number.parseInt(match[3] || "0", 10) || 0).padStart(2, "0");
+                if (releaseYear.value !== nextYear) releaseYear.value = nextYear;
+                if (releaseMonth.value !== nextMonth) releaseMonth.value = nextMonth;
+                if (releaseDay.value !== nextDay) releaseDay.value = nextDay;
+                if (releaseHidden.value !== nextRelease) {
+                  releaseHidden.value = nextRelease;
+                  releaseHidden.setAttribute("data-date-exact", "1");
+                  releaseHidden.dispatchEvent(new Event(event.type === "change" ? "change" : "input", { bubbles: true }));
+                }
               }
             }
           }
