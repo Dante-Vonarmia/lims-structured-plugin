@@ -90,6 +90,19 @@ export function createGenerationBatchFeature(deps = {}) {
     const res = await fetch(url);
     if (!res.ok) throw new Error("下载失败");
     const blob = await res.blob();
+    if (typeof window !== "undefined" && typeof window.showSaveFilePicker === "function") {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: name || "report.docx",
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        return;
+      } catch (error) {
+        if (error && error.name === "AbortError") throw new Error("已取消导出");
+      }
+    }
     const blobUrl = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = blobUrl;
