@@ -13,10 +13,9 @@ def _runtime_root() -> Path:
 
 def _set_default_env() -> None:
     root = _runtime_root()
-    data_root = root / "data"
-    uploads = data_root / "uploads"
-    outputs = data_root / "outputs"
-    raw_records = data_root / "raw-records"
+    uploads = root / "uploads"
+    outputs = root / "outputs"
+    raw_records = root / "raw-records"
     templates = root / "templates"
 
     uploads.mkdir(parents=True, exist_ok=True)

@@ -22,9 +22,11 @@ import {
   EXTERNAL_DOCX_PREVIEW_URLS,
   EXTERNAL_JSZIP_URLS,
   FILTER_BLANK_TOKEN,
+  GENERATE_MODE_META,
   LOCAL_DOCX_PREVIEW_CSS_URLS,
   LOCAL_DOCX_PREVIEW_URLS,
   LOCAL_JSZIP_URLS,
+  resolveGeneratedModeKey,
   SOURCE_FIELD_LABELS,
   SOURCE_FORM_FIELDS,
   SOURCE_HIDDEN_SYSTEM_KEYS,
@@ -183,8 +185,11 @@ import {
       refreshActionButtons();
     }
 
-    function statusLabel(s) {
-      return {
+    function statusLabel(itemOrStatus) {
+      const status = typeof itemOrStatus === "string"
+        ? itemOrStatus
+        : String((itemOrStatus && itemOrStatus.status) || "");
+      const base = {
         pending: "待处理",
         processing: "处理中",
         ready: "可生成",
@@ -192,7 +197,13 @@ import {
         generated: "已生成",
         confirmed: "已确认",
         error: "失败",
-      }[s] || s;
+      };
+      if (status !== "generated") return base[status] || status;
+      const item = typeof itemOrStatus === "string" ? null : itemOrStatus;
+      const modeKey = resolveGeneratedModeKey(item);
+      if (!modeKey) return base.generated;
+      const modeMeta = GENERATE_MODE_META[modeKey];
+      return String((modeMeta && modeMeta.generatedStatusLabel) || base.generated);
     }
 
     function statusClass(s) {

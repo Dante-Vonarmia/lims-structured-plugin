@@ -12,6 +12,29 @@ export function createGenerationWorkflowFeature(deps = {}) {
     persistTemplateDefaultMapping,
   } = deps;
 
+  function sanitizeDownloadBaseName(value) {
+    const text = String(value || "").trim();
+    if (!text) return "";
+    return text.replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, " ").trim();
+  }
+
+  function stripExt(name) {
+    const text = String(name || "").trim();
+    if (!text) return "";
+    const idx = text.lastIndexOf(".");
+    if (idx <= 0) return text;
+    return text.slice(0, idx);
+  }
+
+  function buildReportFileName(item, outputFormat) {
+    const sourceBase = sanitizeDownloadBaseName(stripExt(item.sourceFileName || item.fileName || ""));
+    const deviceBase = sanitizeDownloadBaseName((item.fields && item.fields.device_name) || "");
+    const fallbackBase = sanitizeDownloadBaseName(stripExt(item.templateName || "")) || "report";
+    const baseName = sourceBase || deviceBase || fallbackBase;
+    const ext = String(outputFormat || "docx").replace(/^\./, "").trim().toLowerCase() || "docx";
+    return `${baseName}.${ext}`;
+  }
+
   async function generateItem(item, generateMode = "certificate_template") {
     if (isExcelItem(item)) throw new Error("Excel 文件请用 Excel 批量生成");
     if (!item.isRecordRow && (!item.fileId || item.status === "pending")) await processItem(item);
@@ -48,7 +71,7 @@ export function createGenerationWorkflowFeature(deps = {}) {
     });
     item.reportId = data.report_id;
     item.reportDownloadUrl = data.download_url;
-    item.reportFileName = item.sourceFileName || item.fileName || item.templateName || "report.docx";
+    item.reportFileName = buildReportFileName(item, data.output_format);
     item.reportGenerateMode = generateMode;
     const modeReports = item.modeReports && typeof item.modeReports === "object" ? { ...item.modeReports } : {};
     modeReports[generateMode] = {

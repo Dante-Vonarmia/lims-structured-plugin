@@ -16,9 +16,9 @@ services:
       OFFLINE_MODE: "1"
     volumes:
       - ./backend:/app
-      - ./data/uploads:/data/uploads
-      - ./data/outputs:/data/outputs
+      - ./backend/uploads:/data/uploads
+      - ./backend/outputs:/data/outputs
       - ./backend/templates:/data/templates
-      - ./data/raw-records:/data/raw-records
+      - ./backend/raw-records:/data/raw-records
     ports:
       - "18081:8000"

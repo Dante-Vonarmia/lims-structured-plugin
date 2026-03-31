@@ -1,15 +1,86 @@
 import io
-import json
 import logging
 import posixpath
 import re
 import zipfile
 from copy import deepcopy
-from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
+from .docx_basis_utils import (
+    extract_standard_code as _extract_standard_code,
+    extract_standard_codes as _extract_standard_codes,
+    extract_standard_codes_from_context_items as _extract_standard_codes_from_context_items,
+    format_dual_mode_checkbox as _format_dual_mode_checkbox,
+    infer_basis_mode as _infer_basis_mode,
+    normalize_basis_mode as _normalize_basis_mode,
+)
+from .docx_cell_utils import (
+    contains_compact_label as _contains_compact_label,
+    find_cell_index_contains as _find_cell_index_contains,
+    find_cell_index_with_text as _find_cell_index_with_text,
+    get_cell_text,
+    normalize_space,
+    set_cell_text,
+    split_date_parts,
+)
+from .docx_context_utils import (
+    extract_basis_from_cell as _extract_basis_from_cell,
+    resolve_report_dates as _resolve_report_dates,
+    sanitize_context_date,
+    sanitize_context_value,
+    split_model_code_combined as _split_model_code_combined,
+    tables_to_text_block as _tables_to_text_block,
+)
+from .docx_instrument_text_utils import (
+    clean_item_name,
+    extract_hammer_actual_rows,
+    extract_hammer_actual_rows_from_context,
+    extract_hammer_actual_rows_from_text,
+    first_meaningful_value as _first_meaningful_value,
+    looks_like_label as _looks_like_label,
+    merge_hammer_actual_rows,
+    merge_instrument_rows_with_catalog,
+    normalize_catalog_token,
+    parse_instrument_catalog_rows_json,
+    parse_instrument_catalog_tokens,
+    pick_cell as _pick_cell,
+    sanitize_instrument_cell,
+)
+from .docx_xml_utils import (
+    _capture_namespaces,
+    _fill_page_number_placeholders_in_root,
+    _fill_value_between_markers,
+    _is_page_placeholder_text,
+    _preserve_original_namespaces,
+    _set_paragraph_text,
+    set_cell_page_fields,
+)
+from .docx_semantic_bridge_utils import (
+    _extract_humidity_from_other_calibration_info as _extract_humidity_from_other_calibration_info_bridge,
+    _extract_location_from_other_calibration_info as _extract_location_from_other_calibration_info_bridge,
+    _extract_section_measured_value as _extract_section_measured_value_bridge,
+    _extract_section_uncertainty as _extract_section_uncertainty_bridge,
+    _extract_temperature_from_other_calibration_info as _extract_temperature_from_other_calibration_info_bridge,
+    _replace_measured_value as _replace_measured_value_bridge,
+    _replace_uncertainty_value as _replace_uncertainty_value_bridge,
+    _sanitize_location_text as _sanitize_location_text_bridge,
+)
+from .docx_media_dependency_utils import (
+    _copy_docx_image_dependencies_for_nodes,
+    _copy_docx_image_dependencies_for_table,
+    _copy_docx_image_dependencies_for_tables,
+)
+from .docx_data_extraction_utils import (
+    extract_any_date,
+    extract_date_from_text,
+    extract_docx_text,
+    extract_instrument_rows,
+    extract_value_by_regex,
+    extract_value_from_tables,
+    read_docx_tables,
+)
 from .fixed_template_rule_engine import (
     fill_base_fields_in_cells_by_rules,
     fill_base_fields_in_paragraphs_by_rules,
@@ -1818,222 +1889,6 @@ def _replace_xml_element(root: ET.Element, old_elem: ET.Element, new_elem: ET.El
     return False
 
 
-def _copy_docx_image_dependencies_for_table(
-    template_path: Path,
-    source_file_path: Path,
-    table_element: ET.Element,
-) -> dict[str, bytes]:
-    return _copy_docx_image_dependencies_for_tables(
-        template_path=template_path,
-        source_file_path=source_file_path,
-        table_elements=[table_element],
-    )
-
-
-def _copy_docx_image_dependencies_for_tables(
-    template_path: Path,
-    source_file_path: Path,
-    table_elements: list[ET.Element],
-) -> dict[str, bytes]:
-    return _copy_docx_image_dependencies_for_nodes(
-        template_path=template_path,
-        source_file_path=source_file_path,
-        nodes=table_elements,
-    )
-
-
-def _copy_docx_image_dependencies_for_nodes(
-    template_path: Path,
-    source_file_path: Path,
-    nodes: list[ET.Element],
-) -> dict[str, bytes]:
-    updates: dict[str, bytes] = {}
-    embed_ids = _collect_embed_relationship_ids_from_nodes(nodes)
-    if not embed_ids:
-        return updates
-    try:
-        with zipfile.ZipFile(template_path, "r") as zf:
-            template_rels_xml = zf.read(DOC_RELS_PATH) if DOC_RELS_PATH in zf.namelist() else None
-            template_ct_xml = zf.read(CONTENT_TYPES_PATH) if CONTENT_TYPES_PATH in zf.namelist() else None
-            template_media_names = {name for name in zf.namelist() if name.startswith("word/media/")}
-    except Exception:
-        return updates
-    try:
-        with zipfile.ZipFile(source_file_path, "r") as zf:
-            source_rels_xml = zf.read(DOC_RELS_PATH) if DOC_RELS_PATH in zf.namelist() else None
-            source_names = set(zf.namelist())
-            source_reader = zf
-            if source_rels_xml is None:
-                return updates
-            source_rels_root = ET.fromstring(source_rels_xml)
-            source_rel_map: dict[str, tuple[str, str, str]] = {}
-            for rel in source_rels_root.findall(f".//{{{REL_NS}}}Relationship"):
-                rel_id = str(rel.attrib.get("Id", "")).strip()
-                if not rel_id:
-                    continue
-                source_rel_map[rel_id] = (
-                    str(rel.attrib.get("Type", "")).strip(),
-                    str(rel.attrib.get("Target", "")).strip(),
-                    str(rel.attrib.get("TargetMode", "")).strip(),
-                )
-
-            if template_rels_xml:
-                target_rels_root = ET.fromstring(template_rels_xml)
-            else:
-                target_rels_root = ET.Element(f"{{{REL_NS}}}Relationships")
-            existing_rids = {str(rel.attrib.get("Id", "")).strip() for rel in target_rels_root.findall(f".//{{{REL_NS}}}Relationship")}
-            existing_targets = {str(rel.attrib.get("Target", "")).strip() for rel in target_rels_root.findall(f".//{{{REL_NS}}}Relationship")}
-
-            rid_mapping: dict[str, str] = {}
-            added_exts: set[str] = set()
-
-            for old_rid in sorted(embed_ids):
-                rel_info = source_rel_map.get(old_rid)
-                if not rel_info:
-                    continue
-                rel_type, rel_target, rel_mode = rel_info
-                if not rel_type.lower().endswith("/image"):
-                    continue
-                if rel_mode.lower() == "external":
-                    continue
-                source_media_path = _resolve_docx_rel_target_path(rel_target)
-                if not source_media_path or source_media_path not in source_names:
-                    continue
-                try:
-                    raw = source_reader.read(source_media_path)
-                except Exception:
-                    continue
-                if not raw:
-                    continue
-                ext = Path(source_media_path).suffix.lower() or ".png"
-                media_zip_path = _next_available_media_path(template_media_names, ext)
-                template_media_names.add(media_zip_path)
-                rel_target_path = posixpath.relpath(media_zip_path, "word")
-
-                new_rid = _next_available_rid(existing_rids)
-                existing_rids.add(new_rid)
-                existing_targets.add(rel_target_path)
-                new_rel = ET.Element(f"{{{REL_NS}}}Relationship")
-                new_rel.set("Id", new_rid)
-                new_rel.set("Type", rel_type)
-                new_rel.set("Target", rel_target_path)
-                target_rels_root.append(new_rel)
-                rid_mapping[old_rid] = new_rid
-                updates[media_zip_path] = raw
-                if ext:
-                    added_exts.add(ext.lstrip(".").lower())
-
-            if rid_mapping:
-                _remap_embed_rids_in_nodes(nodes, rid_mapping)
-                updates["__rels__"] = ET.tostring(target_rels_root, encoding="utf-8", xml_declaration=True)
-                if template_ct_xml is not None:
-                    updated_ct = _ensure_content_types_for_image_exts(template_ct_xml, added_exts)
-                    updates["__ct__"] = updated_ct
-    except Exception:
-        return {}
-    return updates
-
-
-def _collect_embed_relationship_ids(node: ET.Element) -> set[str]:
-    return _collect_embed_relationship_ids_from_nodes([node])
-
-
-def _collect_embed_relationship_ids_from_nodes(nodes: list[ET.Element]) -> set[str]:
-    result: set[str] = set()
-    keys = (
-        f"{{{R_NS}}}embed",
-        f"{{{R_NS}}}link",
-        f"{{{R_NS}}}id",
-    )
-    for node in nodes:
-        for elem in node.iter():
-            for key in keys:
-                value = str(elem.attrib.get(key, "")).strip()
-                if value:
-                    result.add(value)
-    return result
-
-
-def _resolve_docx_rel_target_path(target: str) -> str:
-    value = str(target or "").strip()
-    if not value:
-        return ""
-    if value.startswith("/"):
-        return value.lstrip("/")
-    return posixpath.normpath(posixpath.join("word", value))
-
-
-def _next_available_rid(existing: set[str]) -> str:
-    idx = 1
-    while True:
-        rid = f"rId{idx}"
-        if rid not in existing:
-            return rid
-        idx += 1
-
-
-def _next_available_media_path(existing_media_paths: set[str], ext: str) -> str:
-    idx = 1
-    while True:
-        path = f"word/media/copied-general-check-{idx}{ext}"
-        if path not in existing_media_paths:
-            return path
-        idx += 1
-
-
-def _remap_table_embed_rids(table_element: ET.Element, mapping: dict[str, str]) -> None:
-    _remap_embed_rids_in_nodes([table_element], mapping)
-
-
-def _remap_embed_rids_in_nodes(nodes: list[ET.Element], mapping: dict[str, str]) -> None:
-    if not mapping:
-        return
-    keys = (
-        f"{{{R_NS}}}embed",
-        f"{{{R_NS}}}link",
-        f"{{{R_NS}}}id",
-    )
-    for node in nodes:
-        for elem in node.iter():
-            for key in keys:
-                old = str(elem.attrib.get(key, "")).strip()
-                if old and old in mapping:
-                    elem.set(key, mapping[old])
-
-
-def _ensure_content_types_for_image_exts(content_types_xml: bytes, exts: set[str]) -> bytes:
-    if not exts:
-        return content_types_xml
-    try:
-        root = ET.fromstring(content_types_xml)
-    except Exception:
-        return content_types_xml
-    defaults = {
-        "png": "image/png",
-        "jpg": "image/jpeg",
-        "jpeg": "image/jpeg",
-        "bmp": "image/bmp",
-        "gif": "image/gif",
-        "tif": "image/tiff",
-        "tiff": "image/tiff",
-        "webp": "image/webp",
-        "svg": "image/svg+xml",
-    }
-    existing = {str(x.attrib.get("Extension", "")).strip().lower() for x in root.findall(f".//{{{CT_NS}}}Default")}
-    for ext in sorted(exts):
-        if not ext or ext in existing:
-            continue
-        content_type = defaults.get(ext)
-        if not content_type:
-            continue
-        node = ET.Element(f"{{{CT_NS}}}Default")
-        node.set("Extension", ext)
-        node.set("ContentType", content_type)
-        root.append(node)
-        existing.add(ext)
-    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
-
-
 def _find_general_check_table_element(root: ET.Element) -> ET.Element | None:
     candidates: list[tuple[int, ET.Element]] = []
     for tbl in root.findall(".//w:tbl", NS):
@@ -2260,217 +2115,6 @@ def build_r803b_editor_fields(
     }
 
 
-def extract_docx_text(path: Path) -> str:
-    tables = read_docx_tables(path)
-    lines: list[str] = []
-    for row in [row for table in tables for row in table]:
-        joined = " | ".join([cell for cell in row if cell])
-        if joined:
-            lines.append(joined)
-    return "\n".join(lines)
-
-
-def read_docx_tables(path: Path) -> list[list[list[str]]]:
-    with zipfile.ZipFile(path, "r") as zf:
-        xml_data = zf.read(DOC_XML_PATH)
-    root = ET.fromstring(xml_data)
-    tables: list[list[list[str]]] = []
-    for tbl in root.findall(".//w:tbl", NS):
-        rows: list[list[str]] = []
-        for tr in tbl.findall("./w:tr", NS):
-            cells = tr.findall("./w:tc", NS)
-            rows.append([get_cell_text(tc) for tc in cells])
-        tables.append(rows)
-    return tables
-
-
-def extract_instrument_rows(
-    tables: list[list[list[str]]],
-    catalog_tokens: set[str] | None = None,
-) -> list[dict[str, str]]:
-    for rows in tables:
-        header_idx = -1
-        name_idx = -1
-        model_idx = -1
-        code_idx = -1
-        range_idx = -1
-        uncertainty_idx = -1
-        cert_idx = -1
-        valid_idx = -1
-        trace_idx = -1
-        for ri, row in enumerate(rows):
-            for ci, cell in enumerate(row):
-                if "器具名称" in cell:
-                    name_idx = ci
-                if "型号/规格" in cell:
-                    model_idx = ci
-                if cell.strip() == "编号" or "编号Number" in cell:
-                    code_idx = ci
-                if "测量范围" in cell or "Measurement range" in cell:
-                    range_idx = ci
-                if "不确定度" in cell or "最大允许误差" in cell or "Uncertainty" in cell:
-                    uncertainty_idx = ci
-                if "证书编号" in cell or "Certificate number" in cell:
-                    cert_idx = ci
-                if "有效期限" in cell:
-                    valid_idx = ci
-                if "溯源机构" in cell or "traceability institution" in cell:
-                    trace_idx = ci
-            if name_idx >= 0 and model_idx >= 0 and code_idx >= 0:
-                header_idx = ri
-                break
-        if header_idx < 0:
-            continue
-
-        result: list[dict[str, str]] = []
-        for row in rows[header_idx + 1 :]:
-            name = _pick_cell(row, name_idx)
-            model = _pick_cell(row, model_idx)
-            code = _pick_cell(row, code_idx)
-            measurement_range = _pick_cell(row, range_idx) if range_idx >= 0 else ""
-            uncertainty = _pick_cell(row, uncertainty_idx) if uncertainty_idx >= 0 else ""
-            certificate_no = _pick_cell(row, cert_idx) if cert_idx >= 0 else ""
-            valid_raw = _pick_cell(row, valid_idx) if valid_idx >= 0 else ""
-            valid_date = extract_any_date(valid_raw)
-            traceability_institution = _pick_cell(row, trace_idx) if trace_idx >= 0 else ""
-
-            if (
-                not normalize_space(name)
-                and not normalize_space(model)
-                and not normalize_space(code)
-            ):
-                continue
-            if normalize_space(name) in {"/", "／"} and normalize_space(model) in {"/", "／", ""}:
-                continue
-            if "以上计量标准器具" in name or "其它校准信息" in name:
-                break
-            cleaned_name = clean_item_name(name)
-            cleaned_name = sanitize_instrument_cell(cleaned_name)
-            cleaned_model = sanitize_instrument_cell(model)
-            cleaned_code = sanitize_instrument_cell(code)
-            if not cleaned_name:
-                continue
-            if catalog_tokens and normalize_catalog_token(cleaned_name) not in catalog_tokens:
-                continue
-            result.append(
-                {
-                    "name": cleaned_name,
-                    "model": cleaned_model,
-                    "code": cleaned_code,
-                    "measurement_range": sanitize_instrument_cell(measurement_range),
-                    "uncertainty": sanitize_instrument_cell(uncertainty),
-                    "certificate_no": sanitize_instrument_cell(certificate_no),
-                    "valid_date": sanitize_instrument_cell(valid_date),
-                    "traceability_institution": sanitize_instrument_cell(traceability_institution),
-                }
-            )
-        if result:
-            return result[:MAX_INSTRUMENT_ROWS]
-    return []
-
-
-def extract_value_from_tables(
-    tables: list[list[list[str]]],
-    labels: tuple[str, ...],
-) -> str:
-    for rows in tables:
-        for row_idx, row in enumerate(rows):
-            for ci, cell in enumerate(row):
-                if not any(label in cell for label in labels):
-                    continue
-                row_candidate = _first_meaningful_value(row[ci + 1 :])
-                if row_candidate:
-                    return row_candidate
-
-                for next_idx in range(row_idx + 1, min(row_idx + 4, len(rows))):
-                    next_row = rows[next_idx]
-                    for col in (ci, ci + 1):
-                        if col >= len(next_row):
-                            continue
-                        candidate_value = normalize_space(next_row[col])
-                        if candidate_value and not _looks_like_label(candidate_value):
-                            return candidate_value
-    return ""
-
-
-def extract_value_by_regex(
-    text: str,
-    patterns: tuple[str, ...],
-    flags: int = re.IGNORECASE,
-) -> str:
-    if not text:
-        return ""
-    for pattern in patterns:
-        match = re.search(pattern, text, flags=flags)
-        if not match:
-            continue
-        value = normalize_space(match.group(1))
-        if value:
-            return value
-    return ""
-
-
-def extract_date_from_text(text: str, label: str) -> str:
-    if not text:
-        return ""
-    pattern = rf"{re.escape(label)}[^0-9]*(\d{{4}})\D+(\d{{1,2}})\D+(\d{{1,2}})"
-    match = re.search(pattern, text)
-    if not match:
-        return ""
-    year = match.group(1)
-    month = match.group(2).zfill(2)
-    day = match.group(3).zfill(2)
-    return f"{year}年{month}月{day}日"
-
-
-def extract_any_date(text: str) -> str:
-    text = normalize_space(text)
-    if not text:
-        return ""
-    patterns = (
-        r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日",
-        r"(\d{4})[./-](\d{1,2})[./-](\d{1,2})",
-    )
-    for pattern in patterns:
-        match = re.search(pattern, text)
-        if not match:
-            continue
-        year = match.group(1)
-        month = match.group(2).zfill(2)
-        day = match.group(3).zfill(2)
-        return f"{year}年{month}月{day}日"
-    return ""
-
-
-def get_cell_text(tc: ET.Element) -> str:
-    texts = [(node.text or "") for node in tc.findall(".//w:t", NS)]
-    return normalize_space("".join(texts))
-
-
-def set_cell_text(tc: ET.Element, value: str) -> None:
-    text_nodes = tc.findall(".//w:t", NS)
-    if text_nodes:
-        text_nodes[0].text = value
-        for node in text_nodes[1:]:
-            node.text = ""
-        return
-
-    paragraph = tc.find("./w:p", NS)
-    if paragraph is None:
-        paragraph = ET.SubElement(tc, f"{{{W_NS}}}p")
-    run = paragraph.find("./w:r", NS)
-    if run is None:
-        run = ET.SubElement(paragraph, f"{{{W_NS}}}r")
-    text = run.find("./w:t", NS)
-    if text is None:
-        text = ET.SubElement(run, f"{{{W_NS}}}t")
-    text.text = value
-
-
-def normalize_space(value: str) -> str:
-    return re.sub(r"\s+", " ", (value or "").replace("\u3000", " ")).strip()
-
-
 def _find_info_table(tables: list[ET.Element]) -> ET.Element | None:
     for tbl in tables:
         if _table_contains(tbl, "缆专检号") and _table_contains(tbl, "委托单位"):
@@ -2546,37 +2190,6 @@ def _fill_split_date(cells: list[ET.Element], label: str, date_text: str) -> Non
         set_cell_text(cells[month_marker - 1], month)
     if day_marker > 0:
         set_cell_text(cells[day_marker - 1], day)
-
-
-def _find_cell_index_with_text(
-    cells: list[ET.Element],
-    indices: range,
-    marker: str,
-) -> int:
-    compact_marker = re.sub(r"\s+", "", str(marker or ""))
-    for idx in indices:
-        compact_text = re.sub(r"\s+", "", str(get_cell_text(cells[idx]) or ""))
-        if compact_marker and compact_marker in compact_text:
-            return idx
-    return -1
-
-
-def _contains_compact_label(text: str, label: str) -> bool:
-    compact_text = re.sub(r"\s+", "", str(text or ""))
-    compact_label = re.sub(r"\s+", "", str(label or ""))
-    return bool(compact_label and compact_label in compact_text)
-
-
-def split_date_parts(date_text: str) -> tuple[str, str, str] | None:
-    digits = re.findall(r"\d+", str(date_text or ""))
-    if len(digits) < 3:
-        return None
-    year = str(digits[0] or "").strip()
-    month = str(digits[1] or "").strip().zfill(2)
-    day = str(digits[2] or "").strip().zfill(2)
-    if not year or not month or not day:
-        return None
-    return year, month, day
 
 
 def _fill_record_table(tbl: ET.Element, payload: dict[str, Any]) -> None:
@@ -3523,73 +3136,6 @@ def _fill_page_number_placeholder_in_paragraphs(root: ET.Element) -> None:
         _set_paragraph_text(paragraph, "第 1 页/共 1 页")
 
 
-def _fill_page_number_placeholders_in_root(root: ET.Element) -> None:
-    targets: list[tuple[str, ET.Element]] = []
-    body = root.find("./w:body", NS)
-    if body is None:
-        return
-
-    def walk(node: ET.Element, inside_tc: bool = False) -> None:
-        tag = node.tag
-        if tag == f"{{{W_NS}}}tc":
-            text = normalize_space(get_cell_text(node))
-            if _is_page_placeholder_text(text):
-                targets.append(("tc", node))
-            return
-        if tag == f"{{{W_NS}}}p" and not inside_tc:
-            text = normalize_space("".join([(t.text or "") for t in node.findall(".//w:t", NS)]))
-            if _is_page_placeholder_text(text):
-                targets.append(("p", node))
-        for child in list(node):
-            walk(child, inside_tc or tag == f"{{{W_NS}}}tc")
-
-    walk(body, inside_tc=False)
-    if not targets:
-        return
-
-    total = len(targets)
-    for idx, (kind, node) in enumerate(targets, start=1):
-        if kind == "tc":
-            set_cell_page_fields(node, idx, total)
-        else:
-            _set_paragraph_text(node, f"第 {idx} 页/共 {total} 页")
-
-
-def _is_page_placeholder_text(value: str) -> bool:
-    compact = re.sub(r"\s+", "", value or "")
-    if "第页/共页" in compact:
-        return True
-    if "第" in compact and "共" in compact and "页" in compact:
-        return True
-    return False
-
-
-def set_cell_page_fields(tc: ET.Element, current: int = 1, total: int = 1) -> None:
-    paragraphs = tc.findall("./w:p", NS)
-    if paragraphs:
-        paragraph = paragraphs[0]
-    else:
-        paragraph = ET.SubElement(tc, f"{{{W_NS}}}p")
-
-    _set_paragraph_text(paragraph, f"第 {current} 页/共 {total} 页")
-
-    for extra in paragraphs[1:]:
-        tc.remove(extra)
-
-
-def _append_text_run(paragraph: ET.Element, value: str) -> None:
-    run = ET.SubElement(paragraph, f"{{{W_NS}}}r")
-    text = ET.SubElement(run, f"{{{W_NS}}}t")
-    if value.startswith(" ") or value.endswith(" "):
-        text.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-    text.text = value
-
-
-def _set_paragraph_text(paragraph: ET.Element, value: str) -> None:
-    _clear_paragraph_runs(paragraph)
-    _append_text_run(paragraph, value)
-
-
 def _append_simple_field(paragraph: ET.Element, instr_name: str) -> None:
     field = ET.SubElement(paragraph, f"{{{W_NS}}}fldSimple")
     field.set(f"{{{W_NS}}}instr", f"{instr_name} \\* MERGEFORMAT")
@@ -3600,124 +3146,28 @@ def _append_simple_field(paragraph: ET.Element, instr_name: str) -> None:
     text.text = "1"
 
 
-def _clear_paragraph_runs(paragraph: ET.Element) -> None:
-    for child in list(paragraph):
-        if child.tag == f"{{{W_NS}}}pPr":
-            continue
-        paragraph.remove(child)
-
-
-def _set_paragraph_text(paragraph: ET.Element, value: str) -> None:
-    _clear_paragraph_runs(paragraph)
-    _append_text_run(paragraph, value)
-
-
-def _resolve_report_dates(
-    receive_date: str,
-    calibration_date: str,
-    publish_date: str,
-) -> tuple[str, str, str]:
-    receive = sanitize_context_date(receive_date)
-    calibration = sanitize_context_date(calibration_date)
-    publish = sanitize_context_date(publish_date)
-
-    base_date = calibration or receive
-    if not base_date:
-        return receive, calibration, publish
-
-    receive = base_date
-    calibration = base_date
-    next_day = _add_days(base_date, 1)
-    publish = next_day or publish
-    return receive, calibration, publish
-
-
-def _add_days(date_text: str, days: int) -> str:
-    parts = split_date_parts(date_text)
-    if not parts:
-        return ""
-    year, month, day = parts
-    try:
-        dt = datetime(int(year), int(month), int(day))
-    except ValueError:
-        return ""
-    target = dt + timedelta(days=days)
-    return f"{target.year:04d}年{target.month:02d}月{target.day:02d}日"
-
-
 def _extract_location_from_other_calibration_info(text: str) -> str:
-    return extract_location_from_other_calibration_info(
-        text,
-        extract_value_by_regex=extract_value_by_regex,
-        normalize_space=normalize_space,
-    )
+    return _extract_location_from_other_calibration_info_bridge(text, extract_value_by_regex)
 
 
 def _extract_temperature_from_other_calibration_info(text: str) -> str:
-    return extract_temperature_from_other_calibration_info(
-        text,
-        extract_value_by_regex=extract_value_by_regex,
-    )
+    return _extract_temperature_from_other_calibration_info_bridge(text, extract_value_by_regex)
 
 
 def _extract_humidity_from_other_calibration_info(text: str) -> str:
-    return extract_humidity_from_other_calibration_info(
-        text,
-        extract_value_by_regex=extract_value_by_regex,
-    )
+    return _extract_humidity_from_other_calibration_info_bridge(text, extract_value_by_regex)
 
 
 def _sanitize_location_text(value: str) -> str:
-    return sanitize_location_text(value, normalize_space=normalize_space)
+    return _sanitize_location_text_bridge(value)
 
 
 def _replace_uncertainty_value(text: str, value: str, unit: str) -> str:
-    return replace_uncertainty_value(
-        text,
-        value,
-        unit,
-        normalize_space=normalize_space,
-    )
+    return _replace_uncertainty_value_bridge(text, value, unit)
 
 
 def _replace_measured_value(text: str, value: str, unit: str) -> str:
-    return replace_measured_value(
-        text,
-        value,
-        unit,
-        normalize_space=normalize_space,
-    )
-
-
-def _fill_value_between_markers(
-    cells: list[ET.Element],
-    start_marker: str,
-    end_marker: str,
-    value: str,
-) -> None:
-    if not value:
-        return
-    start_idx = _find_cell_index_contains(cells, start_marker)
-    if start_idx < 0:
-        return
-
-    end_idx = _find_cell_index_contains(cells, end_marker)
-    if end_idx <= start_idx:
-        end_idx = len(cells)
-
-    for idx in range(start_idx + 1, end_idx):
-        current = get_cell_text(cells[idx])
-        if current:
-            continue
-        set_cell_text(cells[idx], value)
-        return
-
-
-def _find_cell_index_contains(cells: list[ET.Element], marker: str) -> int:
-    for idx, cell in enumerate(cells):
-        if marker in get_cell_text(cell):
-            return idx
-    return -1
+    return _replace_measured_value_bridge(text, value, unit)
 
 
 def _find_cell_index_contains_any(cells: list[ET.Element], markers: tuple[str, ...]) -> int:
@@ -3725,407 +3175,8 @@ def _find_cell_index_contains_any(cells: list[ET.Element], markers: tuple[str, .
 
 
 def _extract_section_uncertainty(text: str, section_title: str, unit: str) -> str:
-    return extract_section_uncertainty(
-        text,
-        section_title,
-        unit,
-        extract_value_by_regex=extract_value_by_regex,
-    )
+    return _extract_section_uncertainty_bridge(text, section_title, unit, extract_value_by_regex)
 
 
 def _extract_section_measured_value(text: str, section_title: str, unit: str) -> str:
-    return extract_section_measured_value(
-        text,
-        section_title,
-        unit,
-        extract_value_by_regex=extract_value_by_regex,
-    )
-
-
-def extract_hammer_actual_rows(tables: list[list[list[str]]]) -> list[list[str]]:
-    result: list[list[str]] = []
-    for rows in tables:
-        for row in rows:
-            label_idx = -1
-            for idx, cell in enumerate(row):
-                if "实际值(g)" in normalize_space(cell):
-                    label_idx = idx
-                    break
-            if label_idx < 0:
-                continue
-
-            values = [normalize_space(cell) for cell in row[label_idx + 1 :] if normalize_space(cell)]
-            if values:
-                result.append(values[:10])
-    return result[:3]
-
-
-def extract_hammer_actual_rows_from_text(text: str) -> list[list[str]]:
-    if not text:
-        return []
-    result: list[list[str]] = []
-    for line in text.splitlines():
-        if "实际值(g)" not in line:
-            continue
-        values = re.findall(r"\d+(?:\.\d+)?", line)
-        if len(values) >= 10:
-            result.append(values[-10:])
-    return result[:3]
-
-
-def extract_hammer_actual_rows_from_context(context: dict[str, str]) -> dict[int, list[str]]:
-    result: dict[int, list[str]] = {}
-    for idx in range(1, 4):
-        raw_value = normalize_space(context.get(f"hammer_actual_row_{idx}", ""))
-        if not raw_value:
-            continue
-        values = re.findall(r"\d+(?:\.\d+)?", raw_value)
-        if not values:
-            continue
-        result[idx - 1] = values[:10]
-    return result
-
-
-def merge_hammer_actual_rows(
-    source_rows: list[list[str]],
-    context_rows: dict[int, list[str]],
-) -> list[list[str]]:
-    merged = [list(row) for row in source_rows[:3]]
-    if len(merged) < 3:
-        merged.extend([[] for _ in range(3 - len(merged))])
-
-    for row_idx, values in context_rows.items():
-        if row_idx < 0 or row_idx > 2:
-            continue
-        merged[row_idx] = values
-    return merged
-
-
-def clean_item_name(name: str) -> str:
-    value = normalize_space(name)
-    value = re.sub(r"^[□■☑▣√]+", "", value)
-    return normalize_space(value)
-
-
-def sanitize_instrument_cell(value: str) -> str:
-    text = normalize_space(value)
-    if text in _PLACEHOLDER_VALUES:
-        return ""
-    return text
-
-
-def normalize_catalog_token(value: str) -> str:
-    text = re.sub(r"[\s:：/\\\-_.|*（）()]+", "", str(value or "").lower())
-    if text in _PLACEHOLDER_VALUES:
-        return ""
-    return text
-
-
-def parse_instrument_catalog_tokens(raw_text: str) -> set[str]:
-    tokens: set[str] = set()
-    for line in str(raw_text or "").splitlines():
-        text = sanitize_instrument_cell(line)
-        if not text:
-            continue
-        token = normalize_catalog_token(text)
-        if token:
-            tokens.add(token)
-    return tokens
-
-
-def parse_instrument_catalog_rows_json(raw_text: str) -> list[dict[str, str]]:
-    text = str(raw_text or "").strip()
-    if not text:
-        return []
-    try:
-        payload = json.loads(text)
-    except Exception:
-        return []
-    if not isinstance(payload, list):
-        return []
-
-    rows: list[dict[str, str]] = []
-    for item in payload:
-        if not isinstance(item, dict):
-            continue
-        row = {
-            "name": sanitize_instrument_cell(item.get("name", "")),
-            "model": sanitize_instrument_cell(item.get("model", "")),
-            "code": sanitize_instrument_cell(item.get("code", "")),
-            "measurement_range": sanitize_instrument_cell(item.get("measurement_range", "")),
-            "uncertainty": sanitize_instrument_cell(item.get("uncertainty", "")),
-            "certificate_no": sanitize_instrument_cell(item.get("certificate_no", "")),
-            "valid_date": sanitize_instrument_cell(item.get("valid_date", "")),
-            "traceability_institution": sanitize_instrument_cell(item.get("traceability_institution", "")),
-        }
-        if not row["name"]:
-            continue
-        rows.append(row)
-    return rows[:2000]
-
-
-def merge_instrument_rows_with_catalog(
-    instrument_rows: list[dict[str, str]],
-    catalog_rows: list[dict[str, str]],
-) -> list[dict[str, str]]:
-    catalog_by_token: dict[str, dict[str, str]] = {}
-    for row in catalog_rows:
-        token = normalize_catalog_token(row.get("name", ""))
-        if token and token not in catalog_by_token:
-            catalog_by_token[token] = row
-
-    merged: list[dict[str, str]] = []
-    for item in instrument_rows:
-        token = normalize_catalog_token(item.get("name", ""))
-        catalog = catalog_by_token.get(token) if token else None
-        if not catalog:
-            merged.append(item)
-            continue
-
-        cert_value = sanitize_instrument_cell(catalog.get("certificate_no", ""))
-        valid_value = sanitize_instrument_cell(catalog.get("valid_date", ""))
-        merged.append(
-            {
-                "name": sanitize_instrument_cell(catalog.get("name", "")) or sanitize_instrument_cell(item.get("name", "")),
-                "model": sanitize_instrument_cell(catalog.get("model", "")) or sanitize_instrument_cell(item.get("model", "")),
-                "code": sanitize_instrument_cell(catalog.get("code", "")) or sanitize_instrument_cell(item.get("code", "")),
-                "measurement_range": sanitize_instrument_cell(catalog.get("measurement_range", "")) or sanitize_instrument_cell(item.get("measurement_range", "")),
-                "uncertainty": sanitize_instrument_cell(catalog.get("uncertainty", "")) or sanitize_instrument_cell(item.get("uncertainty", "")),
-                "certificate_no": cert_value or sanitize_instrument_cell(item.get("certificate_no", "")),
-                "valid_date": valid_value or sanitize_instrument_cell(item.get("valid_date", "")),
-                "traceability_institution": sanitize_instrument_cell(catalog.get("traceability_institution", "")) or sanitize_instrument_cell(item.get("traceability_institution", "")),
-            }
-        )
-    return merged
-
-
-def _pick_cell(row: list[str], index: int) -> str:
-    if index < 0 or index >= len(row):
-        return ""
-    return row[index]
-
-
-def _first_meaningful_value(values: list[str]) -> str:
-    for candidate in values:
-        candidate_value = normalize_space(candidate)
-        if candidate_value and not _looks_like_label(candidate_value):
-            return candidate_value
-    return ""
-
-
-def _split_model_code_combined(value: str) -> tuple[str, str]:
-    text = normalize_space(value)
-    if not text:
-        return "", ""
-    parts = [normalize_space(part) for part in re.split(r"[:：/|]", text) if normalize_space(part)]
-    if len(parts) >= 2:
-        left = sanitize_context_value(parts[0])
-        right = sanitize_context_value(parts[1])
-        if left and right:
-            return left, right
-    return sanitize_context_value(text), ""
-
-
-def _looks_like_label(value: str) -> bool:
-    normalized_value = normalize_space(value)
-    if normalized_value.endswith(":") or normalized_value.endswith("："):
-        return True
-    if "溯源机构名称" in normalized_value:
-        return True
-    if normalized_value.lower() in {"client", "manufacturer", "instrument name"}:
-        return True
-    ascii_compact = re.sub(r"[^a-z]", "", normalized_value.lower())
-    if ascii_compact in {
-        "client",
-        "manufacturer",
-        "instrumentname",
-        "devicename",
-        "equipmentname",
-        "instrumentserialnumber",
-        "modelspecification",
-        "modelnumber",
-        "measurementrange",
-        "certificateseriesnumber",
-        "certificate",
-        "number",
-        "serialnumber",
-        "code",
-        "receiveddate",
-        "dateforcalibration",
-        "year",
-        "month",
-        "day",
-    }:
-        return True
-    if re.search(r"(?:model|specification|serial|number|manufacturer|measurement|range|traceability|institution)", ascii_compact):
-        if not re.search(r"\d", normalized_value):
-            return True
-    return False
-
-
-def _extract_standard_code(value: str) -> str:
-    codes = _extract_standard_codes(value)
-    if not codes:
-        return ""
-    return codes[0]
-
-
-def _extract_standard_codes(value: str) -> list[str]:
-    normalized_value = normalize_space(value)
-    if not normalized_value:
-        return []
-    matches = re.findall(
-        r"([A-Za-z]{1,5}\s*/\s*T\s*\d+(?:\.\d+)?-\d{4})",
-        normalized_value,
-        flags=re.IGNORECASE,
-    )
-    result: list[str] = []
-    seen: set[str] = set()
-    for raw_code in matches:
-        code = re.sub(r"\s+", " ", raw_code).strip()
-        code = re.sub(r"\s*/\s*", "/", code)
-        code = re.sub(r"/\s*T\s*", "/T ", code, flags=re.IGNORECASE)
-        if code in seen:
-            continue
-        seen.add(code)
-        result.append(code)
-    return result
-
-
-def _extract_standard_codes_from_context_items(value: Any) -> list[str]:
-    raw_items: list[str] = []
-    if isinstance(value, list):
-        raw_items = [str(item or "") for item in value]
-    elif isinstance(value, tuple):
-        raw_items = [str(item or "") for item in value]
-    elif isinstance(value, str):
-        text = normalize_space(value)
-        if not text:
-            raw_items = []
-        else:
-            raw_items = [part for part in re.split(r"[\n,，;；]+", text) if normalize_space(part)]
-    else:
-        raw_items = []
-
-    result: list[str] = []
-    seen: set[str] = set()
-    for item in raw_items:
-        codes = _extract_standard_codes(item)
-        if not codes:
-            continue
-        for code in codes:
-            if code in seen:
-                continue
-            seen.add(code)
-            result.append(code)
-    return result
-
-
-def _normalize_basis_mode(value: str) -> str:
-    normalized_value = normalize_space(value)
-    if normalized_value in {"校准", "calibration"}:
-        return "校准"
-    if normalized_value in {"检测", "test", "inspection"}:
-        return "检测"
-    return ""
-
-
-def _infer_basis_mode(text: str) -> str:
-    normalized_text = normalize_space(text)
-    if not normalized_text:
-        return ""
-    if re.search(r"(校准证书|本次校准|校准日期|校准依据)", normalized_text):
-        return "校准"
-    if re.search(r"(本次检测|检测日期|检测依据)", normalized_text):
-        return "检测"
-    return ""
-
-
-def _format_dual_mode_checkbox(mode: str) -> str:
-    if mode == "检测":
-        return "☑检测/□校准"
-    if mode == "校准":
-        return "□检测/☑校准"
-    return "□检测/□校准"
-
-
-def _extract_basis_from_cell(text: str) -> str:
-    match = re.search(r"依据[:：]\s*(.*)$", normalize_space(text))
-    if not match:
-        return ""
-    basis_text = normalize_space(match.group(1))
-    basis_codes = _extract_standard_codes(basis_text)
-    if basis_codes:
-        return "、".join(basis_codes)
-    return basis_text
-
-
-def _capture_namespaces(xml_data: bytes) -> list[tuple[str, str]]:
-    namespaces: list[tuple[str, str]] = []
-    seen: set[tuple[str, str]] = set()
-    for _, (prefix, uri) in ET.iterparse(io.BytesIO(xml_data), events=("start-ns",)):
-        normalized_prefix = prefix or ""
-        normalized_uri = uri or ""
-        key = (normalized_prefix, normalized_uri)
-        if key in seen:
-            continue
-        seen.add(key)
-        namespaces.append(key)
-    return namespaces
-
-
-def _preserve_original_namespaces(root: ET.Element, namespaces: list[tuple[str, str]]) -> None:
-    used_namespace_uris: set[str] = set()
-    for element in root.iter():
-        if isinstance(element.tag, str) and element.tag.startswith("{"):
-            used_namespace_uris.add(element.tag[1:].split("}", 1)[0])
-        for attr_key in element.attrib.keys():
-            if isinstance(attr_key, str) and attr_key.startswith("{"):
-                used_namespace_uris.add(attr_key[1:].split("}", 1)[0])
-
-    for prefix, uri in namespaces:
-        if not uri or prefix == "xml":
-            continue
-        try:
-            ET.register_namespace(prefix, uri)
-        except Exception:
-            pass
-        if uri in used_namespace_uris:
-            continue
-        if prefix:
-            key = f"xmlns:{prefix}"
-            if key not in root.attrib:
-                root.set(key, uri)
-        else:
-            if "xmlns" not in root.attrib:
-                root.set("xmlns", uri)
-
-
-def _tables_to_text_block(tables: list[list[list[str]]]) -> str:
-    lines: list[str] = []
-    for table in tables:
-        for row in table:
-            text = " | ".join([cell for cell in row if cell])
-            if text:
-                lines.append(text)
-    return "\n".join(lines)
-
-
-def sanitize_context_value(value: str) -> str:
-    normalized = normalize_space(value)
-    if not normalized:
-        return ""
-    if _looks_like_label(normalized):
-        return ""
-    return normalized
-
-
-def sanitize_context_date(value: str) -> str:
-    normalized = normalize_space(value)
-    if not normalized:
-        return ""
-    parts = split_date_parts(normalized)
-    if not parts:
-        return ""
-    year, month, day = parts
-    return f"{year}年{month}月{day}日"
+    return _extract_section_measured_value_bridge(text, section_title, unit, extract_value_by_regex)

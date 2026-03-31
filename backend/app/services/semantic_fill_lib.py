@@ -626,7 +626,38 @@ def replace_measured_value_placeholder_by_items(
             suffix = f"{fill_unit}{suffix}"
         return f"{match.group(1)}{fill_value}{suffix}"
 
-    return pattern.sub(repl, source)
+    replaced = pattern.sub(repl, source)
+    if replaced != source:
+        return replaced
+
+    # Fallback for templates like "实测值 次" (no colon, no numeric value yet).
+    unit_placeholder = re.search(
+        r"(实\s*测\s*值)(\s+)([A-Za-z%°ΩΩω℃/\u4e00-\u9fff]+)(\s*[。．]?)",
+        source,
+        flags=re.IGNORECASE,
+    )
+    if unit_placeholder:
+        marker = unit_placeholder.group(1)
+        spacing = unit_placeholder.group(2)
+        unit_token = unit_placeholder.group(3)
+        ending = unit_placeholder.group(4)
+        replacement = f"{marker}：{fill_value}{spacing}{unit_token}{ending}"
+        return source[: unit_placeholder.start()] + replacement + source[unit_placeholder.end() :]
+
+    # Fallback for bare placeholder "实测值".
+    bare_placeholder = re.search(
+        r"(实\s*测\s*值)(?=\s*(?:[。．,，;；]|$))(\s*[。．]?)",
+        source,
+        flags=re.IGNORECASE,
+    )
+    if bare_placeholder:
+        marker = bare_placeholder.group(1)
+        ending = bare_placeholder.group(2)
+        suffix = f" {fill_unit}" if fill_unit and _should_append_source_unit(fill_unit, source, anchor_text, anchor_hint) else ""
+        replacement = f"{marker}：{fill_value}{suffix}{ending}"
+        return source[: bare_placeholder.start()] + replacement + source[bare_placeholder.end() :]
+
+    return source
 
 
 def is_reliable_result_semantic_match(

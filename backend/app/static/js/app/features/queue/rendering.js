@@ -88,7 +88,7 @@ export function createQueueRenderingFeature(deps = {}) {
           <td title="${escapeAttr(getModelCodeDisplay(item) || "")}">${escapeHtml(getModelCodeDisplay(item) || "-")}</td>
           <td title="${escapeAttr(getDeviceCodeDisplay(item) || "")}">${escapeHtml(getDeviceCodeDisplay(item) || "-")}</td>
           <td title="${escapeAttr((item.fields && item.fields.manufacturer) || "")}">${escapeHtml((item.fields && item.fields.manufacturer) || "-")}</td>
-          <td><span class="status ${statusClass(item.status)}">${escapeHtml(statusLabel(item.status))}</span></td>
+          <td><span class="status ${statusClass(item.status)}">${escapeHtml(statusLabel(item))}</span></td>
           <td title="${escapeAttr(item.templateName || "")}">${escapeHtml(item.templateName || "-")}</td>
           <td title="${escapeAttr(item.message || "")}">${escapeHtml(item.message || "")}</td>
         </tr>

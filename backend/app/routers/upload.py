@@ -51,6 +51,7 @@ async def upload_file(file: UploadFile = File(...)) -> UploadResponse:
 
     file_id = uuid4().hex
     output_path = UPLOAD_DIR / f"{file_id}{suffix}"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("wb") as f:
         shutil.copyfileobj(file.file, f)
 

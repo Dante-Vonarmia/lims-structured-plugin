@@ -120,13 +120,9 @@ def _build_raw_record_index(directories: list[Path]) -> list[dict[str, Any]]:
 
 
 def _resolve_raw_record_dirs() -> list[Path]:
-    project_root = Path(__file__).resolve().parents[3]
-    data_root = project_root / "data"
     candidates = [
         RAW_RECORD_DIR,
         UPLOAD_DIR,
-        data_root / "raw-records",
-        data_root / "uploads",
     ]
     result: list[Path] = []
     seen: set[str] = set()

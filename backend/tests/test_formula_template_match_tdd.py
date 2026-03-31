@@ -1,9 +1,74 @@
 from __future__ import annotations
 
+import re
+import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+
+def _minimal_yaml_safe_load(stream):
+    raw = stream.read() if hasattr(stream, "read") else stream
+    text = raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else str(raw or "")
+    if not text.strip():
+        return {}
+    version = 1
+    entries: list[dict[str, object]] = []
+    current: dict[str, object] | None = None
+    in_aliases = False
+    for line in text.splitlines():
+        line = str(line or "").rstrip()
+        if not line.strip():
+            continue
+        m_ver = re.match(r"^version:\s*(\d+)\s*$", line)
+        if m_ver:
+            version = int(m_ver.group(1))
+            continue
+        if re.match(r"^\s*entries:\s*$", line):
+            continue
+        m_entry = re.match(r"^\s*-\s+id:\s*(.+)\s*$", line)
+        if m_entry:
+            if current is not None:
+                entries.append(current)
+            current = {"id": m_entry.group(1).strip().strip("'\""), "source_aliases": []}
+            in_aliases = False
+            continue
+        if current is None:
+            continue
+        m_aliases = re.match(r"^\s*source_aliases:\s*$", line)
+        if m_aliases:
+            in_aliases = True
+            continue
+        m_alias_item = re.match(r"^\s*-\s+(.+)\s*$", line)
+        if in_aliases and m_alias_item:
+            alias = m_alias_item.group(1).strip().strip("'\"")
+            aliases = current.get("source_aliases", [])
+            if isinstance(aliases, list):
+                aliases.append(alias)
+                current["source_aliases"] = aliases
+            continue
+        in_aliases = False
+        m_kv = re.match(r"^\s*([A-Za-z0-9_]+):\s*(.*)\s*$", line)
+        if not m_kv:
+            continue
+        key = m_kv.group(1).strip()
+        value = m_kv.group(2).strip().strip("'\"")
+        current[key] = value
+    if current is not None:
+        entries.append(current)
+    return {"version": version, "entries": entries}
+
+
+yaml_stub = types.ModuleType("yaml")
+yaml_stub.safe_load = _minimal_yaml_safe_load
+yaml_stub.safe_dump = lambda *_args, **_kwargs: ""
+sys.modules["yaml"] = yaml_stub
 
 from app.services.template_service import list_available_templates, match_template_name
 
