@@ -6,7 +6,7 @@
   <title>证书模板与原始记录批量工具</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
-  <link rel="stylesheet" href="/static/css/app.css?v=20260330-1705" />
+  <link rel="stylesheet" href="/static/css/app.css?v=20260331-1630" />
 </head>
 <body>
   <div class="shell">
@@ -63,9 +63,9 @@
           <span id="activeFileText" class="tag">当前：未选择文件</span>
         </div>
         <div class="list-tools">
+          <button id="toggleSelectModeBtn" type="button" class="small-btn" title="当前：单选模式（点击切换复选）" aria-label="当前：单选模式（点击切换复选）"><i class="fa-solid fa-list-check btn-icon" aria-hidden="true"></i></button>
           <button id="runGenerateAllBtn" type="button" class="small-btn"><i class="fa-solid fa-gears btn-icon" aria-hidden="true"></i><span class="btn-text">批量生成选中</span></button>
           <button id="runBatchBtn" type="button" class="small-btn"><i class="fa-solid fa-file-export btn-icon" aria-hidden="true"></i><span class="btn-text">批量导出选中</span></button>
-          <input id="filterKeyword" type="text" placeholder="筛选关键词（名称/型号/编号/厂商）" />
           <select id="filterStatus" hidden>
             <option value="">状态：全部</option>
             <option value="pending">待处理</option>
@@ -88,9 +88,8 @@
             <option value="asc">升序</option>
             <option value="desc">降序</option>
           </select>
-          <button id="selectVisibleBtn" type="button" class="small-btn"><i class="fa-solid fa-check-double btn-icon" aria-hidden="true"></i><span class="btn-text">全选</span></button>
-          <button id="clearSelectedBtn" type="button" class="small-btn"><i class="fa-solid fa-eraser btn-icon" aria-hidden="true"></i><span class="btn-text">清空勾选</span></button>
           <button id="removeSelectedBtn" type="button" class="small-btn"><i class="fa-solid fa-trash btn-icon" aria-hidden="true"></i><span class="btn-text">移除选中</span></button>
+          <input id="filterKeyword" type="text" placeholder="筛选关键词（名称/型号/编号/厂商）" />
           <span id="selectedCountText" class="hint">已选：0</span>
         </div>
         <div class="body" id="queueList"></div>
@@ -186,6 +185,6 @@
       </div>
     </div>
   </div>
-  <script type="module" src="/static/js/app/main.js?v=20260330-2101"></script>
+  <script type="module" src="/static/js/app/main.js?v=20260331-1630"></script>
 </body>
 </html>

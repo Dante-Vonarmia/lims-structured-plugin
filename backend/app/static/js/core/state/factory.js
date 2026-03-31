@@ -4,6 +4,7 @@ export function createInitialState() {
     queue: [],
     activeId: "",
     selectedIds: new Set(),
+    multiSelectMode: false,
     listFilter: { keyword: "", status: "", sortKey: "", sortDir: "asc", columnFilters: {}, activeFilterKey: "" },
     busy: false,
     runtime: { offlineMode: false, modifyCertificateBlueprintTemplateName: "" },

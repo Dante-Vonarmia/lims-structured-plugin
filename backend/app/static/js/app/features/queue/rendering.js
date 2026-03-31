@@ -67,7 +67,7 @@ export function createQueueRenderingFeature(deps = {}) {
       const sortIcon = isSortActive ? (isAsc ? "↑" : "↓") : "↕";
       const selectedTokens = Array.isArray(columnFilters[key]) ? columnFilters[key] : [];
       const isFilterActive = selectedTokens.length > 0;
-      const triggerText = isFilterActive ? `筛(${selectedTokens.length})` : "筛";
+      const triggerTitle = isFilterActive ? `筛选（已选 ${selectedTokens.length}）` : "筛选";
       const options = getColumnFilterOptionEntries(key, filterOptionItems);
       const optionsHtml = options.length
         ? options.map((opt) => {
@@ -78,7 +78,7 @@ export function createQueueRenderingFeature(deps = {}) {
       const menuHtml = activeFilterKey === key
         ? `<div class="th-filter-menu"><div class="th-filter-actions"><button type="button" class="th-filter-act" data-filter-act="all" data-filter-key="${escapeAttr(key)}">全选</button><button type="button" class="th-filter-act" data-filter-act="clear" data-filter-key="${escapeAttr(key)}">清空</button><button type="button" class="th-filter-act" data-filter-act="only_blank" data-filter-key="${escapeAttr(key)}">仅空</button><button type="button" class="th-filter-act" data-filter-act="only_non_blank" data-filter-key="${escapeAttr(key)}">仅非空</button></div><div class="th-filter-options">${optionsHtml}</div></div>`
         : "";
-      return `<th><span class="th-cell"><button type="button" class="th-sort-btn ${isSortActive ? "is-active" : ""}" data-sort-key="${escapeAttr(key)}"><span>${escapeHtml(label)}</span><span class="th-sort-icon">${sortIcon}</span></button><button type="button" class="th-filter-trigger ${isFilterActive ? "is-active" : ""}" data-filter-key="${escapeAttr(key)}">${escapeHtml(triggerText)}</button>${menuHtml}</span></th>`;
+      return `<th><span class="th-cell"><button type="button" class="th-sort-btn ${isSortActive ? "is-active" : ""}" data-sort-key="${escapeAttr(key)}"><span>${escapeHtml(label)}</span><span class="th-sort-icon">${sortIcon}</span></button><button type="button" class="th-filter-trigger ${isFilterActive ? "is-active" : ""}" data-filter-key="${escapeAttr(key)}" title="${escapeAttr(triggerTitle)}"><i class="fa-solid fa-filter" aria-hidden="true"></i></button>${menuHtml}</span></th>`;
     };
     const rows = visibleItems.map((item, i) => `
         <tr data-id="${escapeAttr(item.id)}" class="${item.id === state.activeId ? "active" : ""} ${item.status === "generated" ? "row-generated" : ""}">
@@ -174,13 +174,24 @@ export function createQueueRenderingFeature(deps = {}) {
     $("templateName").disabled = state.busy || !item;
     $("templateSearch").disabled = state.busy || !item;
     $("togglePreviewFullscreenBtn").disabled = !item;
-    $("selectVisibleBtn").disabled = state.busy || !state.queue.length;
-    $("clearSelectedBtn").disabled = state.busy || !state.selectedIds.size;
     $("removeSelectedBtn").disabled = state.busy || !state.selectedIds.size;
     $("filterKeyword").disabled = state.busy && !state.queue.length;
     $("filterStatus").disabled = state.busy && !state.queue.length;
     $("sortKey").disabled = state.busy && !state.queue.length;
     $("sortDir").disabled = state.busy && !state.queue.length;
+    const toggleSelectModeBtn = $("toggleSelectModeBtn");
+    if (toggleSelectModeBtn) {
+      toggleSelectModeBtn.disabled = state.busy || !state.queue.length;
+      const iconEl = toggleSelectModeBtn.querySelector(".btn-icon");
+      if (iconEl) {
+        iconEl.classList.remove("fa-list-check", "fa-check");
+        iconEl.classList.add(state.multiSelectMode ? "fa-check" : "fa-list-check");
+      }
+      toggleSelectModeBtn.classList.toggle("is-active", !!state.multiSelectMode);
+      const modeTitle = state.multiSelectMode ? "当前：复选模式（点击切换单选）" : "当前：单选模式（点击切换复选）";
+      toggleSelectModeBtn.title = modeTitle;
+      toggleSelectModeBtn.setAttribute("aria-label", modeTitle);
+    }
     const visible = getFilteredSortedQueue();
     const activeIndex = visible.findIndex((x) => x && x.id === state.activeId);
     const canPrev = !state.busy && visible.length > 1 && activeIndex > 0;

@@ -326,6 +326,12 @@ button:hover {
   background: linear-gradient(180deg, var(--btn-hover-top) 0%, var(--btn-hover-bottom) 100%);
 }
 
+button:active:not(:disabled) {
+  transform: translateY(1px);
+  background: linear-gradient(180deg, #d8e4f3 0%, #c4d4e8 100%);
+  box-shadow: inset 0 2px 3px rgba(47, 71, 102, 0.2);
+}
+
 button.primary {
   background: linear-gradient(180deg, var(--btn-primary-top) 0%, var(--btn-primary-bottom) 100%);
 }
@@ -476,6 +482,23 @@ button:disabled {
   font-size: 12px;
 }
 
+.list-tools #toggleSelectModeBtn {
+  width: 32px;
+  min-width: 32px;
+  padding: 0;
+}
+
+.list-tools #toggleSelectModeBtn .btn-text {
+  display: none;
+}
+
+.list-tools #toggleSelectModeBtn.is-active {
+  border-color: #2f6ab0;
+  background: linear-gradient(180deg, #dceaff 0%, #cddff6 100%);
+  color: #1b4f86;
+  box-shadow: inset 0 1px 0 #f8fbff, inset 0 0 0 1px rgba(47, 106, 176, 0.18);
+}
+
 .list-tools .hint {
   color: var(--muted);
   font-weight: 700;
@@ -569,6 +592,11 @@ th .th-sort-btn:hover {
   color: #1a4c83;
 }
 
+th .th-sort-btn:active {
+  transform: translateY(1px);
+  color: #0f4b8f;
+}
+
 th .th-sort-btn.is-active {
   color: #0f4b8f;
 }
@@ -599,6 +627,11 @@ th .th-filter-trigger {
 
 th .th-filter-trigger:hover {
   background: #e3edf9;
+}
+
+th .th-filter-trigger:active {
+  transform: translateY(1px);
+  background: #d6e5f8;
 }
 
 th .th-filter-trigger.is-active {

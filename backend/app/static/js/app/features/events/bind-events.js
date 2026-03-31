@@ -153,8 +153,13 @@ export function createBindEventsFeature(deps = {}) {
         if (!row) return;
         const id = row.getAttribute("data-id") || "";
         if (!id) return;
-        if (state.selectedIds.has(id)) state.selectedIds.delete(id);
-        else state.selectedIds.add(id);
+        if (state.multiSelectMode) {
+          if (state.selectedIds.has(id)) state.selectedIds.delete(id);
+          else state.selectedIds.add(id);
+        } else {
+          state.selectedIds.clear();
+          state.selectedIds.add(id);
+        }
         updateSelectedCountText();
         refreshTargetFieldFormBySelection();
         state.listFilter.activeFilterKey = "";
@@ -190,8 +195,15 @@ export function createBindEventsFeature(deps = {}) {
         if (target.matches(".row-check")) {
           const id = target.getAttribute("data-id") || "";
           if (!id) return;
-          if (target.checked) state.selectedIds.add(id);
-          else state.selectedIds.delete(id);
+          if (state.multiSelectMode) {
+            if (target.checked) state.selectedIds.add(id);
+            else state.selectedIds.delete(id);
+          } else if (target.checked) {
+            state.selectedIds.clear();
+            state.selectedIds.add(id);
+          } else {
+            state.selectedIds.delete(id);
+          }
           updateSelectedCountText();
           refreshActionButtons();
           refreshTargetFieldFormBySelection();
@@ -1215,25 +1227,15 @@ export function createBindEventsFeature(deps = {}) {
         state.listFilter.sortDir = $("sortDir").value || "asc";
         renderQueue();
       });
-      $("selectVisibleBtn").addEventListener("click", () => {
+      $("toggleSelectModeBtn").addEventListener("click", () => {
         if (state.busy) return;
-        getFilteredSortedQueue().forEach((item) => state.selectedIds.add(item.id));
+        state.multiSelectMode = !state.multiSelectMode;
+        if (!state.multiSelectMode) {
+          const keepId = state.activeId || Array.from(state.selectedIds)[0] || "";
+          state.selectedIds.clear();
+          if (keepId) state.selectedIds.add(keepId);
+        }
         renderQueue();
-        refreshTargetFieldFormBySelection();
-        renderSourceFieldList(getActiveItem());
-        renderSourcePreview(getActiveItem());
-        renderTargetPreview(getActiveItem());
-        updateSourceDeviceNameText(getActiveItem());
-      });
-      $("clearSelectedBtn").addEventListener("click", () => {
-        if (state.busy) return;
-        state.selectedIds.clear();
-        renderQueue();
-        refreshTargetFieldFormBySelection();
-        renderSourceFieldList(getActiveItem());
-        renderSourcePreview(getActiveItem());
-        renderTargetPreview(getActiveItem());
-        updateSourceDeviceNameText(getActiveItem());
       });
       $("removeSelectedBtn").addEventListener("click", async () => {
         if (state.busy) return;
