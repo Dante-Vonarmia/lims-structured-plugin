@@ -345,14 +345,27 @@ export function createPreviewWorkflowFeature(deps = {}) {
   function _readRelId(node) {
     if (!node || !node.attributes) return "";
     if (typeof node.getAttribute === "function") {
-      const rid = node.getAttribute("r:id") || node.getAttribute("id");
+      const rid = node.getAttribute("r:id")
+        || node.getAttribute("id")
+        || node.getAttribute("r:embed")
+        || node.getAttribute("embed")
+        || node.getAttribute("r:link")
+        || node.getAttribute("link");
       if (rid) return String(rid || "").trim();
     }
     const attrs = Array.from(node.attributes || []);
     const relAttr = attrs.find((attr) => {
       const local = String((attr && attr.localName) || "");
       const name = String((attr && attr.name) || "");
-      return local === "id" || name === "r:id" || name.endsWith(":id");
+      return local === "id"
+        || local === "embed"
+        || local === "link"
+        || name === "r:id"
+        || name === "r:embed"
+        || name === "r:link"
+        || name.endsWith(":id")
+        || name.endsWith(":embed")
+        || name.endsWith(":link");
     });
     return String((relAttr && relAttr.value) || "").trim();
   }
@@ -361,6 +374,50 @@ export function createPreviewWorkflowFeature(deps = {}) {
     if (!pNode) return "";
     const tNodes = Array.from(pNode.getElementsByTagNameNS("*", "t"));
     return tNodes.map((t) => String((t && t.textContent) || "")).join("").replace(/\s+/g, " ").trim();
+  }
+
+  function _imageMimeFromPath(path) {
+    const p = String(path || "").toLowerCase();
+    if (p.endsWith(".png")) return "image/png";
+    if (p.endsWith(".jpg") || p.endsWith(".jpeg")) return "image/jpeg";
+    if (p.endsWith(".gif")) return "image/gif";
+    if (p.endsWith(".webp")) return "image/webp";
+    if (p.endsWith(".bmp")) return "image/bmp";
+    if (p.endsWith(".tif") || p.endsWith(".tiff")) return "image/tiff";
+    return "";
+  }
+
+  function _emuToPx(value) {
+    const n = Number(value || 0);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return Math.round((n * 96) / 914400);
+  }
+
+  function _readImageSizeFromBlipNode(imageNode) {
+    if (!imageNode) return { widthPx: 0, heightPx: 0 };
+    let drawingNode = null;
+    let cursor = imageNode;
+    while (cursor && cursor.nodeType === 1) {
+      if (String(cursor.localName || "").toLowerCase() === "drawing") {
+        drawingNode = cursor;
+        break;
+      }
+      cursor = cursor.parentNode;
+    }
+    if (!drawingNode) return { widthPx: 0, heightPx: 0 };
+    const extentNode = drawingNode.getElementsByTagNameNS("*", "extent")[0] || null;
+    if (!extentNode || typeof extentNode.getAttribute !== "function") return { widthPx: 0, heightPx: 0 };
+    const widthPx = _emuToPx(extentNode.getAttribute("cx"));
+    const heightPx = _emuToPx(extentNode.getAttribute("cy"));
+    return { widthPx, heightPx };
+  }
+
+  function _renderEmbeddedImageHtml(dataUrl, widthPx, heightPx) {
+    const widthStyle = Number.isFinite(Number(widthPx)) && Number(widthPx) > 0 ? `width:${Math.round(Number(widthPx))}px;` : "";
+    const heightStyle = Number.isFinite(Number(heightPx)) && Number(heightPx) > 0 ? `max-height:${Math.round(Number(heightPx))}px;` : "";
+    return `<div style="width:auto;max-width:100%;display:inline-block;box-sizing:border-box;margin-top:8px;">
+      <img alt="embedded-image" src="${dataUrl}" style="display:block;max-width:100%;height:auto;${widthStyle}${heightStyle}margin:0 auto;" />
+    </div>`;
   }
 
   async function _readDocxRelationships(zip, relPath, baseDir) {
@@ -431,6 +488,14 @@ export function createPreviewWorkflowFeature(deps = {}) {
         const path = relMap.get(rid) || "";
         if (!path || !/^word\/charts\/chart\d+\.xml$/i.test(path)) return;
         blocks.push({ type: "chart", path, anchorText, anchorBefore, anchorAfter });
+      });
+      const imageNodes = Array.from(pNode.getElementsByTagNameNS("*", "blip"));
+      imageNodes.forEach((imageNode) => {
+        const rid = _readRelId(imageNode);
+        const path = relMap.get(rid) || "";
+        if (!path || !/^word\/media\/.+\.(png|jpe?g|gif|bmp|webp|tiff?)$/i.test(path)) return;
+        const size = _readImageSizeFromBlipNode(imageNode);
+        blocks.push({ type: "image", path, anchorText, anchorBefore, anchorAfter, widthPx: Number(size.widthPx || 0), heightPx: Number(size.heightPx || 0) });
       });
       const oleNodes = Array.from(pNode.getElementsByTagNameNS("*", "OLEObject"))
         .concat(Array.from(pNode.getElementsByTagNameNS("*", "oleObject")));
@@ -517,6 +582,22 @@ export function createPreviewWorkflowFeature(deps = {}) {
       }
     }
 
+    const imageEntries = Object.keys(zip.files).filter((p) => /^word\/media\/.+\.(png|jpe?g|gif|bmp|webp|tiff?)$/i.test(p)).sort();
+    const imageDataUrlByPath = new Map();
+    for (let i = 0; i < imageEntries.length; i += 1) {
+      const path = imageEntries[i];
+      const mime = _imageMimeFromPath(path);
+      if (!mime) continue;
+      let base64 = "";
+      try {
+        base64 = await zip.file(path).async("base64");
+      } catch (_) {
+        base64 = "";
+      }
+      if (!base64) continue;
+      imageDataUrlByPath.set(path, `data:${mime};base64,${base64}`);
+    }
+
     const xlsxEntriesAll = Object.keys(zip.files).filter((p) => /^word\/embeddings\/.*\.xlsx$/i.test(p)).sort();
     const xlsxEntriesPreferred = xlsxEntriesAll.filter((p) => !chartLinkedXlsxSet.has(p));
     const xlsxEntries = xlsxEntriesPreferred.length ? xlsxEntriesPreferred : xlsxEntriesAll;
@@ -570,6 +651,9 @@ export function createPreviewWorkflowFeature(deps = {}) {
     }
 
     const chartItemsUnused = [...chartItems];
+    const imageItemsUnused = imageEntries
+      .filter((p) => imageDataUrlByPath.has(p))
+      .map((p) => ({ type: "image", path: p, html: _renderEmbeddedImageHtml(String(imageDataUrlByPath.get(p) || ""), 0, 0) }));
     const tableItemsUnused = [...tableItems];
     const takeByPathOrShift = (unused, htmlByPath, path) => {
       const normalizedPath = String(path || "").trim();
@@ -612,10 +696,29 @@ export function createPreviewWorkflowFeature(deps = {}) {
             anchorAfter: objectNode.anchorAfter || "",
           });
         }
+        return;
+      }
+      if (objectNode.type === "image") {
+        const dataUrl = String(imageDataUrlByPath.get(String(objectNode.path || "").trim()) || "");
+        const html = dataUrl
+          ? _renderEmbeddedImageHtml(dataUrl, Number(objectNode.widthPx || 0), Number(objectNode.heightPx || 0))
+          : takeByPathOrShift(imageItemsUnused, new Map(), objectNode.path);
+        if (html) {
+          orderedBlocks.push({
+            type: "image",
+            html,
+            anchorText: objectNode.anchorText || "",
+            anchorBefore: objectNode.anchorBefore || "",
+            anchorAfter: objectNode.anchorAfter || "",
+          });
+        }
       }
     });
     chartItemsUnused.forEach((item) => {
       if (item && item.html) orderedBlocks.push({ type: "chart", html: item.html, anchorText: "", anchorBefore: "", anchorAfter: "" });
+    });
+    imageItemsUnused.forEach((item) => {
+      if (item && item.html) orderedBlocks.push({ type: "image", html: item.html, anchorText: "", anchorBefore: "", anchorAfter: "" });
     });
     tableItemsUnused.forEach((item) => {
       if (item && item.html) orderedBlocks.push({ type: "table", html: item.html, anchorText: "", anchorBefore: "", anchorAfter: "" });
@@ -639,6 +742,7 @@ export function createPreviewWorkflowFeature(deps = {}) {
 
   function _injectEmbeddedBlocksAtAnchors(sourceEl, parsed) {
     if (!sourceEl || !parsed) return { inserted: 0, total: 0 };
+    const allowImageBlocks = String((sourceEl && sourceEl.id) || "") === "targetPreview";
     const orderedBlocks = Array.isArray(parsed.blocks) && parsed.blocks.length
       ? parsed.blocks.map((x) => ({
         type: String((x && x.type) || ""),
@@ -646,7 +750,7 @@ export function createPreviewWorkflowFeature(deps = {}) {
         anchorText: String((x && x.anchorText) || ""),
         anchorBefore: String((x && x.anchorBefore) || ""),
         anchorAfter: String((x && x.anchorAfter) || ""),
-      }))
+      })).filter((x) => allowImageBlocks || x.type !== "image")
       : [
         ...(Array.isArray(parsed.tableBlocks) ? parsed.tableBlocks.map((html) => ({ type: "table", html: String(html || ""), anchorText: "", anchorBefore: "", anchorAfter: "" })) : []),
         ...(Array.isArray(parsed.chartBlocks) ? parsed.chartBlocks.map((html) => ({ type: "chart", html: String(html || ""), anchorText: "", anchorBefore: "", anchorAfter: "" })) : []),
@@ -683,7 +787,6 @@ export function createPreviewWorkflowFeature(deps = {}) {
       used.push(wrap);
       return true;
     };
-
     const norm = (x) => String(x || "").replace(/\s+/g, "").replace(/[^\p{L}\p{N}%.-]/gu, "");
     const nodes = Array.from(sourceEl.querySelectorAll("p,span,div,td,th")).filter((node) => !node.closest(".docx-embedded-onlyread"));
     const fallbackNodes = nodes.filter((node) => /频带宽度|曲线图|曲线绘制|图表|散点|line|scatter/i.test(String((node && node.textContent) || "")));
@@ -799,7 +902,7 @@ export function createPreviewWorkflowFeature(deps = {}) {
 
   async function injectEmbeddedReadonlyPreview(elId, arrayBuffer) {
     const rootEl = $(elId);
-    if (!rootEl || !arrayBuffer) return;
+    if (!rootEl || !arrayBuffer) return { inserted: 0, total: 0 };
     rootEl.querySelectorAll(".docx-embedded-onlyread,.docx-embedded-onlyread-summary").forEach((x) => x.remove());
     rootEl.querySelectorAll(".docx-embedded-unresolved-hint").forEach((x) => x.remove());
     const parsedReadonly = await _readDocxEmbeddedOnlyReadHtml(arrayBuffer);
@@ -823,6 +926,48 @@ export function createPreviewWorkflowFeature(deps = {}) {
     }
     if (total === 0 && parsedReadonly && parsedReadonly.summaryHtml) {
       rootEl.insertAdjacentHTML("beforeend", parsedReadonly.summaryHtml);
+    }
+    return { inserted, total };
+  }
+
+  async function injectTargetEmbeddedWithSourceFallback(item, targetArrayBuffer) {
+    const injected = await injectEmbeddedReadonlyPreview("targetPreview", targetArrayBuffer);
+    const targetRootEl = $("targetPreview");
+    const targetHasImage = !!(targetRootEl && targetRootEl.querySelector('img[alt="embedded-image"]'));
+    if (targetHasImage || !item || !targetRootEl) return injected;
+    try {
+      if (item.isRecordRow) await ensureSourceFileId(item);
+      const sourceBlob = item.fileId ? await fetchBlob(`/api/upload/${item.fileId}/download`) : item.file;
+      if (!sourceBlob || typeof sourceBlob.arrayBuffer !== "function") return injected;
+      const sourceArrayBuffer = await sourceBlob.arrayBuffer();
+      const sourceParsed = await _readDocxEmbeddedOnlyReadHtml(sourceArrayBuffer);
+      const sourceBlocks = Array.isArray(sourceParsed && sourceParsed.blocks) ? sourceParsed.blocks : [];
+      const imageBlocksRaw = sourceBlocks
+        .filter((x) => String((x && x.type) || "") === "image" && String((x && x.html) || ""))
+        .filter((x) => {
+          const anchor = `${String((x && x.anchorText) || "")} ${String((x && x.anchorBefore) || "")} ${String((x && x.anchorAfter) || "")}`;
+          return /图\s*[1-9]\d*\s*[：:]/.test(anchor) || /fig(?:ure)?\s*[1-9]\d*/i.test(anchor);
+        });
+      const seen = new Set();
+      const imageBlocks = imageBlocksRaw
+        .filter((x) => {
+          const key = `${String((x && x.path) || "")}|${String((x && x.anchorText) || "")}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .map((x) => ({
+          type: "image",
+          html: String((x && x.html) || ""),
+          anchorText: String((x && x.anchorText) || ""),
+          anchorBefore: String((x && x.anchorBefore) || ""),
+          anchorAfter: String((x && x.anchorAfter) || ""),
+        }));
+      if (!imageBlocks.length) return injected;
+      _injectEmbeddedBlocksAtAnchors(targetRootEl, { blocks: imageBlocks });
+      return injected;
+    } catch (_) {
+      return injected;
     }
   }
 
