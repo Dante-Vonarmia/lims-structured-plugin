@@ -9,6 +9,47 @@ export function escapeAttr(text) {
 }
 
 export function renderRichCellHtml(text) {
+  const EMBEDDED_PLACEHOLDER = "[内嵌模块，预览中不显示]";
+  const renderInlineImageHtml = (src) => {
+    const onErrorScript = "this.onerror=null;this.replaceWith(document.createTextNode('[内嵌模块，预览中不显示]'));";
+    return `<img class="source-inline-img" src="${escapeAttr(src)}" alt="img" onerror="${escapeAttr(onErrorScript)}" />`;
+  };
+  const isRenderableDataImage = (src) => {
+    const matched = String(src || "").match(/^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/i);
+    if (!matched) return false;
+    const mime = String(matched[1] || "").toLowerCase();
+    const b64 = String(matched[2] || "");
+    if (mime === "image/svg+xml") return true;
+    let head = "";
+    try {
+      head = atob(b64.slice(0, 64));
+    } catch (_) {
+      return false;
+    }
+    const byte = (idx) => (idx >= 0 && idx < head.length ? head.charCodeAt(idx) : -1);
+    if (mime === "image/png") {
+      return byte(0) === 0x89 && byte(1) === 0x50 && byte(2) === 0x4E && byte(3) === 0x47
+        && byte(4) === 0x0D && byte(5) === 0x0A && byte(6) === 0x1A && byte(7) === 0x0A;
+    }
+    if (mime === "image/jpeg") {
+      return byte(0) === 0xFF && byte(1) === 0xD8 && byte(2) === 0xFF;
+    }
+    if (mime === "image/gif") {
+      return head.startsWith("GIF87a") || head.startsWith("GIF89a");
+    }
+    if (mime === "image/webp") {
+      return head.startsWith("RIFF") && head.slice(8, 12) === "WEBP";
+    }
+    if (mime === "image/bmp") {
+      return head.startsWith("BM");
+    }
+    if (mime === "image/tiff") {
+      return (byte(0) === 0x49 && byte(1) === 0x49 && byte(2) === 0x2A && byte(3) === 0x00)
+        || (byte(0) === 0x4D && byte(1) === 0x4D && byte(2) === 0x00 && byte(3) === 0x2A);
+    }
+    return false;
+  };
+
   const raw = String(text || "");
   const tokenRe = /\[\[DOCX_IMG\|([^\]]+)\]\]/g;
   let html = "";
@@ -17,10 +58,10 @@ export function renderRichCellHtml(text) {
   while ((m = tokenRe.exec(raw)) !== null) {
     html += escapeHtml(raw.slice(last, m.index));
     const src = String((m && m[1]) || "").trim();
-    if (/^data:image\//i.test(src)) {
-      html += `<img class="source-inline-img" src="${escapeAttr(src)}" alt="img" />`;
+    if (/^data:image\//i.test(src) && isRenderableDataImage(src)) {
+      html += renderInlineImageHtml(src);
     } else {
-      html += "[图片]";
+      html += EMBEDDED_PLACEHOLDER;
     }
     last = m.index + m[0].length;
   }
