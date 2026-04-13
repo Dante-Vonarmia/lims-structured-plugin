@@ -6,6 +6,7 @@ export function createRuntimeListUiFeature(deps = {}) {
     toDateOnlyDisplay,
     getModelCodeDisplay,
     getDeviceCodeDisplay,
+    TEMPLATE_INFO_FIELDS,
     isExcelItem,
     escapeAttr,
     setPreviewPlaceholder,
@@ -52,9 +53,7 @@ export function createRuntimeListUiFeature(deps = {}) {
   }
 
   function getGenerateMode() {
-    const select = $("generateModeSelect");
-    const mode = String((select && select.value) || "source_file");
-    return mode === "source_file" ? "source_file" : "certificate_template";
+    return "source_file";
   }
 
   function setFullscreenButtonUi(isFullscreen) {
@@ -79,7 +78,7 @@ export function createRuntimeListUiFeature(deps = {}) {
     }
     const targetPaneTitle = $("targetPaneTitle");
     if (targetPaneTitle) {
-      targetPaneTitle.textContent = isModifyCertificate ? "证书模板（来源）" : "原始记录模板";
+      targetPaneTitle.textContent = isModifyCertificate ? "" : "原始记录模板";
     }
     const templateSearch = $("templateSearch");
     if (templateSearch) {
@@ -98,6 +97,14 @@ export function createRuntimeListUiFeature(deps = {}) {
 
   function readListColumnValue(item, key) {
     const f = item.fields || {};
+    const taskTemplateInfo = (state.taskContext && state.taskContext.template_info && typeof state.taskContext.template_info === "object")
+      ? state.taskContext.template_info
+      : {};
+    if (Array.isArray(TEMPLATE_INFO_FIELDS) && TEMPLATE_INFO_FIELDS.some((field) => field && field.key === key)) {
+      const itemValue = String(f[key] || "").trim();
+      if (itemValue) return itemValue;
+      return String(taskTemplateInfo[key] || "");
+    }
     if (key === "recordName") return String(item.recordName || "");
     if (key === "device_name") return String(f.device_name || "");
     if (key === "model_code") return String(getModelCodeDisplay(item) || "");
@@ -140,6 +147,7 @@ export function createRuntimeListUiFeature(deps = {}) {
       const f = item.fields || {};
       const text = [
         item.recordName || "",
+        ...((Array.isArray(TEMPLATE_INFO_FIELDS) ? TEMPLATE_INFO_FIELDS : []).map((field) => readListColumnValue(item, field.key))),
         f.device_name || "",
         f.device_model || "",
         f.device_code || "",
@@ -257,7 +265,7 @@ export function createRuntimeListUiFeature(deps = {}) {
         document.body.classList.remove("preview-fullscreen");
         state.previewFullscreen = false;
       }
-      setPreviewPlaceholder("sourcePreview", "证书模板预览未加载");
+      setPreviewPlaceholder("sourcePreview", "来源预览未加载");
       $("sourceFieldList").innerHTML = '<div class="placeholder">识别字段未加载</div>';
       $("targetFieldForm").innerHTML = '<div class="placeholder">字段表单未加载</div>';
       setPreviewPlaceholder("targetPreview", "原始记录预览未加载");
@@ -326,14 +334,16 @@ export function createRuntimeListUiFeature(deps = {}) {
     if (!el) return;
     const selectedNormalItems = getSelectedNormalItems();
     if (selectedNormalItems.length > 1) {
-      el.textContent = `器具名称：已选 ${selectedNormalItems.length} 条`;
+      el.textContent = `来源：已选 ${selectedNormalItems.length} 条`;
       el.title = `已选 ${selectedNormalItems.length} 条记录`;
       return;
     }
-    const fields = (item && item.fields) || {};
-    const name = String(fields.device_name || "").trim();
-    el.textContent = `器具名称：${name || "-"}`;
-    el.title = name || "";
+    const sourceName = String((item && (item.sourceFileName || item.fileName)) || "").trim();
+    const shortName = sourceName.length > 26
+      ? `${sourceName.slice(0, 12)}...${sourceName.slice(-10)}`
+      : sourceName;
+    el.textContent = `来源：${shortName || "-"}`;
+    el.title = sourceName || "";
   }
 
   function setPreviewFullscreen(on) {
@@ -344,19 +354,6 @@ export function createRuntimeListUiFeature(deps = {}) {
     const refreshActionButtons = typeof getRefreshActionButtons === "function" ? getRefreshActionButtons() : null;
     if (typeof refreshActionButtons === "function") refreshActionButtons();
     else if (typeof refreshActionButtonsFallback === "function") refreshActionButtonsFallback();
-  }
-
-  function renderMeasurementCatalogNameOptions() {
-    const datalist = $("measurementCatalogNameOptions");
-    if (!datalist) return;
-    const rows = Array.isArray(state.instrumentCatalogRows) ? state.instrumentCatalogRows : [];
-    if (!rows.length) {
-      datalist.innerHTML = "";
-      return;
-    }
-    datalist.innerHTML = rows
-      .map((row) => `<option value="${escapeAttr(String((row && row.name) || "").trim())}"></option>`)
-      .join("");
   }
 
   return {
@@ -386,6 +383,5 @@ export function createRuntimeListUiFeature(deps = {}) {
     setRightViewMode,
     updateSourceDeviceNameText,
     setPreviewFullscreen,
-    renderMeasurementCatalogNameOptions,
   };
 }

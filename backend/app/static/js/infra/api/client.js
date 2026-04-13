@@ -19,6 +19,18 @@ export async function listTemplatesApi() {
   return fetchJson("/api/templates");
 }
 
+export async function getTaskDetailApi(taskId) {
+  return fetchJson(`/api/tasks/${encodeURIComponent(taskId || "")}`, { cache: "no-store" });
+}
+
+export async function updateTaskTemplateInfoApi(taskId, payload) {
+  return fetchJson(`/api/tasks/${encodeURIComponent(taskId || "")}/template-info`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload || {}),
+  });
+}
+
 export async function uploadFileApi(file) {
   const fd = new FormData();
   fd.append("file", file);
@@ -26,19 +38,6 @@ export async function uploadFileApi(file) {
   const data = await res.json();
   if (!res.ok) throw new Error(data.detail || "上传失败");
   return data;
-}
-
-export async function parseInstrumentCatalogApi(file) {
-  const fd = new FormData();
-  fd.append("file", file);
-  const res = await fetch("/api/instrument-catalog/parse", { method: "POST", body: fd });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.detail || "计量标准器具目录解析失败");
-  return data;
-}
-
-export async function autoLoadInstrumentCatalogApi() {
-  return fetchJson("/api/instrument-catalog/auto-load", { cache: "no-store" });
 }
 
 export async function runOcrApi(fileId) {

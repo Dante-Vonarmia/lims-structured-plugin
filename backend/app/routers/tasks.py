@@ -1,0 +1,85 @@
+from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException
+
+from ..services.task_store_file import create_task as create_task_file
+from ..services.task_store_file import get_task as get_task_file
+from ..services.task_store_file import list_tasks as list_tasks_file
+from ..services.task_store_file import mark_task_complete
+from ..services.task_store_file import update_task_template_info as update_task_template_info_file
+
+router = APIRouter()
+
+
+class TaskCreateRequest(BaseModel):
+    task_name: str
+    import_template_type: str
+    export_template_id: str
+    export_template_name: str
+
+
+class TaskTemplateInfoUpdateRequest(BaseModel):
+    info_title: str | None = None
+    file_no: str | None = None
+    inspect_standard: str | None = None
+    record_no: str | None = None
+    submit_org: str | None = None
+
+
+@router.get("/tasks")
+def list_tasks() -> dict[str, list[dict[str, object]]]:
+    return {"tasks": list_tasks_file()}
+
+
+@router.get("/tasks/{task_id}")
+def get_task(task_id: str) -> dict[str, object]:
+    task = get_task_file(task_id.strip())
+    if not task:
+        raise HTTPException(status_code=404, detail="task not found")
+    return task
+
+
+@router.post("/tasks")
+def create_task(request: TaskCreateRequest) -> dict[str, object]:
+    task_name = request.task_name.strip()
+    import_template_type = request.import_template_type.strip()
+    export_template_id = request.export_template_id.strip()
+    export_template_name = request.export_template_name.strip()
+
+    if not task_name:
+        raise HTTPException(status_code=422, detail="task_name is required")
+    if not import_template_type:
+        raise HTTPException(status_code=422, detail="import_template_type is required")
+    if not export_template_id:
+        raise HTTPException(status_code=422, detail="export_template_id is required")
+    if not export_template_name:
+        raise HTTPException(status_code=422, detail="export_template_name is required")
+
+    return create_task_file(
+        task_name=task_name,
+        import_template_type=import_template_type,
+        export_template_id=export_template_id,
+        export_template_name=export_template_name,
+    )
+
+
+@router.patch("/tasks/{task_id}/complete")
+def complete_task(task_id: str) -> dict[str, object]:
+    task = mark_task_complete(task_id.strip())
+    if not task:
+        raise HTTPException(status_code=404, detail="task not found")
+    return task
+
+
+@router.patch("/tasks/{task_id}/template-info")
+def update_task_template_info(task_id: str, request: TaskTemplateInfoUpdateRequest) -> dict[str, object]:
+    task = update_task_template_info_file(
+        task_id.strip(),
+        info_title=request.info_title.strip() if request.info_title is not None else None,
+        file_no=request.file_no.strip() if request.file_no is not None else None,
+        inspect_standard=request.inspect_standard.strip() if request.inspect_standard is not None else None,
+        record_no=request.record_no.strip() if request.record_no is not None else None,
+        submit_org=request.submit_org.strip() if request.submit_org is not None else None,
+    )
+    if not task:
+        raise HTTPException(status_code=404, detail="task not found")
+    return task

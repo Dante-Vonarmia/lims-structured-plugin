@@ -1,10 +1,8 @@
 import {
-  autoLoadInstrumentCatalogApi,
   fetchBlob,
   fetchJson,
   listTemplatesApi,
   loadRuntimeConfigApi,
-  parseInstrumentCatalogApi,
   runExcelInspectApi,
   runExcelPreviewApi,
   runExtractApi,
@@ -33,6 +31,7 @@ import {
   SOURCE_HIDDEN_SYSTEM_KEYS,
   SOURCE_RECOGNITION_CORE_KEYS,
   SUPPORTED_EXTS,
+  TEMPLATE_INFO_FIELDS,
   TARGET_BASIC_FORM_FIELDS,
   TARGET_EDIT_GROUPS,
   TEMPLATE_GENERATION_RULES,
@@ -53,8 +52,6 @@ import { createFocusSectionsFeature } from "./features/forms/focus-sections.js";
 import { createMatchingWorkflowFeature } from "./features/matching/workflow.js";
 import { createMatchingValidationFeature } from "./features/matching/validation.js";
 import { createQueueRenderingFeature } from "./features/queue/rendering.js";
-import { createCatalogRenderingFeature } from "./features/catalog/rendering.js";
-import { createCatalogWorkflowFeature } from "./features/catalog/workflow.js";
 import { createSourceSplittingFeature } from "./features/source/splitting.js";
 import { createRuntimeCommonFeature } from "./features/runtime/common.js";
 import { createRuntimeApisFeature } from "./features/runtime/apis.js";
@@ -71,7 +68,6 @@ import {
   hasDocxImageToken,
   inferDateTriplet,
   isCompleteDateText,
-  normalizeCatalogToken,
   normalizeOptionalBlank,
   normalizeValidationToken,
   parseDateFromLabelText,
@@ -115,6 +111,7 @@ import {
         sheetName: "",
         isRecordRow: false,
         sourceType: (ext || "").replace(".", "").toUpperCase() || "UNKNOWN",
+        recognitionOverride: "",
         fileId: "",
         rawText: "",
         sourceCode: "",
@@ -142,19 +139,19 @@ import {
       const mm = String(now.getMinutes()).padStart(2, "0");
       const ss = String(now.getSeconds()).padStart(2, "0");
       const line = `[${hh}:${mm}:${ss}] ${text}`;
-      $("batchLog").textContent += `\n${line}`;
-      $("batchLog").scrollTop = $("batchLog").scrollHeight;
+      const statusEl = $("globalStatus");
+      if (statusEl) statusEl.textContent = `动态：${line}`;
+      const logEl = $("batchLog");
+      if (logEl) {
+        logEl.textContent += `\n${line}`;
+        logEl.scrollTop = logEl.scrollHeight;
+      }
     }
 
     function setStatus(text) {
       const raw = String(text || "").trim();
-      const loadedMatch = raw.match(/计量标准器具目录已装填[:：]?\s*(\d+)\s*项/);
-      if (loadedMatch) { $("globalStatus").textContent = "就绪"; return; }
-      if (/计量标准器具目录已清除/.test(raw)) {
-        $("globalStatus").textContent = "就绪";
-        return;
-      }
-      $("globalStatus").textContent = raw || "";
+      const statusEl = $("globalStatus");
+      if (statusEl) statusEl.textContent = raw ? `动态：${raw}` : "动态：";
     }
 
     function setPreprocessProgress(current, total, fileName, label = "预处理") {
@@ -253,7 +250,6 @@ import {
       setRightViewMode,
       updateSourceDeviceNameText,
       setPreviewFullscreen,
-      renderMeasurementCatalogNameOptions,
     } = createRuntimeListUiFeature({
       $,
       state,
@@ -261,6 +257,7 @@ import {
       toDateOnlyDisplay,
       getModelCodeDisplay,
       getDeviceCodeDisplay,
+      TEMPLATE_INFO_FIELDS,
       isExcelItem,
       escapeAttr,
       setPreviewPlaceholder,
@@ -298,42 +295,81 @@ import {
       setFullscreenButtonUi,
       resolveBlankTemplateName,
       isExcelItem,
+      TEMPLATE_INFO_FIELDS,
     });
 
-    const { renderCatalogReadyHint, renderInstrumentCatalogDetailContent, setCatalogDetailVisible } = createCatalogRenderingFeature({
-      $,
-      state,
-      escapeHtml,
-      escapeAttr,
-    });
+    async function loadRuntimeConfig() {
+      try {
+        const data = await loadRuntimeConfigApi();
+        state.runtime.offlineMode = !!data.offline_mode;
+        state.runtime.modifyCertificateBlueprintTemplateName = String(
+          (data && data.modify_certificate_blueprint_template_name) || "修改证书蓝本.docx",
+        ).trim();
+      } catch (_) {
+        // noop
+      }
+    }
 
-    const {
-      loadRuntimeConfig,
-      loadTemplates,
-      uploadFile,
-      setInstrumentCatalog,
-      parseInstrumentCatalog,
-      autoLoadInstrumentCatalog,
-    } = createCatalogWorkflowFeature({
-      $,
-      state,
-      setButtonText,
-      isPlaceholderValue: (value) => isPlaceholderValue(value),
-      normalizeCatalogToken,
-      renderCatalogReadyHint,
-      renderMeasurementCatalogNameOptions,
-      getActiveItem,
-      getRenderTargetFieldForm: () => renderTargetFieldForm,
-      getApplyTargetFieldProblemStyles: () => applyTargetFieldProblemStyles,
-      getRenderQueue: () => renderQueue,
-      renderTemplateSelect,
-      appendLog,
-      loadRuntimeConfigApi,
-      listTemplatesApi,
-      uploadFileApi,
-      parseInstrumentCatalogApi,
-      autoLoadInstrumentCatalogApi,
-    });
+    async function loadTemplates() {
+      const data = await listTemplatesApi();
+      state.templates = data.templates || [];
+      renderTemplateSelect();
+      appendLog(`模板加载完成，共 ${state.templates.length} 个`);
+    }
+
+    async function getTaskDetailApi(taskId) {
+      const normalizedTaskId = String(taskId || "").trim();
+      if (!normalizedTaskId) return null;
+      const data = await fetchJson("/api/tasks", { cache: "no-store" });
+      const rows = Array.isArray(data && data.tasks) ? data.tasks : [];
+      return rows.find((row) => String((row && row.id) || "").trim() === normalizedTaskId) || null;
+    }
+
+    function getWorkspaceTaskIdFromPath() {
+      const path = String((window && window.location && window.location.pathname) || "").trim();
+      const match = path.match(/^\/workspace\/([^/]+)$/);
+      return match ? String(match[1] || "").trim() : "";
+    }
+
+    function normalizeTaskTemplateInfo(raw) {
+      const src = (raw && typeof raw === "object") ? raw : {};
+      return {
+        info_title: String(src.info_title || "").trim(),
+        file_no: String(src.file_no || "").trim(),
+        inspect_standard: String(src.inspect_standard || "").trim(),
+        record_no: String(src.record_no || "").trim(),
+        submit_org: String(src.submit_org || "").trim(),
+      };
+    }
+
+    async function loadTaskContext() {
+      const taskId = getWorkspaceTaskIdFromPath();
+      state.taskContext.id = taskId;
+      state.taskContext.task_name = "";
+      state.taskContext.template_info = normalizeTaskTemplateInfo({});
+      if (!taskId) return;
+      try {
+        const task = await getTaskDetailApi(taskId);
+        if (!task) {
+          appendLog("任务不存在或已删除");
+          state.taskContext.id = "";
+          state.taskContext.task_name = "";
+          state.taskContext.template_info = normalizeTaskTemplateInfo({});
+          return;
+        }
+        state.taskContext.id = String(task.id || taskId).trim();
+        state.taskContext.task_name = String(task.task_name || "").trim();
+        state.taskContext.template_info = normalizeTaskTemplateInfo(task.template_info);
+      } catch (error) {
+        appendLog(`任务主信息加载失败：${error.message || "unknown"}`);
+      }
+    }
+
+    async function uploadFile(file) {
+      const data = await uploadFileApi(file);
+      appendLog(`上传成功：${data.file_name || file.name} -> ${data.file_id}`);
+      return data;
+    }
 
     const {
       runOcr,
@@ -348,10 +384,7 @@ import {
       runExcelPreview,
       runTemplateTextPreview,
       runTemplateEditorSchema,
-      isDeviceNameAllowedByCatalog,
     } = createRuntimeApisFeature({
-      state,
-      normalizeCatalogToken,
       runOcrApi,
       runExtractApi,
       runInstrumentTableExtractApi,
@@ -367,7 +400,6 @@ import {
     });
 
     const {
-      isPlaceholderValue,
       hasMeaningfulValue,
       countMeasurementItems,
       resolveTemplateGenerationRule,
@@ -449,7 +481,7 @@ import {
       buildMultiDeviceWordItems,
     });
 
-    const { processAllPending, refreshAllRecognition } = createRecognitionBatchFeature({
+    const { processAllPending, refreshActiveRecognition } = createRecognitionBatchFeature({
       state,
       isExcelItem,
       isExcelExt,
@@ -581,9 +613,7 @@ import {
       parseKeyValueRowsFromBlock,
       parseListLinesFromBlock,
     } = createMeasurementTableFeature({
-      state,
       extractBlockByLine,
-      normalizeCatalogToken,
       normalizeValidationToken,
       renderRichCellHtml,
     });
@@ -644,6 +674,7 @@ import {
       parseTableRowsFromBlock,
       extractGeneralCheckFullBlock,
       getFieldLabel,
+      TEMPLATE_INFO_FIELDS,
       parseDateParts,
       escapeHtml,
       escapeAttr,
@@ -726,7 +757,6 @@ import {
       getColumnFilterOptionEntries,
       getFilteredSortedQueue,
       getGenerateMode,
-      getMeasurementHeaderIndexes,
       getSelectedNormalItems,
       inferCategory,
       inferDateTriplet,
@@ -737,12 +767,10 @@ import {
       isTypingTarget,
       maybeCopyGeneralCheckForBlankTemplate,
       navigateActiveItem,
-      normalizeCatalogToken,
-      parseInstrumentCatalog,
       parseTableRowsFromBlock,
       processAllPending,
       refreshActionButtons,
-      refreshAllRecognition,
+      refreshActiveRecognition,
       refreshTargetFieldFormBySelection,
       renderPreviews,
       renderQueue,
@@ -753,8 +781,6 @@ import {
       renderTemplateSelect,
       resolveBlankTemplateName,
       runExcelBatch,
-      setCatalogDetailVisible,
-      setInstrumentCatalog,
       setLoading,
       setPreviewFullscreen,
       setPreviewPlaceholder,
@@ -774,14 +800,14 @@ import {
       try {
         await loadRuntimeConfig();
         await loadTemplates();
+        await loadTaskContext();
         try {
           bindEvents();
         } catch (bindError) {
           appendLog(`事件绑定异常：${bindError.message || "unknown"}`);
         }
-        await autoLoadInstrumentCatalog();
         renderQueue();
-        setPreviewPlaceholder("sourcePreview", "证书模板预览未加载");
+        setPreviewPlaceholder("sourcePreview", "来源预览未加载");
         $("sourceFieldList").innerHTML = '<div class="placeholder">识别字段未加载</div>';
         setPreviewPlaceholder("targetPreview", "原始记录预览未加载");
         setStatus("就绪");

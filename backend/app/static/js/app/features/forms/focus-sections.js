@@ -10,6 +10,7 @@ export function createFocusSectionsFeature(deps = {}) {
     parseTableRowsFromBlock,
     extractGeneralCheckFullBlock,
     getFieldLabel,
+    TEMPLATE_INFO_FIELDS,
     parseDateParts,
     escapeHtml,
     escapeAttr,
@@ -131,16 +132,27 @@ export function createFocusSectionsFeature(deps = {}) {
       || "",
     );
     const sections = [];
-    const mainRows = [
-      { key: "certificate_no", label: "缆专检号:", value: String(normalizedSrc.certificate_no || "").trim() },
-      { key: "client_name", label: "委托单位:", value: String(normalizedSrc.client_name || normalizedSrc.unit_name || "").trim() },
-      { key: "address", label: "地址:", value: String(normalizedSrc.address || "").trim() },
-      { key: "device_name", label: "器具名称:", value: String(normalizedSrc.device_name || "").trim() },
-      { key: "manufacturer", label: "制造厂/商:", value: String(normalizedSrc.manufacturer || "").trim() },
-      { key: "device_model", label: "型号/规格:", value: String(normalizedSrc.device_model || "").trim() },
-      { key: "device_code", label: "器具编号:", value: String(normalizedSrc.device_code || "").trim() },
-    ].filter((row) => !!normalizeOptionalBlank(row.value));
-    if (mainRows.length) sections.push({ title: "主要信息", rows: mainRows });
+    const templateRows = (Array.isArray(TEMPLATE_INFO_FIELDS) ? TEMPLATE_INFO_FIELDS : [])
+      .map((field) => ({
+        key: String((field && field.key) || "").trim(),
+        label: `${String((field && field.label) || "").trim()}:`,
+        value: String(normalizedSrc[(field && field.key) || ""] || "").trim(),
+      }))
+      .filter((row) => row.key && !!normalizeOptionalBlank(row.value));
+    if (templateRows.length) {
+      sections.push({ title: "模板信息", rows: templateRows });
+    } else {
+      const mainRows = [
+        { key: "certificate_no", label: "缆专检号:", value: String(normalizedSrc.certificate_no || "").trim() },
+        { key: "client_name", label: "委托单位:", value: String(normalizedSrc.client_name || normalizedSrc.unit_name || "").trim() },
+        { key: "address", label: "地址:", value: String(normalizedSrc.address || "").trim() },
+        { key: "device_name", label: "器具名称:", value: String(normalizedSrc.device_name || "").trim() },
+        { key: "manufacturer", label: "制造厂/商:", value: String(normalizedSrc.manufacturer || "").trim() },
+        { key: "device_model", label: "型号/规格:", value: String(normalizedSrc.device_model || "").trim() },
+        { key: "device_code", label: "器具编号:", value: String(normalizedSrc.device_code || "").trim() },
+      ].filter((row) => !!normalizeOptionalBlank(row.value));
+      if (mainRows.length) sections.push({ title: "主要信息", rows: mainRows });
+    }
 
     const calibrationInfo = extractCalibrationInfoFields(raw, normalizedSrc);
     normalizedSrc.receive_date = calibrationInfo.receiveDate || normalizedSrc.receive_date || "";
@@ -238,6 +250,11 @@ export function createFocusSectionsFeature(deps = {}) {
         "general_check_part1",
         "general_check_part2",
         "measurement_items",
+        "info_title",
+        "file_no",
+        "inspect_standard",
+        "record_no",
+        "submit_org",
       ]);
       const extraRows = Object.keys(normalizedSrc)
         .map((x) => String(x || "").trim())

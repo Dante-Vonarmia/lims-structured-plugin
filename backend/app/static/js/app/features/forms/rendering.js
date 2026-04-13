@@ -38,12 +38,19 @@ export function createFormRenderingFeature(deps = {}) {
     const selectedNormalItems = getSelectedNormalItems();
     const isMultiMode = selectedNormalItems.length > 1;
     const mergedSections = () => {
+      const taskTemplateInfo = (state.taskContext && state.taskContext.template_info && typeof state.taskContext.template_info === "object")
+        ? state.taskContext.template_info
+        : {};
       const allSections = selectedNormalItems.map((selectedItem) => {
         const src = (selectedItem.recognizedFields && typeof selectedItem.recognizedFields === "object")
           ? selectedItem.recognizedFields
           : (selectedItem.fields || {});
+        const mergedSrc = {
+          ...taskTemplateInfo,
+          ...src,
+        };
         const problemKeys = getProblemFieldKeys(selectedItem);
-        return buildFocusSections(selectedItem, src, problemKeys, false);
+        return buildFocusSections(selectedItem, mergedSrc, problemKeys, false);
       });
       const base = Array.isArray(allSections[0]) ? allSections[0] : [];
       return base.map((section, sectionIndex) => {
@@ -65,8 +72,15 @@ export function createFormRenderingFeature(deps = {}) {
     const src = (item.recognizedFields && typeof item.recognizedFields === "object")
       ? item.recognizedFields
       : (item.fields || {});
+    const taskTemplateInfo = (state.taskContext && state.taskContext.template_info && typeof state.taskContext.template_info === "object")
+      ? state.taskContext.template_info
+      : {};
+    const mergedSrc = {
+      ...taskTemplateInfo,
+      ...src,
+    };
     const problemKeys = isMultiMode ? new Set() : getProblemFieldKeys(item);
-    const sections = isMultiMode ? mergedSections() : buildFocusSections(item, src, problemKeys, false);
+    const sections = isMultiMode ? mergedSections() : buildFocusSections(item, mergedSrc, problemKeys, false);
     if (!sections.length) {
       el.innerHTML = '<div class="placeholder">识别字段为空</div>';
       return;
@@ -182,20 +196,10 @@ export function createFormRenderingFeature(deps = {}) {
       }
       if (field.key === "measurement_items") {
         if (isMultiMode) {
-          const hasCatalog = !!(state.instrumentCatalogRows && state.instrumentCatalogRows.length);
-          const scope = selectedNormalItems.map((x) => String(x && x.id || "")).filter(Boolean).sort().join(",");
-          const notice = (state.measurementMultiSyncNotice && state.measurementMultiSyncNotice.scope === scope)
-            ? String(state.measurementMultiSyncNotice.text || "")
-            : "";
-          const hintText = hasCatalog
-            ? "多选模式仅按各记录自身内容与目录对齐，不会在记录间互相覆盖"
-            : "目录未就绪：请先加载“本次校准所使用的主要计量标准器具”目录";
           return `
               <label class="source-form-item slot-field wide">
                 <div class="measurement-toolbar">
-                  <button type="button" class="btn ghost" data-action="match-measurement-items-multi">一键目录配对</button>
-                  <span class="measurement-toolbar-hint">${escapeHtml(hintText)}</span>
-                  ${notice ? `<span class="measurement-toolbar-status">${escapeHtml(notice)}</span>` : ""}
+                  <span class="measurement-toolbar-hint">多选模式下该字段不可批量一键处理，请逐条检查</span>
                 </div>
               </label>
             `;
@@ -214,7 +218,6 @@ export function createFormRenderingFeature(deps = {}) {
         }
         const [header, ...body] = tableRows;
         const matchInfo = buildMeasurementCatalogMatchInfo(tableRows);
-        const hasCatalog = !!(state.instrumentCatalogRows && state.instrumentCatalogRows.length);
         const headHtml = `
             <tr>
               <th style="width:40px;">#</th>
@@ -229,10 +232,6 @@ export function createFormRenderingFeature(deps = {}) {
       colAttrs.push(`data-field="measurement_item_cell"`);
       colAttrs.push(`data-row="${rowIdx}"`);
       colAttrs.push(`data-col="${colIdx}"`);
-      if (colIdx === getMeasurementHeaderIndexes(header).nameIdx) {
-        colAttrs.push(`data-role="measurement-item-name"`);
-        colAttrs.push(`list="measurementCatalogNameOptions"`);
-      }
       return `<td><input type="text" ${colAttrs.join(" ")} value="${escapeAttr(cell)}" /></td>`;
     }).join("")}
             </tr>
@@ -241,8 +240,7 @@ export function createFormRenderingFeature(deps = {}) {
             <label class="source-form-item slot-field wide ${isProblem ? "is-problem" : ""}">
               <span>${escapeHtml(field.label)}</span>
               <div class="measurement-toolbar">
-                <button type="button" class="btn ghost" data-action="match-measurement-items">一键目录配对</button>
-                <span class="measurement-toolbar-hint">已识别信息已自动带入；红色表示与目录不匹配</span>
+                <span class="measurement-toolbar-hint">已识别信息已自动带入；可直接编辑修正</span>
               </div>
               <div class="measurement-table-wrap">
                 <table class="measurement-table">
