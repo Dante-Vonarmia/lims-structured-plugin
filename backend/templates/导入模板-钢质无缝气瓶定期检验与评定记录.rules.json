@@ -1,0 +1,93 @@
+{
+  "row_rules": {
+    "min_tokens": 6
+  },
+  "field_rules": {
+    "检验日期": {
+      "type": "date",
+      "empty_strategy": "carry_forward"
+    },
+    "产权代码编号": {
+      "type": "code",
+      "max_len": 12,
+      "empty_strategy": "carry_forward",
+      "normalize": {
+        "trim": true,
+        "fullwidth_to_halfwidth": true
+      }
+    },
+    "充装介质": {
+      "type": "text",
+      "normalize": {
+        "trim": true,
+        "fullwidth_to_halfwidth": true
+      }
+    },
+    "制造单位代码": {
+      "type": "code",
+      "max_len": 12,
+      "normalize": {
+        "trim": true,
+        "fullwidth_to_halfwidth": true
+      }
+    },
+    "出厂编号": {
+      "type": "code",
+      "max_len": 24,
+      "normalize": {
+        "trim": true,
+        "fullwidth_to_halfwidth": true
+      }
+    },
+    "水压试验压力MPa": { "type": "number", "normalize": { "o_to_0": true, "l_to_1": true } },
+    "公称工作压力MPa": { "type": "number", "normalize": { "o_to_0": true, "l_to_1": true } },
+    "公称瓶重kg": { "type": "number", "normalize": { "o_to_0": true, "l_to_1": true } },
+    "公称容积L": { "type": "number", "normalize": { "o_to_0": true, "l_to_1": true } },
+    "设计壁厚mm": { "type": "number", "normalize": { "o_to_0": true, "l_to_1": true } },
+    "制造年月": {
+      "type": "text",
+      "normalize": { "trim": true, "fullwidth_to_halfwidth": true }
+    },
+    "上次检验日期": {
+      "type": "date_or_dash",
+      "dash_tokens": ["/", "／", "\\", "＼"]
+    },
+    "余气处理": { "type": "text" },
+    "外观清理检查": { "type": "text" },
+    "音响检查": { "type": "text" },
+    "内表面检查": { "type": "text" },
+    "瓶口螺纹检查": { "type": "text" },
+    "实际重量kg": { "type": "number", "normalize": { "o_to_0": true, "l_to_1": true } },
+    "重量损失率%": { "type": "number", "normalize": { "o_to_0": true, "l_to_1": true } },
+    "实际容积L": { "type": "number", "normalize": { "o_to_0": true, "l_to_1": true } },
+    "容积增大率%": { "type": "number", "normalize": { "o_to_0": true, "l_to_1": true } },
+    "保压时间min": { "type": "number", "normalize": { "o_to_0": true, "l_to_1": true } },
+    "残余变形值mL": { "type": "number", "normalize": { "o_to_0": true, "l_to_1": true } },
+    "容积全变形值mL": { "type": "number", "normalize": { "o_to_0": true, "l_to_1": true } },
+    "残余变形率%": { "type": "number", "normalize": { "o_to_0": true, "l_to_1": true } },
+    "内部干燥": { "type": "text" },
+    "试验结论": { "type": "text" },
+    "瓶阀检验": {
+      "type": "checkbox_choice",
+      "multi_label": "校阀/换阀",
+      "choices": [
+        {
+          "label": "校阀",
+          "tokens": ["校阀", "校调", "校調", "收阀", "收调", "回校", "校验"]
+        },
+        {
+          "label": "换阀",
+          "tokens": ["换阀", "換阀", "换间", "換間", "换询", "换具", "换惘", "换网", "换閥"]
+        }
+      ]
+    },
+    "评定结论": { "type": "text" },
+    "下次检验日期": {
+      "type": "text",
+      "normalize": { "trim": true, "fullwidth_to_halfwidth": true }
+    },
+    "检验员": { "type": "optional_blank" },
+    "审核员": { "type": "optional_blank" },
+    "备注": { "type": "optional_blank" }
+  }
+}
