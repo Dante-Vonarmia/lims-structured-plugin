@@ -16,6 +16,7 @@ import {
 import { processSchemaRowInGroups, waitMs } from "./pipeline/group-pipeline.js";
 import { createReplaceSourceWithRowsProgressively } from "./pipeline/progressive-rows.js";
 import { handleForcedExcelSingleBranch } from "./pipeline/process-item-forced-excel.js";
+import { handleExcelSingleBranch } from "./pipeline/process-item-excel.js";
 
 export function createRecognitionWorkflowFeature(deps = {}) {
   const {
@@ -82,36 +83,19 @@ export function createRecognitionWorkflowFeature(deps = {}) {
       renderTemplateSelect,
     });
     if (forcedExcelHandled) return;
-    if (forceAsExcel || isExcelItem(item)) {
-      item.status = "processing";
-      item.message = "记录计数中";
-      renderQueue();
-      if (!item.fileId) {
-        const up = await uploadFile(item.file);
-        item.fileId = up.file_id;
-      }
-      const inspect = await runExcelInspect(item.fileId, item.templateName || "");
-      const recordRows = buildExcelRecordItems(item, inspect);
-      if (!recordRows.length) {
-        item.recordCount = inspect.total_rows || 0;
-        item.category = "Excel批量";
-        item.status = "error";
-        item.message = (inspect.errors && inspect.errors[0]) || "Excel 未识别到有效记录";
-        renderQueue();
-        return;
-      }
-      for (const recordItem of recordRows) {
-        if (!recordItem.templateName) await applyAutoTemplateMatch(recordItem, { force: true });
-      }
-      const index = state.queue.findIndex((x) => x.id === item.id);
-      if (index >= 0) {
-        state.queue.splice(index, 1, ...recordRows);
-        state.activeId = recordRows[0].id;
-      }
-      renderQueue();
-      renderTemplateSelect();
-      return;
-    }
+    const excelHandled = await handleExcelSingleBranch({
+      item,
+      forceAsExcel,
+      isExcelItem,
+      renderQueue,
+      uploadFile,
+      runExcelInspect,
+      buildExcelRecordItems,
+      applyAutoTemplateMatch,
+      state,
+      renderTemplateSelect,
+    });
+    if (excelHandled) return;
     item.status = "processing";
     item.message = "上传中";
     item.reportId = "";
