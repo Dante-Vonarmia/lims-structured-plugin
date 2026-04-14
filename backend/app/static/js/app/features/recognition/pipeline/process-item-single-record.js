@@ -1,3 +1,5 @@
+import { handleDocxMultiDevicePath } from "./process-item-docx-multi-device.js";
+
 export async function handleSingleRecordPath(deps = {}) {
   const {
     item,
@@ -27,23 +29,18 @@ export async function handleSingleRecordPath(deps = {}) {
   item.category = inferCategory(item);
   item.generalCheckStruct = generalCheckStructureData;
 
-  if (ext === ".docx") {
-    const groupItems = buildMultiDeviceWordItems(item, item.fields || {});
-    if (groupItems.length > 1) {
-      item.recordCount = groupItems.length;
-      for (const row of groupItems) {
-        await applyAutoTemplateMatch(row, { force: true });
-      }
-      const index = state.queue.findIndex((x) => x.id === item.id);
-      if (index >= 0) {
-        state.queue.splice(index, 1, ...groupItems);
-        state.activeId = groupItems[0].id;
-      }
-      renderQueue();
-      renderTemplateSelect();
-      appendLog(`多器具拆分完成 ${item.fileName}：${groupItems.length} 条`);
-      return;
-    }
+  const docxMultiDeviceHandled = await handleDocxMultiDevicePath({
+    ext,
+    item,
+    state,
+    buildMultiDeviceWordItems,
+    applyAutoTemplateMatch,
+    renderQueue,
+    renderTemplateSelect,
+    appendLog,
+  });
+  if (docxMultiDeviceHandled) {
+    return;
   }
 
   item.message = "识别结果整理中";
