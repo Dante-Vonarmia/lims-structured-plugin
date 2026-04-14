@@ -33,6 +33,13 @@ async function requestJson(url, options = {}) {
   return data;
 }
 
+async function requestForm(url, options = {}) {
+  const res = await fetch(url, options);
+  const data = await res.json();
+  if (!res.ok) throw new Error((data && data.detail) || "请求失败");
+  return data;
+}
+
 function escapeHtml(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
@@ -79,7 +86,13 @@ function navigate(path) {
 }
 
 function toTaskStatusLabel(status) {
-  return status;
+  const normalized = String(status || "").trim();
+  if (normalized === "pending") return "待处理";
+  if (normalized === "draft") return "草稿";
+  if (normalized === "generated") return "已生成";
+  if (normalized === "已完成") return "已生成";
+  if (normalized === "待处理" || normalized === "草稿" || normalized === "已生成") return normalized;
+  return "待处理";
 }
 
 function getPathInfo() {
@@ -88,6 +101,7 @@ function getPathInfo() {
   if (path === "/login") return { page: "tasks" };
   if (path === "/tasks") return { page: "tasks" };
   if (path === "/tasks/new") return { page: "task-create" };
+  if (path === "/signatures") return { page: "signatures" };
   return { page: "not-found" };
 }
 
@@ -106,6 +120,10 @@ function withAppLayout(content, activePath) {
         <a class="nav-item ${activePath === "/tasks/new" ? "active" : ""}" href="/tasks/new" data-nav title="新建任务" aria-label="新建任务">
           <i class="fa-solid fa-square-plus" aria-hidden="true"></i>
           <span>新建任务</span>
+        </a>
+        <a class="nav-item ${activePath === "/signatures" ? "active" : ""}" href="/signatures" data-nav title="签字管理" aria-label="签字管理">
+          <i class="fa-solid fa-signature" aria-hidden="true"></i>
+          <span>签字管理</span>
         </a>
       </aside>
       <main class="content">${content}</main>
@@ -139,8 +157,10 @@ async function renderTasks() {
         <td><a href="/workspace/${t.id}" class="row-link" data-nav>${t.task_name}</a></td>
         ${infoCells}
         <td class="status-cell">
-          <span>${toTaskStatusLabel(t.status)}</span>
-          ${t.status === "已完成" ? "" : `<button class="btn icon-btn mark-done-btn" type="button" data-action="mark-complete" data-task-id="${t.id}" title="标记完成" aria-label="标记完成"><i class="fa-solid fa-check" aria-hidden="true"></i></button>`}
+          <div class="status-cell-inner">
+            <span>${toTaskStatusLabel(t.status)}</span>
+            <button class="btn archive-btn" type="button" data-action="archive-task" data-task-id="${t.id}" title="归档" aria-label="归档">归档</button>
+          </div>
         </td>
       </tr>
     `;
@@ -168,6 +188,64 @@ async function renderTasks() {
   `;
 
   app.innerHTML = withAppLayout(content, "/tasks");
+}
+
+async function getSignatures() {
+  const data = await requestJson("/api/signatures", { cache: "no-store" });
+  return Array.isArray(data.signatures) ? data.signatures : [];
+}
+
+async function renderSignatures() {
+  const signatures = await getSignatures();
+  const rows = signatures.map((item) => `
+    <tr>
+      <td><img class="signature-thumb" src="${escapeHtml(item.image_url)}?v=${encodeURIComponent(item.updated_at || "")}" alt="${escapeHtml(item.name || "")}" /></td>
+      <td><input class="inline-input" type="text" value="${escapeHtml(item.name || "")}" data-signature-id="${escapeHtml(item.id)}" data-signature-field="name" /></td>
+      <td>
+        <select class="inline-input" data-signature-id="${escapeHtml(item.id)}" data-signature-field="role">
+          <option value="" ${!item.role ? "selected" : ""}>未分类</option>
+          <option value="inspector" ${item.role === "inspector" ? "selected" : ""}>检验员</option>
+          <option value="reviewer" ${item.role === "reviewer" ? "selected" : ""}>审核</option>
+          <option value="approver" ${item.role === "approver" ? "selected" : ""}>批准</option>
+        </select>
+      </td>
+      <td><input type="file" accept="image/*" data-signature-id="${escapeHtml(item.id)}" data-signature-field="file" /></td>
+      <td class="status-cell">
+        <button class="btn icon-btn" type="button" data-action="update-signature" data-signature-id="${escapeHtml(item.id)}" title="保存"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i></button>
+        <button class="btn icon-btn" type="button" data-action="delete-signature" data-signature-id="${escapeHtml(item.id)}" title="删除"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
+      </td>
+    </tr>
+  `).join("");
+
+  const content = `
+    <h1 class="page-title">签字管理</h1>
+    <section class="panel">
+      <div class="form-row signature-upload-row">
+        <input id="newSignatureName" class="input" type="text" placeholder="签字名称（例如：张三）" />
+        <select id="newSignatureRole" class="select">
+          <option value="">未分类</option>
+          <option value="inspector">检验员</option>
+          <option value="reviewer">审核</option>
+          <option value="approver">批准</option>
+        </select>
+        <input id="newSignatureFile" type="file" accept="image/*" />
+        <button class="btn primary" type="button" data-action="upload-signature">上传签字</button>
+      </div>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>预览</th>
+            <th>名称</th>
+            <th>角色</th>
+            <th>替换图片</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </section>
+  `;
+  app.innerHTML = withAppLayout(content, "/signatures");
 }
 
 async function renderTaskCreate() {
@@ -252,13 +330,63 @@ function bindGlobalEvents() {
       navigate(target.getAttribute("href"));
       return;
     }
-    const actionEl = event.target.closest("[data-action='mark-complete']");
-    if (actionEl) {
+    const archiveEl = event.target.closest("[data-action='archive-task']");
+    if (archiveEl) {
       event.preventDefault();
-      const taskId = String(actionEl.getAttribute("data-task-id") || "").trim();
+      const taskId = String(archiveEl.getAttribute("data-task-id") || "").trim();
       if (!taskId) return;
       void (async () => {
-        await requestJson(`/api/tasks/${encodeURIComponent(taskId)}/complete`, { method: "PATCH" });
+        await requestJson(`/api/tasks/${encodeURIComponent(taskId)}/archive`, { method: "PATCH" });
+        await render();
+      })();
+      return;
+    }
+    const uploadSignatureEl = event.target.closest("[data-action='upload-signature']");
+    if (uploadSignatureEl) {
+      event.preventDefault();
+      const nameEl = document.getElementById("newSignatureName");
+      const roleEl = document.getElementById("newSignatureRole");
+      const fileEl = document.getElementById("newSignatureFile");
+      const name = String((nameEl && nameEl.value) || "").trim();
+      const role = String((roleEl && roleEl.value) || "").trim();
+      const file = fileEl && fileEl.files && fileEl.files[0];
+      if (!name || !file) return;
+      void (async () => {
+        const form = new FormData();
+        form.append("name", name);
+        form.append("role", role);
+        form.append("file", file);
+        await requestForm("/api/signatures", { method: "POST", body: form });
+        await render();
+      })();
+      return;
+    }
+    const updateSignatureEl = event.target.closest("[data-action='update-signature']");
+    if (updateSignatureEl) {
+      event.preventDefault();
+      const signatureId = String(updateSignatureEl.getAttribute("data-signature-id") || "").trim();
+      if (!signatureId) return;
+      void (async () => {
+        const nameEl = app.querySelector(`input[data-signature-id="${signatureId}"][data-signature-field="name"]`);
+        const roleEl = app.querySelector(`select[data-signature-id="${signatureId}"][data-signature-field="role"]`);
+        const fileEl = app.querySelector(`input[data-signature-id="${signatureId}"][data-signature-field="file"]`);
+        const form = new FormData();
+        if (nameEl) form.append("name", String(nameEl.value || "").trim());
+        if (roleEl) form.append("role", String(roleEl.value || "").trim());
+        const file = fileEl && fileEl.files && fileEl.files[0];
+        if (file) form.append("file", file);
+        await requestForm(`/api/signatures/${encodeURIComponent(signatureId)}`, { method: "PATCH", body: form });
+        await render();
+      })();
+      return;
+    }
+    const deleteSignatureEl = event.target.closest("[data-action='delete-signature']");
+    if (deleteSignatureEl) {
+      event.preventDefault();
+      const signatureId = String(deleteSignatureEl.getAttribute("data-signature-id") || "").trim();
+      if (!signatureId) return;
+      void (async () => {
+        await requestJson(`/api/signatures/${encodeURIComponent(signatureId)}`, { method: "DELETE" });
         await render();
       })();
       return;
@@ -315,6 +443,9 @@ async function render() {
   if (info.page === "task-create") {
     await renderTaskCreate();
     return;
+  }
+  if (info.page === "signatures") {
+    await renderSignatures();
   }
 }
 

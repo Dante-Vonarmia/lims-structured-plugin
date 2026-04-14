@@ -58,7 +58,7 @@ export function createFormRenderingFeature(deps = {}) {
       const cells = schemaColumns.map((col) => {
         const key = String((col && col.key) || "").trim();
         const value = String(rowFields[key] || "").trim();
-        return `<td title="${escapeAttr(value)}">${value ? escapeHtml(value) : '<span class="source-recog-empty">（空）</span>'}</td>`;
+        return `<td title="${escapeAttr(value)}">${value ? escapeHtml(value) : ""}</td>`;
       }).join("");
       return `<tr><td>${Number(row.rowNumber || rowIndex + 1)}</td>${cells}</tr>`;
     }).join("");
@@ -300,6 +300,38 @@ export function createFormRenderingFeature(deps = {}) {
               <textarea class="${isProblem ? "is-problem" : ""}" data-field="${escapeAttr(field.key)}" rows="${rows}" placeholder="${isMixed ? MULTI_EDIT_MIXED_PLACEHOLDER : ""}">${escapeHtml(value)}</textarea>
             </label>
           `;
+      }
+      const signatureRoleByField = {
+        inspector_sign_image: "inspector",
+        reviewer_sign_image: "reviewer",
+        approver_sign_image: "approver",
+      };
+      const signatureRole = signatureRoleByField[String(field.key || "")] || "";
+      const dynamicSignatureOptions = signatureRole
+        ? Array.from(new Set((Array.isArray(state.signatures) ? state.signatures : [])
+          .filter((x) => {
+            const role = String((x && x.role) || "").trim();
+            return !role || role === signatureRole;
+          })
+          .map((x) => String((x && x.name) || "").trim())
+          .filter(Boolean)))
+        : [];
+      const mergedOptions = Array.isArray(field.options) && field.options.length
+        ? field.options
+        : dynamicSignatureOptions;
+      const hasOptions = Array.isArray(mergedOptions) && mergedOptions.length > 0;
+      if (hasOptions) {
+        const dataListId = `target-options-${String(item.id || "").replace(/[^a-zA-Z0-9_-]/g, "_")}-${String(field.key || "").replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+        const optionsHtml = mergedOptions
+          .map((option) => `<option value="${escapeAttr(String(option || ""))}"></option>`)
+          .join("");
+        return `
+          <label class="source-form-item slot-field ${isProblem ? "is-problem" : ""}">
+            <span>${escapeHtml(field.label)}</span>
+            <input type="text" class="${isProblem ? "is-problem" : ""}" data-field="${escapeAttr(field.key)}" value="${escapeAttr(value)}" list="${escapeAttr(dataListId)}" placeholder="${isMixed ? MULTI_EDIT_MIXED_PLACEHOLDER : ""}" />
+            <datalist id="${escapeAttr(dataListId)}">${optionsHtml}</datalist>
+          </label>
+        `;
       }
       return `
           <label class="source-form-item slot-field ${isProblem ? "is-problem" : ""}">

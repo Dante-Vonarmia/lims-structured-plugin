@@ -10,6 +10,7 @@ export function createMatchingWorkflowFeature(deps = {}) {
     validateItemForGeneration,
     applyIncompleteState,
     appendLog,
+    getTaskDefaultTemplateName,
   } = deps;
 
   function inferCategory(item) {
@@ -111,6 +112,16 @@ export function createMatchingWorkflowFeature(deps = {}) {
       }
     } catch (error) {
       appendLog(`模板匹配失败 ${item.fileName}：${error.message || "unknown"}`);
+    }
+
+    if (!matchedTemplate) {
+      const taskDefaultTemplateName = typeof getTaskDefaultTemplateName === "function"
+        ? String(getTaskDefaultTemplateName() || "").trim()
+        : "";
+      if (taskDefaultTemplateName && state.templates.includes(taskDefaultTemplateName)) {
+        matchedTemplate = taskDefaultTemplateName;
+        matchedBy = "task:export_default";
+      }
     }
 
     if (!matchedTemplate) {

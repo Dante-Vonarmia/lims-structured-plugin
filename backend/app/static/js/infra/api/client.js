@@ -35,6 +35,22 @@ export async function getTaskImportTemplateSchemaApi(taskId) {
   return fetchJson(`/api/tasks/${encodeURIComponent(taskId || "")}/import-template-schema`, { cache: "no-store" });
 }
 
+export async function getTaskWorkspaceDraftApi(taskId) {
+  return fetchJson(`/api/tasks/${encodeURIComponent(taskId || "")}/workspace-draft`, { cache: "no-store" });
+}
+
+export async function upsertTaskWorkspaceDraftApi(taskId, draft) {
+  return fetchJson(`/api/tasks/${encodeURIComponent(taskId || "")}/workspace-draft`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ draft: draft || {} }),
+  });
+}
+
+export async function listSignaturesApi() {
+  return fetchJson("/api/signatures", { cache: "no-store" });
+}
+
 export async function uploadFileApi(file) {
   const fd = new FormData();
   fd.append("file", file);

@@ -11,6 +11,7 @@ from ..config import OUTPUT_DIR
 _TASKS_FILE = OUTPUT_DIR / "tasks.json"
 _LOCK = threading.Lock()
 _STANDARD_PATTERN = re.compile(r"(GB\s*/?\s*T\s*\d+(?:[-—]\d+)?)", re.IGNORECASE)
+_ALLOWED_TASK_STATUS = {"待处理", "草稿", "已生成"}
 
 
 def _now_text() -> str:
@@ -113,11 +114,17 @@ def list_tasks() -> list[dict[str, Any]]:
         tasks = _read_tasks_unlocked()
         changed = False
         for task in tasks:
+            if "archived" not in task:
+                task["archived"] = False
+                changed = True
+            if "workspace_draft" not in task or not isinstance(task.get("workspace_draft"), dict):
+                task["workspace_draft"] = {}
+                changed = True
             if _normalize_template_info(task):
                 changed = True
         if changed:
             _write_tasks_unlocked(tasks)
-    return tasks
+    return [task for task in tasks if not bool(task.get("archived"))]
 
 
 def create_task(*, task_name: str, import_template_type: str, export_template_id: str, export_template_name: str) -> dict[str, Any]:
@@ -143,9 +150,11 @@ def create_task(*, task_name: str, import_template_type: str, export_template_id
         "export_template_id": export_template_id,
         "export_template_name": export_template_name,
         "status": "待处理",
+        "archived": False,
         "created_at": now,
         "updated_at": now,
         "remark": "",
+        "workspace_draft": {},
         "template_info": {
             "info_title": import_template_title or export_template_name,
             "file_no": last_file_no,
@@ -180,7 +189,16 @@ def get_task(task_id: str) -> dict[str, Any] | None:
         tasks = _read_tasks_unlocked()
         for task in tasks:
             if str(task.get("id", "")).strip() == task_id:
+                changed = False
+                if "archived" not in task:
+                    task["archived"] = False
+                    changed = True
+                if "workspace_draft" not in task or not isinstance(task.get("workspace_draft"), dict):
+                    task["workspace_draft"] = {}
+                    changed = True
                 if _normalize_template_info(task):
+                    changed = True
+                if changed:
                     _write_tasks_unlocked(tasks)
                 return task
     return None
@@ -216,4 +234,61 @@ def update_task_template_info(
             task["updated_at"] = _now_text()
             _write_tasks_unlocked(tasks)
             return task
+    return None
+
+
+def archive_task(task_id: str) -> dict[str, Any] | None:
+    with _LOCK:
+        tasks = _read_tasks_unlocked()
+        for task in tasks:
+            if str(task.get("id", "")).strip() != task_id:
+                continue
+            if not bool(task.get("archived")):
+                task["archived"] = True
+                task["updated_at"] = _now_text()
+                _write_tasks_unlocked(tasks)
+            return task
+    return None
+
+
+def update_task_status(task_id: str, status: str) -> dict[str, Any] | None:
+    next_status = str(status or "").strip()
+    if next_status not in _ALLOWED_TASK_STATUS:
+        return None
+    with _LOCK:
+        tasks = _read_tasks_unlocked()
+        for task in tasks:
+            if str(task.get("id", "")).strip() != task_id:
+                continue
+            if str(task.get("status", "")).strip() != next_status:
+                task["status"] = next_status
+                task["updated_at"] = _now_text()
+                _write_tasks_unlocked(tasks)
+            return task
+    return None
+
+
+def get_task_workspace_draft(task_id: str) -> dict[str, Any] | None:
+    with _LOCK:
+        tasks = _read_tasks_unlocked()
+        for task in tasks:
+            if str(task.get("id", "")).strip() != task_id:
+                continue
+            draft = task.get("workspace_draft")
+            if isinstance(draft, dict):
+                return draft
+            return {}
+    return None
+
+
+def upsert_task_workspace_draft(task_id: str, draft: dict[str, Any]) -> dict[str, Any] | None:
+    with _LOCK:
+        tasks = _read_tasks_unlocked()
+        for task in tasks:
+            if str(task.get("id", "")).strip() != task_id:
+                continue
+            task["workspace_draft"] = draft if isinstance(draft, dict) else {}
+            task["updated_at"] = _now_text()
+            _write_tasks_unlocked(tasks)
+            return task["workspace_draft"]
     return None

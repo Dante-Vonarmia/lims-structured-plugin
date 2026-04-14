@@ -1,3 +1,5 @@
+import { buildRowRecordsFromTableCells } from "./table-slot-parser.js";
+
 export function createRecognitionWorkflowFeature(deps = {}) {
   const {
     state,
@@ -49,8 +51,30 @@ export function createRecognitionWorkflowFeature(deps = {}) {
     if (!lines.length) return [];
     const rowRules = (rules && typeof rules.row_rules === "object" && rules.row_rules) ? rules.row_rules : {};
     const minTokens = Number(rowRules.min_tokens || 6);
+    const hasDateToken = (line) => /(?:^|\s)[zZ]?\d{1,2}\s*[./-]\s*\d{1,2}\b/.test(String(line || ""));
+    const isWeakRowLike = (line) => {
+      const tokens = String(line || "").split(/\s+/).filter(Boolean);
+      if (tokens.length < minTokens) return false;
+      const numericish = tokens.filter((t) => /[\d]/.test(t)).length;
+      return numericish >= Math.max(3, Math.floor(minTokens / 3));
+    };
+
+    const firstDataIdx = lines.findIndex((line) => DATA_ROW_RE.test(line) || hasDateToken(line));
+    if (firstDataIdx >= 0) {
+      const rows = [];
+      for (let i = firstDataIdx; i < lines.length; i += 1) {
+        const line = lines[i];
+        if (DATA_ROW_RE.test(line) || hasDateToken(line) || isWeakRowLike(line)) {
+          rows.push(line);
+          continue;
+        }
+        if (rows.length) break;
+      }
+      if (rows.length) return rows;
+    }
+
     const dataOnly = lines.filter((line) => {
-      if (!DATA_ROW_RE.test(line)) return false;
+      if (!(DATA_ROW_RE.test(line) || hasDateToken(line))) return false;
       const tokens = line.split(/\s+/).filter(Boolean);
       return tokens.length >= minTokens;
     });
@@ -141,20 +165,110 @@ export function createRecognitionWorkflowFeature(deps = {}) {
       x = x.replace(/^\.+/, "").replace(/\.+$/, "");
       return x;
     };
-    const nextToken = (() => {
-      let idx = 0;
-      return (opts = {}) => {
-        const allowMarkers = !!opts.allowMarkers;
-        while (idx < tokens.length) {
-          const t = String(tokens[idx] || "").trim();
-          idx += 1;
-          if (!t) continue;
-          if (!allowMarkers && (t === "V" || t === "v" || t === "/" || t === "／" || t === "\\" || t === "＼")) continue;
-          return t;
+    const isLikelyOwnerBlankCodeToken = (token) => {
+      const t = String(token || "").trim();
+      if (!t) return false;
+      if (/[0-9\u4e00-\u9fff]/.test(t)) return false;
+      return /^[A-Za-z]{1,3}$/.test(t);
+    };
+    const isMarkerToken = (token) => {
+      const t = String(token || "").trim();
+      return t === "V" || t === "v" || t === "/" || t === "／" || t === "\\" || t === "＼";
+    };
+    const cursor = { value: 0 };
+    const peekToken = (offset = 0, opts = {}) => {
+      const allowMarkers = !!opts.allowMarkers;
+      let idx = cursor.value;
+      let seen = 0;
+      while (idx < tokens.length) {
+        const t = String(tokens[idx] || "").trim();
+        idx += 1;
+        if (!t) continue;
+        if (!allowMarkers && isMarkerToken(t)) continue;
+        if (seen === offset) return t;
+        seen += 1;
+      }
+      return "";
+    };
+    const consumeToken = (opts = {}) => {
+      const allowMarkers = !!opts.allowMarkers;
+      while (cursor.value < tokens.length) {
+        const t = String(tokens[cursor.value] || "").trim();
+        cursor.value += 1;
+        if (!t) continue;
+        if (!allowMarkers && isMarkerToken(t)) continue;
+        return t;
+      }
+      return "";
+    };
+    const scoreTokenForColumn = (token, col, rule = {}) => {
+      const value = String(token || "").trim();
+      if (!value) return 0;
+      const label = String((col && col.label) || "").trim();
+      const ruleType = String((rule && rule.type) || "").trim();
+      if (ruleType === "optional_blank" || label === "检验员" || label === "审核员") return 0;
+      if (ruleType === "checkbox_choice" || label === "瓶阀检验") return 0;
+      if (ruleType === "date" || label === "检验日期") return normalizeDateToken(value) ? 4 : 0;
+      if (ruleType === "date_or_dash" || label === "上次检验日期") {
+        const dashTokens = Array.isArray(rule.dash_tokens) ? rule.dash_tokens.map((x) => String(x || "")).filter(Boolean) : ["/", "／", "\\", "＼"];
+        return (normalizeDateToken(value) || dashTokens.includes(value)) ? 4 : 0;
+      }
+      if (ruleType === "number") return normalizeNumericToken(normalizeTextToken(value, rule)) ? 3 : 0;
+      if (ruleType === "text") {
+        const normalized = normalizeTextToken(value, rule);
+        const choices = Array.isArray(rule.choices) ? rule.choices.map((x) => String((x && x.label) || "").trim()).filter(Boolean) : [];
+        if (!choices.length) return normalized ? 1 : 0;
+        return choices.includes(normalized) ? 4 : 0;
+      }
+      if (ruleType === "code" || ruleType === "loose_text" || label === "产权代码编号") {
+        const normalized = normalizeTextToken(value, rule);
+        if (!normalized) return 0;
+        // Owner-code blank is legal; when token clearly belongs to medium choices,
+        // prefer leaving this slot empty to avoid left-shifting subsequent columns.
+        if ((label === "产权代码编号" || ruleType === "code") && ["Ar", "O2", "N2", "CO2"].includes(normalized)) return 1;
+        const pattern = String(rule.pattern || "").trim();
+        if (pattern) {
+          try {
+            return new RegExp(pattern).test(normalized) ? 3 : 0;
+          } catch {
+            return 1;
+          }
         }
-        return "";
-      };
-    })();
+        const maxLen = Number(rule.max_len || 16);
+        const lim = Number.isFinite(maxLen) ? maxLen : 16;
+        return new RegExp(`^[A-Za-z0-9一-龥\\-]{2,${lim}}$`).test(normalized) ? 2 : 0;
+      }
+      if (isNumericLikeLabel(label)) return normalizeNumericToken(normalizeTextToken(value, rule)) ? 2 : 0;
+      return normalizeTextToken(value, rule) ? 1 : 0;
+    };
+    const findNextConsumableColumn = (startIdx) => {
+      for (let i = startIdx; i < cols.length; i += 1) {
+        const col = cols[i] || {};
+        const key = String(col.key || "").trim();
+        const label = String(col.label || "").trim();
+        if (!key) continue;
+        const rule = getFieldRule(label, key);
+        const ruleType = String(rule.type || "").trim();
+        if (ruleType === "optional_blank" || label === "检验员" || label === "审核员") continue;
+        if (ruleType === "checkbox_choice" || label === "瓶阀检验") continue;
+        return { col, rule, index: i };
+      }
+      return null;
+    };
+    const shouldReserveBlankSlot = (colIdx, token, currentCol, currentRule, allowMarkers) => {
+      const currentScore = scoreTokenForColumn(token, currentCol, currentRule);
+      const next = findNextConsumableColumn(colIdx + 1);
+      if (!next) return false;
+      const nextScore = scoreTokenForColumn(token, next.col, next.rule);
+      // If current token has weak compatibility with current slot but strongly
+      // matches the next slot, keep current slot blank and do not consume token.
+      if (nextScore >= 3 && nextScore > currentScore) {
+        const lookahead = peekToken(1, { allowMarkers });
+        const lookaheadScore = scoreTokenForColumn(lookahead, currentCol, currentRule);
+        if (lookaheadScore >= currentScore) return true;
+      }
+      return false;
+    };
     for (let i = 0; i < cols.length; i += 1) {
       const col = cols[i] || {};
       const key = String(col.key || "").trim();
@@ -163,12 +277,22 @@ export function createRecognitionWorkflowFeature(deps = {}) {
       const ruleType = String(rule.type || "").trim();
       if (!key) continue;
       if (ruleType === "date" || label === "检验日期") {
-        const token = nextToken({ allowMarkers: true });
+        const token = peekToken(0, { allowMarkers: true });
+        if (!token || shouldReserveBlankSlot(i, token, col, rule, true)) {
+          mapped[key] = dateText || "";
+          continue;
+        }
+        consumeToken({ allowMarkers: true });
         mapped[key] = normalizeDateToken(token) || dateText || "";
         continue;
       }
       if (ruleType === "date_or_dash" || label === "上次检验日期") {
-        const token = nextToken({ allowMarkers: true });
+        const token = peekToken(0, { allowMarkers: true });
+        if (!token || shouldReserveBlankSlot(i, token, col, rule, true)) {
+          mapped[key] = "";
+          continue;
+        }
+        consumeToken({ allowMarkers: true });
         const dashTokens = Array.isArray(rule.dash_tokens) ? rule.dash_tokens.map((x) => String(x || "")).filter(Boolean) : ["/", "／", "\\", "＼"];
         const dashHit = dashTokens.some((mark) => token === mark);
         mapped[key] = dashHit ? "-" : (normalizeDateToken(token) || "");
@@ -183,7 +307,17 @@ export function createRecognitionWorkflowFeature(deps = {}) {
         continue;
       }
       if (ruleType === "code" || ruleType === "loose_text" || label === "产权代码编号") {
-        const token = nextToken();
+        const token = peekToken();
+        if (!token || shouldReserveBlankSlot(i, token, col, rule, false)) {
+          mapped[key] = "";
+          continue;
+        }
+        const normalizedPreview = normalizeTextToken(token, rule);
+        if (label === "产权代码编号" && isLikelyOwnerBlankCodeToken(normalizedPreview)) {
+          mapped[key] = "";
+          continue;
+        }
+        consumeToken();
         const normalized = normalizeTextToken(token, rule);
         const maxLen = Number(rule.max_len || 16);
         const pattern = String(rule.pattern || "").trim();
@@ -191,22 +325,138 @@ export function createRecognitionWorkflowFeature(deps = {}) {
           const reg = new RegExp(pattern);
           mapped[key] = reg.test(normalized) ? normalized : "";
         } else {
-          mapped[key] = new RegExp(`^[A-Za-z0-9一-龥\\-]{1,${Number.isFinite(maxLen) ? maxLen : 16}}$`).test(normalized) ? normalized : "";
+          mapped[key] = new RegExp(`^[A-Za-z0-9一-龥\\-]{2,${Number.isFinite(maxLen) ? maxLen : 16}}$`).test(normalized) ? normalized : "";
         }
         continue;
       }
-      const token = nextToken();
+      const token = peekToken();
+      if (!token || shouldReserveBlankSlot(i, token, col, rule, false)) {
+        mapped[key] = "";
+        continue;
+      }
       if (ruleType === "number") {
+        consumeToken();
         mapped[key] = normalizeNumericToken(normalizeTextToken(token, rule)) || "";
         continue;
       }
       if (ruleType === "text") {
-        mapped[key] = normalizeTextToken(token, rule);
+        const normalized = normalizeTextToken(token, rule);
+        const choices = Array.isArray(rule.choices) ? rule.choices.map((x) => String((x && x.label) || "").trim()).filter(Boolean) : [];
+        if (choices.length && !choices.includes(normalized)) {
+          mapped[key] = "";
+          continue;
+        }
+        consumeToken();
+        mapped[key] = normalized;
         continue;
       }
+      consumeToken();
       mapped[key] = isNumericLikeLabel(label) ? (normalizeNumericToken(normalizeTextToken(token, rule)) || token) : normalizeTextToken(token, rule);
     }
     return mapped;
+  }
+
+  function applySchemaRulesToMappedFields(mappedInput, columns, rules = {}) {
+    const cols = Array.isArray(columns) ? columns : [];
+    const mapped = (mappedInput && typeof mappedInput === "object") ? mappedInput : {};
+    const fieldRules = (rules && typeof rules.field_rules === "object" && rules.field_rules) ? rules.field_rules : {};
+    const getFieldRule = (label, key) => {
+      const byLabel = fieldRules[String(label || "").trim()];
+      if (byLabel && typeof byLabel === "object") return byLabel;
+      const byKey = fieldRules[String(key || "").trim()];
+      return byKey && typeof byKey === "object" ? byKey : {};
+    };
+    const normalizeDateToken = (token) => {
+      const t = String(token || "").trim();
+      if (!t) return "";
+      const m = t.match(/([zZ]?\d{1,2})\s*[.\-/、]\s*(\d{1,2})/);
+      if (!m) return "";
+      const mm = String(m[1] || "").replace(/^[zZ]/, "2");
+      const dd = String(m[2] || "");
+      return `${mm}.${dd}`;
+    };
+    const normalizeTextToken = (token, rule = {}) => {
+      let t = String(token || "").trim();
+      const normalize = (rule && typeof rule.normalize === "object" && rule.normalize) ? rule.normalize : {};
+      if (normalize.fullwidth_to_halfwidth) {
+        t = t.replace(/[\uFF01-\uFF5E]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 65248)).replace(/\u3000/g, " ");
+      }
+      if (normalize.o_to_0) t = t.replace(/[oO]/g, "0");
+      if (normalize.l_to_1) t = t.replace(/[lI]/g, "1");
+      if (normalize.trim !== false) t = t.trim();
+      return t;
+    };
+    const normalizeNumericToken = (token) => {
+      const t = String(token || "").trim();
+      if (!t) return "";
+      let x = t
+        .replace(/[oO]/g, "0")
+        .replace(/[lI]/g, "1")
+        .replace(/[，]/g, ".")
+        .replace(/。/g, ".")
+        .replace(/[^\d.+\-]/g, "");
+      if (!x) return "";
+      x = x.replace(/^\.+/, "").replace(/\.+$/, "");
+      return x;
+    };
+    const output = { ...mapped };
+    for (let i = 0; i < cols.length; i += 1) {
+      const col = cols[i] || {};
+      const key = String(col.key || "").trim();
+      const label = String(col.label || "").trim();
+      if (!key) continue;
+      const rule = getFieldRule(label, key);
+      const ruleType = String(rule.type || "").trim();
+      const rawValue = String(mapped[key] ?? mapped[label] ?? "").trim();
+      if (!rawValue && ruleType !== "optional_blank") {
+        output[key] = "";
+        continue;
+      }
+
+      if (ruleType === "optional_blank" || label === "检验员" || label === "审核员") {
+        output[key] = "";
+        continue;
+      }
+      if (ruleType === "date" || label === "检验日期") {
+        output[key] = normalizeDateToken(rawValue);
+        continue;
+      }
+      if (ruleType === "date_or_dash" || label === "上次检验日期") {
+        const normalized = normalizeDateToken(rawValue);
+        output[key] = normalized || (/^[\\/／-]$/.test(rawValue) ? "-" : "");
+        continue;
+      }
+      if (ruleType === "checkbox_choice" || label === "瓶阀检验") {
+        const choices = Array.isArray(rule.choices) ? rule.choices : [];
+        const labels = choices.map((x) => String((x && x.label) || "").trim()).filter(Boolean);
+        output[key] = labels.includes(rawValue) ? rawValue : "";
+        continue;
+      }
+      if (ruleType === "number") {
+        output[key] = normalizeNumericToken(rawValue);
+        continue;
+      }
+      if (ruleType === "code" || ruleType === "loose_text" || label === "产权代码编号") {
+        const normalized = normalizeTextToken(rawValue, rule);
+        const pattern = String(rule.pattern || "").trim();
+        const maxLen = Number(rule.max_len || 16);
+        if (pattern) {
+          output[key] = new RegExp(pattern).test(normalized) ? normalized : "";
+        } else {
+          const lim = Number.isFinite(maxLen) ? maxLen : 16;
+          output[key] = new RegExp(`^[A-Za-z0-9一-龥\\-]{2,${lim}}$`).test(normalized) ? normalized : "";
+        }
+        continue;
+      }
+      if (ruleType === "text") {
+        const normalized = normalizeTextToken(rawValue, rule);
+        const choices = Array.isArray(rule.choices) ? rule.choices.map((x) => String((x && x.label) || "").trim()).filter(Boolean) : [];
+        output[key] = choices.length ? (choices.includes(normalized) ? normalized : "") : normalized;
+        continue;
+      }
+      output[key] = normalizeTextToken(rawValue, rule);
+    }
+    return output;
   }
 
   function applyCarryForwardRows(rows, columns, rules = {}) {
@@ -242,6 +492,30 @@ export function createRecognitionWorkflowFeature(deps = {}) {
           row.recognizedFields[key] = cache[key];
         }
       }
+    }
+  }
+
+  function waitMs(ms) {
+    const n = Number(ms);
+    return new Promise((resolve) => setTimeout(resolve, Number.isFinite(n) ? Math.max(0, n) : 0));
+  }
+
+  async function replaceSourceWithRowsProgressively(sourceItem, recordRows, stageLabel) {
+    const rows = Array.isArray(recordRows) ? recordRows : [];
+    const index = state.queue.findIndex((x) => x.id === sourceItem.id);
+    if (index < 0) return;
+    state.queue.splice(index, 1);
+    renderQueue();
+    renderTemplateSelect();
+    for (let i = 0; i < rows.length; i += 1) {
+      const row = rows[i];
+      if (!row.templateName) await applyAutoTemplateMatch(row, { force: true });
+      row.message = `${stageLabel} ${i + 1}/${rows.length}`;
+      state.queue.splice(index + i, 0, row);
+      if (i === 0) state.activeId = row.id;
+      renderQueue();
+      renderTemplateSelect();
+      await waitMs(26);
     }
   }
 
@@ -368,32 +642,60 @@ export function createRecognitionWorkflowFeature(deps = {}) {
     item.ocrStructured = (ocr && ocr.structured) || {};
     const schemaColumns = getSchemaColumns();
     const schemaRules = getSchemaRules();
-    const structuredRows = Array.isArray(item.ocrStructured && item.ocrStructured.row_records)
+    const structuredRowsRaw = Array.isArray(item.ocrStructured && item.ocrStructured.row_records)
       ? item.ocrStructured.row_records
       : [];
+    const tableCells = Array.isArray(item.ocrStructured && item.ocrStructured.table_cells)
+      ? item.ocrStructured.table_cells
+      : [];
+    let structuredRows = structuredRowsRaw;
     const reviewQueue = Array.isArray(item.ocrStructured && item.ocrStructured.review_queue)
       ? item.ocrStructured.review_queue
       : [];
     if (schemaColumns.length) {
+      if (!structuredRows.length && tableCells.length) {
+        const builtRows = buildRowRecordsFromTableCells({
+          tableCells,
+          columns: schemaColumns,
+          xLines: [],
+        });
+        if (Array.isArray(builtRows) && builtRows.length) structuredRows = builtRows;
+      }
       if (structuredRows.length) {
-        const recordRows = structuredRows.map((rowItem, idx) => {
+        const totalCellCount = Math.max(1, structuredRows.length * Math.max(1, schemaColumns.length));
+        let doneCellCount = 0;
+        const progressStep = Math.max(1, Math.floor(totalCellCount / 12));
+        const recordRows = [];
+        for (let idx = 0; idx < structuredRows.length; idx += 1) {
+          const rowItem = structuredRows[idx];
           const rowNumber = Number((rowItem && rowItem.row) || 0) || (idx + 1);
           const rowFields = (rowItem && typeof rowItem.fields === "object" && rowItem.fields) ? rowItem.fields : {};
           const rawRecord = String((rowItem && rowItem.raw_record) || "").trim();
           const mapped = {};
-          schemaColumns.forEach((col, colIdx) => {
+          for (let colIdx = 0; colIdx < schemaColumns.length; colIdx += 1) {
+            const col = schemaColumns[colIdx];
             const key = String((col && col.key) || "").trim();
-            if (!key) return;
+            if (!key) {
+              doneCellCount += 1;
+              continue;
+            }
             const colKey = `col_${String(colIdx + 1).padStart(2, "0")}`;
             const label = String((col && col.label) || "").trim();
             mapped[key] = String(rowFields[colKey] || rowFields[label] || "").trim();
-          });
-          const mergedFields = { ...createEmptyFields(), ...mapped, raw_record: rawRecord };
+            doneCellCount += 1;
+            if (doneCellCount === 1 || doneCellCount === totalCellCount || (doneCellCount % progressStep) === 0) {
+              item.message = `行列对齐中 ${doneCellCount}/${totalCellCount}`;
+              renderQueue();
+              await waitMs(0);
+            }
+          }
+          const normalizedMapped = applySchemaRulesToMappedFields(mapped, schemaColumns, schemaRules);
+          const mergedFields = { ...createEmptyFields(), ...normalizedMapped, raw_record: rawRecord };
           const firstColKey = String((schemaColumns[0] && schemaColumns[0].key) || "").trim();
           const secondColKey = String((schemaColumns[1] && schemaColumns[1].key) || "").trim();
           const recordName = String(mergedFields[firstColKey] || mergedFields[secondColKey] || `row_${rowNumber}`).trim();
           const rowReviewQueue = reviewQueue.filter((x) => Number((x && x.row) || 0) === rowNumber);
-          return {
+          const recordRow = {
             id: `${item.id}-t${rowNumber}-${Math.random().toString(16).slice(2, 8)}`,
             file: item.file,
             fileName: item.fileName,
@@ -423,17 +725,9 @@ export function createRecognitionWorkflowFeature(deps = {}) {
             generalCheckStruct: null,
             reviewQueue: rowReviewQueue,
           };
-        });
-        for (const row of recordRows) {
-          await applyAutoTemplateMatch(row, { force: true });
+          recordRows.push(recordRow);
         }
-        const index = state.queue.findIndex((x) => x.id === item.id);
-        if (index >= 0) {
-          state.queue.splice(index, 1, ...recordRows);
-          state.activeId = recordRows[0].id;
-        }
-        renderQueue();
-        renderTemplateSelect();
+        await replaceSourceWithRowsProgressively(item, recordRows, "表格行识别");
         appendLog(`结构化表格拆分完成 ${item.fileName}：${recordRows.length} 行`);
         return;
       }
@@ -441,7 +735,8 @@ export function createRecognitionWorkflowFeature(deps = {}) {
       if (dataLines.length) {
         const recordRows = dataLines.map((line, idx) => {
           const mapped = mapLineToSchemaFields(line, schemaColumns, schemaRules);
-          const mergedFields = { ...createEmptyFields(), ...mapped, raw_record: line };
+          const normalizedMapped = applySchemaRulesToMappedFields(mapped, schemaColumns, schemaRules);
+          const mergedFields = { ...createEmptyFields(), ...normalizedMapped, raw_record: line };
           const rowNumber = idx + 1;
           const firstColKey = String((schemaColumns[0] && schemaColumns[0].key) || "").trim();
           const secondColKey = String((schemaColumns[1] && schemaColumns[1].key) || "").trim();
@@ -476,17 +771,7 @@ export function createRecognitionWorkflowFeature(deps = {}) {
             generalCheckStruct: null,
           };
         });
-        applyCarryForwardRows(recordRows, schemaColumns, schemaRules);
-        for (const row of recordRows) {
-          await applyAutoTemplateMatch(row, { force: true });
-        }
-        const index = state.queue.findIndex((x) => x.id === item.id);
-        if (index >= 0) {
-          state.queue.splice(index, 1, ...recordRows);
-          state.activeId = recordRows[0].id;
-        }
-        renderQueue();
-        renderTemplateSelect();
+        await replaceSourceWithRowsProgressively(item, recordRows, "文本行识别");
         appendLog(`表格拆分完成 ${item.fileName}：${recordRows.length} 行`);
         return;
       }

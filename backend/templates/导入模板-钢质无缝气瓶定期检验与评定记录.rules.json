@@ -21,7 +21,13 @@
       "normalize": {
         "trim": true,
         "fullwidth_to_halfwidth": true
-      }
+      },
+      "choices": [
+        { "label": "Ar" },
+        { "label": "O2" },
+        { "label": "N2" },
+        { "label": "CO2" }
+      ]
     },
     "制造单位代码": {
       "type": "code",
@@ -61,6 +67,7 @@
     "重量损失率%": { "type": "number", "normalize": { "o_to_0": true, "l_to_1": true } },
     "实际容积L": { "type": "number", "normalize": { "o_to_0": true, "l_to_1": true } },
     "容积增大率%": { "type": "number", "normalize": { "o_to_0": true, "l_to_1": true } },
+    "试验压力MPa": { "type": "number", "normalize": { "o_to_0": true, "l_to_1": true } },
     "保压时间min": { "type": "number", "normalize": { "o_to_0": true, "l_to_1": true } },
     "残余变形值mL": { "type": "number", "normalize": { "o_to_0": true, "l_to_1": true } },
     "容积全变形值mL": { "type": "number", "normalize": { "o_to_0": true, "l_to_1": true } },

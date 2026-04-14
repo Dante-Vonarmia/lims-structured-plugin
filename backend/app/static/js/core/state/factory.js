@@ -8,6 +8,7 @@ export function createInitialState() {
     listFilter: { keyword: "", status: "", sortKey: "", sortDir: "asc", columnFilters: {}, activeFilterKey: "" },
     busy: false,
     runtime: { offlineMode: false, modifyCertificateBlueprintTemplateName: "" },
+    signatures: [],
     taskContext: {
       id: "",
       task_name: "",

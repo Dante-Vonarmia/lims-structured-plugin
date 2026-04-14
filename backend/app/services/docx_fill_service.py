@@ -120,6 +120,15 @@ from .semantic_fill_lib import (
     score_detail_general_check_text,
 )
 from .templates import fill_r846b_specific_sections
+from .signature_store_file import resolve_signature_image_path
+from .template_mapping_library_service import get_fill_placeholders
+
+try:
+    from docx import Document
+    from docx.shared import Mm
+except Exception:  # pragma: no cover - optional runtime dependency
+    Document = None
+    Mm = None
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -460,6 +469,13 @@ def fill_generic_record_docx(
     elif _should_auto_fill_result_checks(template_path=template_path, payload=payload):
         changed = _fill_generic_result_checks_in_tables(tables) or changed
     _fill_page_number_placeholders_in_root(root)
+    placeholder_values = _build_placeholder_values_from_rules(
+        template_name=template_path.name,
+        context=context,
+        payload=payload,
+    )
+    _fill_text_placeholders_in_root(root, placeholder_values)
+    _fill_appendix1_table_rows_from_context(root, context)
     changed = _fill_generic_base_labels_in_paragraphs(root, payload) or changed
     changed = _strip_general_check_required_marker(root) or changed
 
@@ -470,6 +486,7 @@ def fill_generic_record_docx(
         original_namespaces=original_namespaces,
         header_payload=payload,
     )
+    _fill_signature_images_for_output_docx(output_path, payload)
     return True
 
 
@@ -2579,6 +2596,236 @@ def _write_docx_with_updated_root(
 
 def _is_header_xml_path(path: str) -> bool:
     return bool(re.match(r"^word/header\d+\.xml$", str(path or "").strip()))
+
+
+def _fill_text_placeholders_in_root(root: ET.Element, values: dict[str, str]) -> bool:
+    changed = False
+    valid_values = {k: str(v or "") for k, v in (values or {}).items() if str(k or "").strip()}
+    if not valid_values:
+        return False
+    for node in root.findall(".//w:t", NS):
+        text = str(node.text or "")
+        if not text:
+            continue
+        updated = text
+        for key, value in valid_values.items():
+            if key not in updated:
+                continue
+            updated = updated.replace(key, value)
+        if updated != text:
+            node.text = updated
+            changed = True
+    return changed
+
+
+def _build_placeholder_values_from_rules(
+    template_name: str,
+    context: dict[str, Any],
+    payload: dict[str, Any],
+) -> dict[str, str]:
+    rules = get_fill_placeholders(template_name)
+    if not rules:
+        return {}
+    context_data = context if isinstance(context, dict) else {}
+    payload_data = payload if isinstance(payload, dict) else {}
+
+    def read_value(key: str) -> str:
+        normalized_key = str(key or "").strip()
+        if not normalized_key:
+            return ""
+        value = context_data.get(normalized_key, "")
+        if value is None or str(value).strip() == "":
+            value = payload_data.get(normalized_key, "")
+        return normalize_space(str(value or ""))
+
+    result: dict[str, str] = {}
+    for row in rules:
+        marker = str((row or {}).get("marker", "")).strip()
+        key = str((row or {}).get("key", "")).strip()
+        if not marker or not key:
+            continue
+        value = read_value(key)
+        if not value:
+            for fallback_key in (row.get("fallback_keys") or []):
+                value = read_value(str(fallback_key or ""))
+                if value:
+                    break
+        if not value:
+            value = normalize_space(str(row.get("default", "") or ""))
+        result[marker] = value
+    return result
+
+
+def _parse_appendix1_rows_text(value: str) -> list[tuple[str, str, str]]:
+    text = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return []
+    result: list[tuple[str, str, str]] = []
+    for raw_line in text.split("\n"):
+        line = str(raw_line or "").strip()
+        if not line:
+            continue
+        if "\t" in line:
+            parts = [x.strip() for x in line.split("\t")]
+        elif "," in line:
+            parts = [x.strip() for x in line.split(",")]
+        else:
+            parts = [x.strip() for x in re.split(r"\s{2,}", line)]
+        parts = [x for x in parts if x]
+        if len(parts) < 3:
+            continue
+        cylinder_no = str(parts[0] or "").strip()
+        maker_code = str(parts[1] or "").strip().upper()
+        next_date = str(parts[2] or "").strip()
+        result.append((cylinder_no, maker_code, next_date))
+    return result
+
+
+def _find_appendix1_table(tables: list[ET.Element]) -> ET.Element | None:
+    for table in tables:
+        table_text = " ".join(get_cell_text(tc) for tc in table.findall(".//w:tc", NS))
+        if "气瓶编号" in table_text and "制造单位名称或代号" in table_text and "下次检验日期" in table_text:
+            return table
+    return None
+
+
+def _find_appendix1_header_row_index(rows: list[ET.Element]) -> int:
+    for idx, row in enumerate(rows):
+        cells = row.findall("./w:tc", NS)
+        row_text = " ".join(get_cell_text(cell) for cell in cells)
+        if "气瓶编号" in row_text and "制造单位名称或代号" in row_text and "下次检验日期" in row_text:
+            return idx
+    return -1
+
+
+def _fill_appendix1_table_rows_from_context(root: ET.Element, context: dict[str, Any]) -> bool:
+    rows_data = _parse_appendix1_rows_text(str((context or {}).get("appendix1_rows_text", "")))
+    if not rows_data:
+        return False
+    tables = root.findall(".//w:tbl", NS)
+    target_table = _find_appendix1_table(tables)
+    if target_table is None:
+        return False
+    rows = target_table.findall("./w:tr", NS)
+    if not rows:
+        return False
+    header_idx = _find_appendix1_header_row_index(rows)
+    if header_idx < 0:
+        return False
+    data_rows = rows[header_idx + 1:]
+    if not data_rows:
+        return False
+
+    changed = False
+    for row_index, row in enumerate(data_rows):
+        cells = row.findall("./w:tc", NS)
+        if len(cells) < 4:
+            continue
+        if row_index < len(rows_data):
+            cylinder_no, maker_code, next_date = rows_data[row_index]
+            set_cell_text(cells[0], str(row_index + 1))
+            set_cell_text(cells[1], cylinder_no)
+            set_cell_text(cells[2], maker_code)
+            set_cell_text(cells[3], next_date)
+            changed = True
+        else:
+            set_cell_text(cells[0], str(row_index + 1))
+            set_cell_text(cells[1], "")
+            set_cell_text(cells[2], "")
+            set_cell_text(cells[3], "")
+            changed = True
+    return changed
+
+
+def _iter_docx_paragraphs_for_signatures(document: Any) -> list[Any]:
+    result: list[Any] = []
+    for paragraph in list(getattr(document, "paragraphs", []) or []):
+        result.append(paragraph)
+
+    def walk_tables(tables: list[Any]) -> None:
+        for table in tables or []:
+            for row in getattr(table, "rows", []) or []:
+                for cell in getattr(row, "cells", []) or []:
+                    for paragraph in getattr(cell, "paragraphs", []) or []:
+                        result.append(paragraph)
+                    walk_tables(getattr(cell, "tables", []) or [])
+
+    walk_tables(list(getattr(document, "tables", []) or []))
+    return result
+
+
+def _clear_docx_paragraph_runs(paragraph: Any) -> None:
+    runs = list(getattr(paragraph, "runs", []) or [])
+    for run in runs:
+        try:
+            run._element.getparent().remove(run._element)
+        except Exception:
+            continue
+
+
+def _fill_signature_images_for_output_docx(output_path: Path, payload: dict[str, Any]) -> bool:
+    if Document is None or Mm is None:
+        return False
+    placeholder_to_value = {
+        "【检验员签字图片】": str(payload.get("inspector_sign_image", "")).strip(),
+        "【审核签字图片】": str(payload.get("reviewer_sign_image", "")).strip(),
+        "【批准签字图片】": str(payload.get("approver_sign_image", "")).strip(),
+    }
+    placeholder_to_path: dict[str, Path] = {}
+    for placeholder, value in placeholder_to_value.items():
+        if not value:
+            continue
+        image_path = resolve_signature_image_path(value)
+        if image_path is None:
+            continue
+        placeholder_to_path[placeholder] = image_path
+    if not placeholder_to_path:
+        return False
+
+    try:
+        doc = Document(str(output_path))
+    except Exception:
+        return False
+
+    updated = False
+    placeholders = sorted(placeholder_to_path.keys(), key=lambda x: len(x), reverse=True)
+    pattern = re.compile("|".join(re.escape(x) for x in placeholders))
+
+    for paragraph in _iter_docx_paragraphs_for_signatures(doc):
+        text = str(getattr(paragraph, "text", "") or "")
+        if not text:
+            continue
+        matches = list(pattern.finditer(text))
+        if not matches:
+            continue
+        _clear_docx_paragraph_runs(paragraph)
+        cursor = 0
+        for match in matches:
+            start, end = match.span()
+            if start > cursor:
+                paragraph.add_run(text[cursor:start])
+            token = match.group(0)
+            image_path = placeholder_to_path.get(token)
+            if image_path is not None:
+                try:
+                    run = paragraph.add_run()
+                    run.add_picture(str(image_path), height=Mm(8))
+                except Exception:
+                    paragraph.add_run(token)
+            else:
+                paragraph.add_run(token)
+            cursor = end
+        if cursor < len(text):
+            paragraph.add_run(text[cursor:])
+        updated = True
+
+    if not updated:
+        return False
+    try:
+        doc.save(str(output_path))
+        return True
+    except Exception:
+        return False
 
 
 def _fill_header_base_fields_xml(xml_data: bytes, payload: dict[str, Any]) -> bytes:

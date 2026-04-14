@@ -1,10 +1,13 @@
 import os
 import base64
 import json
+import logging
 import posixpath
 import re
 import subprocess
 import tempfile
+import urllib.error
+import urllib.request
 from functools import lru_cache
 from pathlib import Path
 import zipfile
@@ -12,6 +15,8 @@ from xml.etree import ElementTree as ET
 
 from ..config import OUTPUT_DIR
 from ..utils.text_normalizer import normalize_text, split_lines
+
+logger = logging.getLogger(__name__)
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff", ".heic", ".heif"}
 DOCX_SUFFIXES = {".docx"}
@@ -95,9 +100,23 @@ OCR_PREP_MODE = str(os.getenv("OCR_PREP_MODE", "fast") or "fast").strip().lower(
 OCR_ENGINE_ORDER = str(os.getenv("OCR_ENGINE_ORDER", "rapid,paddle,tesseract") or "rapid,paddle,tesseract").strip().lower()
 OCR_MIN_TEXT_FOR_EARLY_RETURN = int(str(os.getenv("OCR_MIN_TEXT_FOR_EARLY_RETURN", "40") or "40").strip() or 40)
 OCR_MIN_LINES_FOR_EARLY_RETURN = int(str(os.getenv("OCR_MIN_LINES_FOR_EARLY_RETURN", "4") or "4").strip() or 4)
+OCR_TIMING_LOG = str(os.getenv("OCR_TIMING_LOG", "0") or "0").strip().lower() in {"1", "true", "yes", "on"}
+OCR_AI_ENABLED = str(os.getenv("OCR_AI_ENABLED", "0") or "0").strip().lower() in {"1", "true", "yes", "on"}
+OCR_AI_MODEL = str(os.getenv("OCR_AI_MODEL", "gpt-4.1-mini") or "gpt-4.1-mini").strip()
+OCR_AI_TIMEOUT_SECONDS = float(str(os.getenv("OCR_AI_TIMEOUT_SECONDS", "30") or "30").strip() or 30)
+OCR_AI_MAX_IMAGE_BYTES = int(str(os.getenv("OCR_AI_MAX_IMAGE_BYTES", "7340032") or "7340032").strip() or 7340032)
+OCR_STRICT_BLANK_ENABLED = str(os.getenv("OCR_STRICT_BLANK_ENABLED", "1") or "1").strip().lower() in {"1", "true", "yes", "on"}
+OCR_BLANK_INK_MAX = float(str(os.getenv("OCR_BLANK_INK_MAX", "0.012") or "0.012").strip() or 0.012)
+OCR_BLANK_COMPONENT_MAX = int(str(os.getenv("OCR_BLANK_COMPONENT_MAX", "2") or "2").strip() or 2)
+OCR_NOISE_TEXT_CONF_MAX = float(str(os.getenv("OCR_NOISE_TEXT_CONF_MAX", "0.45") or "0.45").strip() or 0.45)
 TABLE_BODY_ROW_RE = re.compile(r"^\s*\d{1,2}\s*[./-]\s*\d{1,2}\b")
 TABLE_REVIEW_THRESHOLD = 0.85
 TABLE_REVIEW_THRESHOLD_CRITICAL = 0.92
+TABLE_SECOND_PASS_TRIGGER = float(str(os.getenv("TABLE_SECOND_PASS_TRIGGER", "0.60") or "0.60").strip() or 0.60)
+TABLE_MIN_NON_EMPTY_RATIO = float(str(os.getenv("TABLE_MIN_NON_EMPTY_RATIO", "0.24") or "0.24").strip() or 0.24)
+TABLE_MIN_CRITICAL_NON_EMPTY_RATIO = float(str(os.getenv("TABLE_MIN_CRITICAL_NON_EMPTY_RATIO", "0.18") or "0.18").strip() or 0.18)
+TABLE_MAX_REVIEW_RATIO = float(str(os.getenv("TABLE_MAX_REVIEW_RATIO", "0.72") or "0.72").strip() or 0.72)
+TABLE_XLINE_FUSE_TOLERANCE = int(str(os.getenv("TABLE_XLINE_FUSE_TOLERANCE", "16") or "16").strip() or 16)
 TABLE_COL_KEYS = tuple([f"col_{i:02d}" for i in range(1, 38)])
 TABLE_COL_LABELS = (
     "检验日期",
@@ -190,6 +209,9 @@ def _is_table_critical_column(col_index: int) -> bool:
 
 
 def _recognize_cylinder_table(file_path: Path) -> dict[str, object]:
+    import time
+
+    t0 = time.perf_counter()
     grid_payload = _detect_table_grid(file_path)
     if not grid_payload:
         return {}
@@ -200,6 +222,10 @@ def _recognize_cylinder_table(file_path: Path) -> dict[str, object]:
     if not isinstance(x_lines, list) or not isinstance(y_lines, list) or image is None:
         return {}
     if len(x_lines) < 8 or len(y_lines) < 4:
+        return {}
+    anchor_count = int(grid_payload.get("anchor_count", 0) or 0)
+    # Quick gate: avoid expensive per-cell OCR when table-shape evidence is weak.
+    if (len(x_lines) - 1) < int(len(TABLE_COL_KEYS) * 0.72) and anchor_count < 2:
         return {}
 
     col_count = min(len(x_lines) - 1, len(TABLE_COL_KEYS))
@@ -287,6 +313,18 @@ def _recognize_cylinder_table(file_path: Path) -> dict[str, object]:
     if not quality.get("ok", False):
         return {}
 
+    if OCR_TIMING_LOG:
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        logger.info(
+            "ocr.table done file=%s rows=%s cells=%s review=%s anchors=%s ms=%s",
+            file_path.name,
+            len(row_records),
+            len(table_cells),
+            len(review_queue),
+            anchor_count,
+            elapsed_ms,
+        )
+
     return {
         "table_cells": table_cells,
         "row_records": row_records,
@@ -306,6 +344,8 @@ def _recognize_table_cell(crop, col_index: int) -> dict[str, object]:
             "confidence": score,
             "preprocess_id": "shape",
         }
+    if OCR_STRICT_BLANK_ENABLED and _is_blank_table_cell(crop):
+        return {"raw_text": "", "final_text": "", "confidence": 0.0, "preprocess_id": "blank_gate"}
     ocr_candidates = _read_cell_with_retries(crop, col_index)
     best = {"raw_text": "", "final_text": "", "confidence": 0.0, "preprocess_id": "p0"}
     for candidate in ocr_candidates:
@@ -321,11 +361,107 @@ def _recognize_table_cell(crop, col_index: int) -> dict[str, object]:
                 "confidence": final_score,
                 "preprocess_id": preprocess_id,
             }
-    if _is_table_critical_column(col_index) and float(best.get("confidence", 0.0) or 0.0) < TABLE_REVIEW_THRESHOLD_CRITICAL:
+    if _is_table_critical_column(col_index) and float(best.get("confidence", 0.0) or 0.0) < TABLE_SECOND_PASS_TRIGGER:
         voted = _second_pass_critical_cell_vote(crop, col_index, best)
         if voted and float(voted.get("confidence", 0.0) or 0.0) >= float(best.get("confidence", 0.0) or 0.0):
             best = voted
+    final_text = str(best.get("final_text", "")).strip()
+    final_conf = float(best.get("confidence", 0.0) or 0.0)
+    if OCR_STRICT_BLANK_ENABLED and final_text and _should_force_blank_by_column(final_text, final_conf, col_index):
+        best["final_text"] = ""
+        best["confidence"] = 0.0
+        return best
+    if OCR_STRICT_BLANK_ENABLED and final_text and (not _is_table_critical_column(col_index)) and _should_suppress_noise_text(final_text, final_conf):
+        best["final_text"] = ""
+        best["confidence"] = 0.0
+    elif OCR_STRICT_BLANK_ENABLED and final_text and _is_table_critical_column(col_index) and final_conf < TABLE_SECOND_PASS_TRIGGER:
+        best["final_text"] = ""
+        best["confidence"] = 0.0
     return best
+
+
+def _is_blank_table_cell(crop) -> bool:
+    import cv2
+
+    if crop is None:
+        return True
+    gray = crop if len(getattr(crop, "shape", [])) == 2 else cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    if gray is None or gray.size <= 0:
+        return True
+    h, w = gray.shape[:2]
+    if h <= 0 or w <= 0:
+        return True
+    pad_y = max(1, int(h * 0.08))
+    pad_x = max(1, int(w * 0.08))
+    if (h - 2 * pad_y) >= 8 and (w - 2 * pad_x) >= 8:
+        roi = gray[pad_y:h - pad_y, pad_x:w - pad_x]
+    else:
+        roi = gray
+    blur = cv2.GaussianBlur(roi, (3, 3), 0)
+    binary = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 21, 7)
+    area = int(binary.shape[0] * binary.shape[1])
+    if area <= 0:
+        return True
+    ink_ratio = float(binary.sum()) / 255.0 / float(area)
+
+    num_labels, _, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
+    min_area = max(4, int(area * 0.0008))
+    valid_components = 0
+    for label_idx in range(1, int(num_labels)):
+        comp_area = int(stats[label_idx, cv2.CC_STAT_AREA])
+        comp_w = int(stats[label_idx, cv2.CC_STAT_WIDTH])
+        comp_h = int(stats[label_idx, cv2.CC_STAT_HEIGHT])
+        if comp_area < min_area:
+            continue
+        # Suppress residual border/grid strokes.
+        if comp_w >= int(binary.shape[1] * 0.92) and comp_h <= max(3, int(binary.shape[0] * 0.1)):
+            continue
+        if comp_h >= int(binary.shape[0] * 0.92) and comp_w <= max(3, int(binary.shape[1] * 0.1)):
+            continue
+        valid_components += 1
+    return ink_ratio <= OCR_BLANK_INK_MAX and valid_components <= OCR_BLANK_COMPONENT_MAX
+
+
+def _should_suppress_noise_text(text: str, confidence: float) -> bool:
+    value = _normalize_cell_text(text)
+    if not value:
+        return False
+    if value == "√":
+        return False
+    if float(confidence) > OCR_NOISE_TEXT_CONF_MAX:
+        return False
+    if re.fullmatch(r"[A-Za-z]{1,4}", value):
+        return True
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9]{0,3}", value) and len(value) <= 4:
+        return True
+    if re.fullmatch(r"[\u4e00-\u9fff]{1}", value):
+        return True
+    if re.fullmatch(r"[`'\".,;:|]{1,4}", value):
+        return True
+    return False
+
+
+def _should_force_blank_by_column(text: str, confidence: float, col_index: int) -> bool:
+    value = _normalize_cell_text(text)
+    if not value:
+        return False
+    conf = float(confidence or 0.0)
+    if col_index == 1:
+        if re.fullmatch(r"[A-Za-z0-9]", value):
+            return True
+        if re.fullmatch(r"[A-Za-z]{1,2}", value):
+            return True
+        if re.fullmatch(r"[A-Za-z0-9]{2,3}", value) and conf < 0.82:
+            return True
+        if re.fullmatch(r"[\u4e00-\u9fff]{1}", value):
+            return True
+        return False
+    if col_index == 2:
+        upper = value.upper().replace(" ", "")
+        medium_map = {"CO2": "CO2", "COZ": "CO2", "C02": "CO2", "02": "O2", "AR": "Ar", "N2": "N2", "O2": "O2"}
+        fixed = medium_map.get(upper, upper)
+        return fixed not in TABLE_MEDIUM_DICT
+    return False
 
 
 def _read_cell_with_retries(crop, col_index: int) -> list[dict[str, object]]:
@@ -335,10 +471,12 @@ def _read_cell_with_retries(crop, col_index: int) -> list[dict[str, object]]:
     import pytesseract
 
     gray = crop if len(getattr(crop, "shape", [])) == 2 else cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    degrid = _prepare_cell_for_ocr(gray, col_index)
     prep_variants = [
         ("p0", gray),
         ("p1", cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]),
         ("p2", cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 8)),
+        ("p3", degrid),
     ]
 
     whitelist = _column_whitelist(col_index)
@@ -358,7 +496,49 @@ def _read_cell_with_retries(crop, col_index: int) -> list[dict[str, object]]:
         except Exception:
             conf = 0.0
         candidates.append({"text": _normalize_cell_text(text), "confidence": conf, "preprocess_id": preprocess_id})
+
+        if col_index in {5, 6, 7, 8, 17, 19}:
+            alt_config = "--psm 13"
+            if whitelist:
+                alt_config = f"{alt_config} -c tessedit_char_whitelist={whitelist}"
+            alt_text = _tesseract_image_to_string(pil_image, config=alt_config)
+            candidates.append(
+                {
+                    "text": _normalize_cell_text(alt_text),
+                    "confidence": max(0.0, min(0.99, conf * 0.92)),
+                    "preprocess_id": f"{preprocess_id}_psm13",
+                }
+            )
     return candidates
+
+
+def _prepare_cell_for_ocr(gray, col_index: int):
+    import cv2
+    import numpy as np
+
+    if gray is None:
+        return gray
+    h, w = gray.shape[:2]
+    if h <= 0 or w <= 0:
+        return gray
+
+    # Remove most border/grid interference before numeric OCR.
+    bw = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 21, 7)
+    h_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (max(10, w // 3), 1))
+    v_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(10, h // 2)))
+    h_lines = cv2.morphologyEx(bw, cv2.MORPH_OPEN, h_kernel, iterations=1)
+    v_lines = cv2.morphologyEx(bw, cv2.MORPH_OPEN, v_kernel, iterations=1)
+    grid = cv2.bitwise_or(h_lines, v_lines)
+    text_mask = cv2.subtract(bw, grid)
+    text_mask = cv2.medianBlur(text_mask, 3)
+    text_mask = cv2.dilate(text_mask, np.ones((2, 2), np.uint8), iterations=1)
+
+    # Convert back to black-text/white-bg for tesseract.
+    clean = cv2.bitwise_not(text_mask)
+    if col_index in {5, 6, 7, 8, 17, 19}:
+        clean = cv2.GaussianBlur(clean, (0, 0), 0.9)
+        clean = cv2.addWeighted(clean, 1.35, cv2.GaussianBlur(clean, (0, 0), 1.8), -0.35, 0)
+    return clean.astype(np.uint8)
 
 
 def _second_pass_critical_cell_vote(crop, col_index: int, fallback: dict[str, object]) -> dict[str, object]:
@@ -530,13 +710,25 @@ def _apply_column_rules(raw_text: str, col_index: int) -> tuple[str, float]:
             return fixed, 1.0
         return fixed, 0.82
 
+    if col_index in {1}:
+        fixed = re.sub(r"\s+", "", text)
+        if re.fullmatch(r"[\u4e00-\u9fff]{1}", fixed):
+            return fixed, 0.35
+        if re.fullmatch(r"[A-Za-z0-9\-]{2,16}", fixed):
+            return fixed, 0.95
+        if re.fullmatch(r"[\u4e00-\u9fffA-Za-z0-9\-]{2,8}", fixed):
+            return fixed, 0.78
+        if re.fullmatch(r"[A-Za-z0-9\-]{1}", fixed):
+            return fixed, 0.35
+        return fixed, 0.52
+
     if col_index in {2}:
         upper = text.upper().replace(" ", "")
         medium_map = {"CO2": "CO2", "COZ": "CO2", "C02": "CO2", "02": "O2", "AR": "Ar", "N2": "N2", "O2": "O2"}
         fixed = medium_map.get(upper, upper)
         if fixed in TABLE_MEDIUM_DICT:
             return fixed, 1.0
-        return fixed, 0.8
+        return "", 0.2
 
     if col_index in {3}:
         fixed = re.sub(r"[^A-Z0-9]", "", text.upper())
@@ -554,15 +746,37 @@ def _apply_column_rules(raw_text: str, col_index: int) -> tuple[str, float]:
         return fixed, 0.75
 
     if col_index in {5, 21, 29}:
-        fixed = text.replace(":", ".")
+        fixed = text.replace(":", ".").replace(";", ".")
+        fixed = fixed.replace("z", "2").replace("Z", "2").replace("s", "5").replace("S", "5").replace("o", "0").replace("O", "0")
+        fixed = re.sub(r"[^0-9.]", "", fixed)
+        if fixed.count(".") > 1:
+            first = fixed.find(".")
+            fixed = fixed[: first + 1] + fixed[first + 1 :].replace(".", "")
+        if "." not in fixed and re.fullmatch(r"\d{3}", fixed):
+            fixed = f"{fixed[:2]}.{fixed[2:]}"
         if re.fullmatch(r"\d{1,2}\.\d", fixed):
             return fixed, 1.0 if fixed in {"22.5", "15.0"} else 0.95
+        as_float = _safe_parse_float(fixed)
+        if as_float is not None and 8.0 <= as_float <= 35.0:
+            return (f"{as_float:.1f}" if "." in fixed or abs(as_float - round(as_float)) > 0 else f"{int(as_float)}"), 0.88
         return fixed, 0.8
 
     if col_index in {6}:
-        fixed = text.replace(":", ".")
+        fixed = text.replace(":", ".").replace(";", ".")
+        fixed = fixed.replace("z", "2").replace("Z", "2").replace("s", "5").replace("S", "5").replace("o", "0").replace("O", "0")
+        fixed = re.sub(r"[^0-9.]", "", fixed)
+        if fixed.count(".") > 1:
+            first = fixed.find(".")
+            fixed = fixed[: first + 1] + fixed[first + 1 :].replace(".", "")
+        if "." not in fixed and re.fullmatch(r"\d{3}", fixed):
+            fixed = f"{fixed[:2]}.{fixed[2:]}"
         if re.fullmatch(r"\d{1,2}\.\d", fixed):
             return fixed, 1.0 if fixed == "15.0" else 0.95
+        as_float = _safe_parse_float(fixed)
+        if as_float is not None and 5.0 <= as_float <= 30.0:
+            return (f"{as_float:.1f}" if "." in fixed or abs(as_float - round(as_float)) > 0 else f"{int(as_float)}"), 0.86
+        if as_float is not None and as_float > 35.0:
+            return "", 0.2
         return fixed, 0.8
 
     if col_index in {7, 8, 17, 19}:
@@ -709,6 +923,7 @@ def _detect_table_grid(file_path: Path) -> dict[str, object]:
         "x_lines": x_lines,
         "y_lines": y_lines,
         "roi": [x0, y0, x1, y1],
+        "anchor_count": len(anchor_positions),
     }
 
 
@@ -856,14 +1071,19 @@ def _fuse_grid_with_ratio_lines(grid_lines: list[int], ratio_lines: list[int]) -
         return grid_lines
     if not grid_lines:
         return ratio_lines
-    fused = []
+    fused: list[int] = []
     for ref in ratio_lines:
         nearest = min(grid_lines, key=lambda x: abs(int(x) - int(ref)))
-        if abs(int(nearest) - int(ref)) <= 26:
-            fused.append(int(round((int(nearest) * 0.6) + (int(ref) * 0.4))))
+        if abs(int(nearest) - int(ref)) <= TABLE_XLINE_FUSE_TOLERANCE:
+            # Prefer ratio baseline to avoid handwriting/ink noise pulling boundaries.
+            fused.append(int(round((int(nearest) * 0.35) + (int(ref) * 0.65))))
         else:
             fused.append(int(ref))
-    return _merge_near_positions(fused, min_gap=2)
+    # Keep the same line count as schema and force monotonic growth.
+    fixed = [int(fused[0])]
+    for value in fused[1:]:
+        fixed.append(max(fixed[-1] + 2, int(value)))
+    return fixed
 
 
 def _calibrate_ratios_from_detected_lines(lines: list[int]) -> tuple[float, ...] | None:
@@ -966,6 +1186,10 @@ def _locate_table_roi(binary):
     if best is None:
         return (0, 0, w, h)
     x0, y0, x1, y1 = best
+    # Long scan safeguard: if detected table bbox height is clearly small, extend downward
+    # to avoid cutting off tail rows in tall stitched photos.
+    if (y1 - y0) < int(h * 0.72):
+        y1 = h
     pad_x = max(8, int((x1 - x0) * 0.01))
     pad_y = max(8, int((y1 - y0) * 0.01))
     return (
@@ -986,7 +1210,11 @@ def _evaluate_table_quality(table_cells: list[dict[str, object]], row_records: l
     critical_non_empty = len([x for x in critical_cells if str(x.get("final_text", "")).strip()])
     critical_ratio = float(critical_non_empty) / float(max(1, len(critical_cells)))
     review_ratio = float(len(review_queue)) / float(total_cells)
-    ok = non_empty_ratio >= 0.18 and critical_ratio >= 0.12 and review_ratio <= 0.88
+    ok = (
+        non_empty_ratio >= TABLE_MIN_NON_EMPTY_RATIO
+        and critical_ratio >= TABLE_MIN_CRITICAL_NON_EMPTY_RATIO
+        and review_ratio <= TABLE_MAX_REVIEW_RATIO
+    )
     return {
         "ok": ok,
         "non_empty_ratio": round(non_empty_ratio, 4),
@@ -1023,15 +1251,23 @@ def recognize_file(file_path: Path) -> tuple[str, list[str], str, dict[str, obje
 
 
 def _recognize_image(file_path: Path) -> tuple[str, list[str], str, dict[str, object]]:
+    import time
+
+    t0 = time.perf_counter()
     prepared_path, cleanup_path = _prepare_image_file(file_path)
     try:
+        table_t0 = time.perf_counter()
         table_payload = _recognize_cylinder_table(prepared_path)
+        table_ms = int((time.perf_counter() - table_t0) * 1000)
         if table_payload and isinstance(table_payload, dict):
             row_records = table_payload.get("row_records", [])
             if isinstance(row_records, list) and row_records:
                 lines = [str(x.get("raw_record", "")).strip() for x in row_records if str(x.get("raw_record", "")).strip()]
                 raw_text = "\n".join(lines).strip()
                 if raw_text:
+                    if OCR_TIMING_LOG:
+                        total_ms = int((time.perf_counter() - t0) * 1000)
+                        logger.info("ocr.image done file=%s engine=table_cells table_ms=%s total_ms=%s", file_path.name, table_ms, total_ms)
                     return raw_text, split_lines(raw_text), "table_cells", table_payload
 
         engine_map = _ocr_engine_map()
@@ -1045,9 +1281,13 @@ def _recognize_image(file_path: Path) -> tuple[str, list[str], str, dict[str, ob
             if engine is None:
                 continue
             try:
+                engine_t0 = time.perf_counter()
                 text = engine(prepared_path)
                 normalized = normalize_text(text)
                 lines = split_lines(normalized)
+                engine_ms = int((time.perf_counter() - engine_t0) * 1000)
+                if OCR_TIMING_LOG:
+                    logger.info("ocr.image engine file=%s engine=%s chars=%s lines=%s ms=%s", file_path.name, engine_name, len(normalized), len(lines), engine_ms)
                 if not normalized:
                     continue
                 score = _score_ocr_text(normalized)
@@ -1057,7 +1297,7 @@ def _recognize_image(file_path: Path) -> tuple[str, list[str], str, dict[str, ob
                     best_lines = lines
                     best_engine = engine_name
                 # Keep latency bounded when a candidate is clearly strong.
-                if len(normalized) >= (OCR_MIN_TEXT_FOR_EARLY_RETURN * 10) and len(lines) >= (OCR_MIN_LINES_FOR_EARLY_RETURN * 4):
+                if engine_name != "rapid" and len(normalized) >= OCR_MIN_TEXT_FOR_EARLY_RETURN and len(lines) >= OCR_MIN_LINES_FOR_EARLY_RETURN:
                     break
             except Exception:
                 continue
@@ -1066,7 +1306,13 @@ def _recognize_image(file_path: Path) -> tuple[str, list[str], str, dict[str, ob
             if body_lines:
                 best_lines = body_lines
                 best_text = "\n".join(body_lines)
+            if OCR_TIMING_LOG:
+                total_ms = int((time.perf_counter() - t0) * 1000)
+                logger.info("ocr.image done file=%s engine=%s score=%s total_ms=%s", file_path.name, best_engine, best_score, total_ms)
             return best_text, best_lines, best_engine, {}
+        if OCR_TIMING_LOG:
+            total_ms = int((time.perf_counter() - t0) * 1000)
+            logger.info("ocr.image done file=%s engine=none total_ms=%s", file_path.name, total_ms)
         return "", [], "none", {}
     finally:
         if cleanup_path:
@@ -1613,6 +1859,7 @@ def _prepare_image_file(file_path: Path) -> tuple[Path, Path | None]:
             image,
             _enhance_for_ocr(image, ImageEnhance, ImageFilter, ImageOps),
             _enhance_for_table_ocr(image, ImageEnhance, ImageFilter, ImageOps),
+            _enhance_for_low_contrast_scan(image),
         ]
         best_image = None
         best_score = -1
@@ -1624,7 +1871,7 @@ def _prepare_image_file(file_path: Path) -> tuple[Path, Path | None]:
                 best_score = score
         image = best_image if best_image is not None else candidates[0]
     else:
-        image = _enhance_for_table_ocr(image, ImageEnhance, ImageFilter, ImageOps)
+        image = _enhance_for_low_contrast_scan(image)
 
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
         prepared_path = Path(temp_file.name)
@@ -1729,6 +1976,43 @@ def _enhance_for_table_ocr(image, image_enhance, image_filter, image_ops):
     return gray.convert("RGB")
 
 
+def _enhance_for_low_contrast_scan(image):
+    from PIL import Image as PILImage
+    import cv2
+    import numpy as np
+
+    try:
+        rgb = np.array(image.convert("RGB"))
+        gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+
+        # Denoise + local contrast enhancement for photocopied/phone-shot tables.
+        gray = cv2.fastNlMeansDenoising(gray, None, h=10, templateWindowSize=7, searchWindowSize=21)
+        clahe = cv2.createCLAHE(clipLimit=2.2, tileGridSize=(8, 8))
+        gray = clahe.apply(gray)
+
+        blur = cv2.GaussianBlur(gray, (0, 0), 1.0)
+        sharp = cv2.addWeighted(gray, 1.35, blur, -0.35, 0)
+
+        binary = cv2.adaptiveThreshold(sharp, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 41, 11)
+        if float(np.mean(binary)) < 127:
+            binary = cv2.bitwise_not(binary)
+
+        fused = cv2.addWeighted(sharp, 0.38, binary, 0.62, 0)
+        out = cv2.cvtColor(fused, cv2.COLOR_GRAY2RGB)
+        pil = PILImage.fromarray(out)
+
+        w, h = pil.size
+        if w < 2400:
+            scale = 2.0 if w < 1700 else 1.5
+            pil = pil.resize(
+                (max(1, int(round(w * scale))), max(1, int(round(h * scale)))),
+                resample=getattr(PILImage, "Resampling", PILImage).LANCZOS,
+            )
+        return pil
+    except Exception:
+        return image
+
+
 def _score_prepared_image(image) -> int:
     try:
         text = _tesseract_image_to_string(image, config="--psm 6")
@@ -1739,6 +2023,7 @@ def _score_prepared_image(image) -> int:
 
 def _ocr_engine_map() -> dict[str, object]:
     return {
+        "ai": _ocr_by_openai_vision,
         "paddle": _ocr_by_paddle,
         "rapid": _ocr_by_rapid,
         "tesseract": _ocr_by_tesseract,
@@ -1748,9 +2033,93 @@ def _ocr_engine_map() -> dict[str, object]:
 def _resolve_engine_order(engine_map: dict[str, object]) -> list[str]:
     parts = [x.strip().lower() for x in OCR_ENGINE_ORDER.split(",") if x.strip()]
     ordered = [x for x in parts if x in engine_map]
+    if OCR_AI_ENABLED and "ai" in engine_map and "ai" not in ordered:
+        ordered = ["ai", *ordered]
     if not ordered:
-        return ["rapid", "paddle", "tesseract"]
+        return ["ai", "rapid", "paddle", "tesseract"] if OCR_AI_ENABLED else ["rapid", "paddle", "tesseract"]
     return ordered
+
+
+def _ocr_by_openai_vision(file_path: Path) -> str:
+    if not OCR_AI_ENABLED:
+        return ""
+    api_key = str(os.getenv("OPENAI_API_KEY", "") or "").strip()
+    if not api_key:
+        return ""
+    base_url = str(os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1") or "https://api.openai.com/v1").strip().rstrip("/")
+    image_bytes = file_path.read_bytes()
+    if not image_bytes:
+        return ""
+    if len(image_bytes) > OCR_AI_MAX_IMAGE_BYTES:
+        return ""
+    mime = _guess_image_mime_by_path(str(file_path))
+    data_url = f"data:{mime};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+    prompt = (
+        "请只做OCR转写，不要解释。"
+        "尽可能逐行输出图中可见文本，保留行顺序。"
+        "表格请按行输出，单元格之间用单个空格分隔。"
+        "无法识别的字符可用?占位。"
+    )
+    payload = {
+        "model": OCR_AI_MODEL,
+        "input": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": prompt},
+                    {"type": "input_image", "image_url": data_url},
+                ],
+            }
+        ],
+    }
+    req = urllib.request.Request(
+        f"{base_url}/responses",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=OCR_AI_TIMEOUT_SECONDS) as resp:
+            body = resp.read()
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError):
+        return ""
+    try:
+        data = json.loads(body.decode("utf-8", errors="ignore"))
+    except Exception:
+        return ""
+
+    text = _extract_openai_response_text(data)
+    return normalize_text(text or "")
+
+
+def _extract_openai_response_text(payload: object) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    direct = str(payload.get("output_text", "") or "").strip()
+    if direct:
+        return direct
+    output = payload.get("output")
+    if isinstance(output, list):
+        chunks: list[str] = []
+        for item in output:
+            if not isinstance(item, dict):
+                continue
+            content = item.get("content")
+            if not isinstance(content, list):
+                continue
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                if str(block.get("type", "")).strip() == "output_text":
+                    text = str(block.get("text", "") or "").strip()
+                    if text:
+                        chunks.append(text)
+        if chunks:
+            return "\n".join(chunks).strip()
+    return ""
 
 
 def _extract_box_metrics(points, text: str) -> dict[str, float | str] | None:

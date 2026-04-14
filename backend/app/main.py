@@ -5,7 +5,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import config
-from .routers import ocr, report, tasks, upload
+from .routers import ocr, report, signatures, tasks, upload
 from .utils.constants_lint import lint_constants_structure
 
 app = FastAPI(title="LIMS Device Report MVP", version="0.1.0")
@@ -14,6 +14,7 @@ app.include_router(upload.router, prefix="/api", tags=["upload"])
 app.include_router(ocr.router, prefix="/api", tags=["ocr"])
 app.include_router(report.router, prefix="/api", tags=["report"])
 app.include_router(tasks.router, prefix="/api", tags=["tasks"])
+app.include_router(signatures.router, prefix="/api", tags=["signatures"])
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -41,6 +42,7 @@ def index() -> FileResponse:
 @app.get("/login")
 @app.get("/tasks")
 @app.get("/tasks/new")
+@app.get("/signatures")
 def workbench_preview() -> FileResponse:
     return FileResponse(STATIC_DIR / "workbench-preview" / "index.html", headers=NO_CACHE_HEADERS)
 

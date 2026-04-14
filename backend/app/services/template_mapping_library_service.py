@@ -44,6 +44,40 @@ def get_editor_schema(template_name: str) -> dict[str, Any] | None:
     return infer_editor_schema(template_name)
 
 
+def get_fill_placeholders(template_name: str) -> list[dict[str, Any]]:
+    config = _find_profile_by_template_name(template_name)
+    if not config:
+        return []
+    fill = config.get("fill")
+    if not isinstance(fill, dict):
+        return []
+    raw_placeholders = fill.get("placeholders")
+    if not isinstance(raw_placeholders, list):
+        return []
+    result: list[dict[str, Any]] = []
+    for item in raw_placeholders:
+        if not isinstance(item, dict):
+            continue
+        marker = str(item.get("marker", "")).strip()
+        key = str(item.get("key", "")).strip()
+        if not marker or not key:
+            continue
+        fallback_keys = [
+            str(x).strip()
+            for x in (item.get("fallback_keys") or [])
+            if str(x).strip()
+        ] if isinstance(item.get("fallback_keys"), list) else []
+        result.append(
+            {
+                "marker": marker,
+                "key": key,
+                "fallback_keys": fallback_keys,
+                "default": str(item.get("default", "")).strip(),
+            }
+        )
+    return result
+
+
 def get_editor_schemas(template_names: list[str]) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
     for template_name in template_names:
@@ -133,6 +167,11 @@ def _normalize_editor_schema(editor: Any) -> dict[str, Any] | None:
                 "key": key,
                 "label": label,
                 "wide": bool(raw_field.get("wide", False)),
+                "options": [
+                    str(option).strip()
+                    for option in (raw_field.get("options") or [])
+                    if str(option).strip()
+                ] if isinstance(raw_field.get("options"), list) else [],
             }
         )
 

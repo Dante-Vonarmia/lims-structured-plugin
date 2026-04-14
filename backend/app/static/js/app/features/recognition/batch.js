@@ -21,6 +21,53 @@ export function createRecognitionBatchFeature(deps = {}) {
     inferCategory,
   } = deps;
 
+  function buildRecordGroupKey(item) {
+    if (!item || !item.isRecordRow) return "";
+    const fid = String(item.fileId || "").trim();
+    const src = String(item.sourceFileName || item.fileName || "").trim();
+    return `${fid}::${src}`;
+  }
+
+  async function refreshRecordRowGroup(group, logPrefix = "记录刷新完成") {
+    const safeGroup = Array.isArray(group) ? group.filter(Boolean) : [];
+    if (!safeGroup.length) return;
+    const sample = safeGroup[0];
+    const oldIds = new Set(safeGroup.map((x) => x.id));
+    const indexes = [];
+    state.queue.forEach((x, idx) => {
+      if (oldIds.has(x.id)) indexes.push(idx);
+    });
+    if (!indexes.length) return;
+
+    const sourceItem = {
+      ...sample,
+      id: `${sample.id}-refresh-${Math.random().toString(16).slice(2, 8)}`,
+      isRecordRow: false,
+      status: "pending",
+      message: "刷新识别中",
+      templateName: "",
+      matchedBy: "",
+      templateUserSelected: false,
+      reportId: "",
+      reportDownloadUrl: "",
+      reportFileName: "",
+      reportGenerateMode: "",
+      modeReports: {},
+    };
+
+    const start = indexes[0];
+    for (let i = indexes.length - 1; i >= 0; i -= 1) {
+      state.queue.splice(indexes[i], 1);
+    }
+    state.queue.splice(start, 0, sourceItem);
+    state.activeId = sourceItem.id;
+    renderQueue();
+    renderTemplateSelect();
+
+    await processItem(sourceItem);
+    appendLog(`${logPrefix} ${sample.fileName}`);
+  }
+
   async function processAllPending() {
     const targets = state.queue.filter((x) => x.status === "pending");
     if (!targets.length) {
@@ -53,6 +100,7 @@ export function createRecognitionBatchFeature(deps = {}) {
 
   async function refreshAllRecognition() {
     const groupedExcelRecordRows = new Map();
+    const groupedRecordRows = new Map();
     const normalTargets = [];
     for (const item of state.queue) {
       if (!item) continue;
@@ -65,11 +113,20 @@ export function createRecognitionBatchFeature(deps = {}) {
         groupedExcelRecordRows.set(key, group);
         continue;
       }
+      const isNonExcelRecordRow = !!(item.isRecordRow && !isExcelExt(extFromName(item.fileName)));
+      if (isNonExcelRecordRow) {
+        const key = buildRecordGroupKey(item) || item.id;
+        const group = groupedRecordRows.get(key) || [];
+        group.push(item);
+        groupedRecordRows.set(key, group);
+        continue;
+      }
       if (!isExcelItem(item)) normalTargets.push(item);
     }
 
     const excelGroups = Array.from(groupedExcelRecordRows.values());
-    const totalTargets = excelGroups.length + normalTargets.length;
+    const recordGroups = Array.from(groupedRecordRows.values());
+    const totalTargets = excelGroups.length + recordGroups.length + normalTargets.length;
     if (!totalTargets) {
       setStatus("没有可刷新的识别项");
       return;
@@ -112,6 +169,27 @@ export function createRecognitionBatchFeature(deps = {}) {
         appendLog(`Excel记录刷新完成 ${sample.fileName}：${refreshedRows.length} 条`);
         renderQueue();
         renderTemplateSelect();
+      } catch (error) {
+        for (const row of group) {
+          row.status = "error";
+          row.message = error.message || "刷新失败";
+        }
+        renderQueue();
+        appendLog(`刷新失败 ${sample.fileName}：${error.message || "unknown"}`);
+      }
+      done += 1;
+      setPreprocessProgress(done, totalTargets, sample.fileName, "刷新识别");
+    }
+
+    for (const group of recordGroups) {
+      const sample = group[0];
+      if (!sample) continue;
+      state.activeId = sample.id;
+      renderQueue();
+      renderTemplateSelect();
+      try {
+        setPreprocessProgress(done, totalTargets, sample.fileName, "刷新识别");
+        await refreshRecordRowGroup(group, "记录刷新完成");
       } catch (error) {
         for (const row of group) {
           row.status = "error";
@@ -189,6 +267,7 @@ export function createRecognitionBatchFeature(deps = {}) {
 
     const forcedMode = String(activeItem && activeItem.recognitionOverride ? activeItem.recognitionOverride : "").trim().toLowerCase();
     const forceAsExcel = forcedMode === "excel";
+    const isNonExcelRecordRow = !!(activeItem.isRecordRow && !isExcelExt(extFromName(activeItem.fileName)));
     const isExcelRecordRow = !!(
       activeItem.isRecordRow
       && activeItem.fileId
@@ -230,6 +309,10 @@ export function createRecognitionBatchFeature(deps = {}) {
           if (refreshedRows.length) state.activeId = refreshedRows[0].id;
         }
         appendLog(`当前项Excel记录刷新完成 ${sample.fileName}：${refreshedRows.length} 条`);
+      } else if (isNonExcelRecordRow) {
+        const groupKey = buildRecordGroupKey(activeItem) || activeItem.id;
+        const group = state.queue.filter((item) => item && item.isRecordRow && buildRecordGroupKey(item) === groupKey);
+        await refreshRecordRowGroup(group.length ? group : [activeItem], "当前项记录刷新完成");
       } else if (activeItem.status === "pending" || (!activeItem.isRecordRow && (forceAsExcel || forcedMode === "word"))) {
         await processItem(activeItem);
       } else {

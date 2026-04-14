@@ -24,6 +24,23 @@ class OcrTableStructuredTdd(unittest.TestCase):
         self.assertEqual(serial_text, "100121")
         self.assertGreaterEqual(serial_score, 0.9)
 
+    def test_should_penalize_short_noise_on_owner_code_column(self) -> None:
+        one_char_text, one_char_score = ocr_service._apply_column_rules("A", 1)
+        self.assertEqual(one_char_text, "A")
+        self.assertLess(one_char_score, 0.5)
+
+        zh_short_text, zh_short_score = ocr_service._apply_column_rules("金", 1)
+        self.assertEqual(zh_short_text, "金")
+        self.assertLess(zh_short_score, 0.5)
+
+    def test_should_blank_unknown_medium_value(self) -> None:
+        medium_text, medium_score = ocr_service._apply_column_rules("hr", 2)
+        self.assertEqual(medium_text, "")
+        self.assertLess(medium_score, 0.5)
+
+    def test_should_force_blank_for_single_owner_code_noise(self) -> None:
+        self.assertTrue(ocr_service._should_force_blank_by_column("A", 0.95, 1))
+
     def test_should_flag_row_consistency_issues(self) -> None:
         row_records = [
             {
@@ -113,6 +130,37 @@ class OcrTableStructuredTdd(unittest.TestCase):
         self.assertEqual(len(lines), len(ocr_service.TABLE_COL_KEYS) + 1)
         self.assertEqual(lines[0], 10)
         self.assertEqual(lines[-1], 3810)
+
+    def test_should_keep_ratio_line_count_when_fusing_grid(self) -> None:
+        ratio_lines = [0, 100, 200, 300, 400]
+        grid_lines = [0, 98, 101, 198, 202, 299, 401]
+        fused = ocr_service._fuse_grid_with_ratio_lines(grid_lines, ratio_lines)
+        self.assertEqual(len(fused), len(ratio_lines))
+        self.assertTrue(all(fused[i] < fused[i + 1] for i in range(len(fused) - 1)))
+
+    def test_should_return_blank_when_blank_gate_hit(self) -> None:
+        with patch.object(ocr_service, "_is_blank_table_cell", return_value=True):
+            payload = ocr_service._recognize_table_cell(object(), 1)
+        self.assertEqual(payload.get("final_text"), "")
+        self.assertEqual(float(payload.get("confidence", 0.0) or 0.0), 0.0)
+        self.assertEqual(payload.get("preprocess_id"), "blank_gate")
+
+    def test_should_suppress_low_confidence_noise_on_non_critical_column(self) -> None:
+        crop = object()
+        with patch.object(ocr_service, "_is_blank_table_cell", return_value=False), \
+            patch.object(ocr_service, "_read_cell_with_retries", return_value=[{"text": "eer", "confidence": 0.2, "preprocess_id": "p0"}]):
+            payload = ocr_service._recognize_table_cell(crop, 1)
+        self.assertEqual(payload.get("final_text"), "")
+        self.assertEqual(float(payload.get("confidence", 0.0) or 0.0), 0.0)
+
+    def test_should_blank_critical_cell_when_confidence_still_low_after_second_pass(self) -> None:
+        crop = object()
+        with patch.object(ocr_service, "_is_blank_table_cell", return_value=False), \
+            patch.object(ocr_service, "_read_cell_with_retries", return_value=[{"text": "2.11", "confidence": 0.5, "preprocess_id": "p0"}]), \
+            patch.object(ocr_service, "_second_pass_critical_cell_vote", side_effect=lambda _crop, _col, fallback: fallback):
+            payload = ocr_service._recognize_table_cell(crop, 0)
+        self.assertEqual(payload.get("final_text"), "")
+        self.assertEqual(float(payload.get("confidence", 0.0) or 0.0), 0.0)
 
 
 if __name__ == "__main__":

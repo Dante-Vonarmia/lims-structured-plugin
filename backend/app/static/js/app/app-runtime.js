@@ -1,6 +1,8 @@
 import {
   fetchBlob,
   fetchJson,
+  getTaskWorkspaceDraftApi,
+  listSignaturesApi,
   listTemplatesApi,
   loadRuntimeConfigApi,
   runExcelInspectApi,
@@ -14,6 +16,7 @@ import {
   runTemplateFeedbackApi,
   runTemplateMatchApi,
   runTemplateTextPreviewApi,
+  upsertTaskWorkspaceDraftApi,
   uploadFileApi,
 } from "../infra/api/client.js";
 import {
@@ -317,6 +320,15 @@ import {
       appendLog(`模板加载完成，共 ${state.templates.length} 个`);
     }
 
+    async function loadSignatures() {
+      try {
+        const data = await listSignaturesApi();
+        state.signatures = Array.isArray(data && data.signatures) ? data.signatures : [];
+      } catch (_) {
+        state.signatures = [];
+      }
+    }
+
     async function getTaskDetailApi(taskId) {
       const normalizedTaskId = String(taskId || "").trim();
       if (!normalizedTaskId) return null;
@@ -329,6 +341,17 @@ import {
       const normalizedTaskId = String(taskId || "").trim();
       if (!normalizedTaskId) return { schema: { template_name: "", columns: [], groups: [] } };
       return fetchJson(`/api/tasks/${encodeURIComponent(normalizedTaskId)}/import-template-schema`, { cache: "no-store" });
+    }
+
+    async function updateTaskStatusApi(taskId, status) {
+      const normalizedTaskId = String(taskId || "").trim();
+      const normalizedStatus = String(status || "").trim();
+      if (!normalizedTaskId || !normalizedStatus) return null;
+      return fetchJson(`/api/tasks/${encodeURIComponent(normalizedTaskId)}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: normalizedStatus }),
+      });
     }
 
     function getWorkspaceTaskIdFromPath() {
@@ -346,6 +369,15 @@ import {
         record_no: String(src.record_no || "").trim(),
         submit_org: String(src.submit_org || "").trim(),
       };
+    }
+
+    function getTaskDefaultTemplateName() {
+      const raw = String((state.taskContext && state.taskContext.export_template_name) || "").trim();
+      if (!raw) return "";
+      const fileName = raw.split(/[\\/]/).pop() || "";
+      if (fileName && state.templates.includes(fileName)) return fileName;
+      if (state.templates.includes(raw)) return raw;
+      return "";
     }
 
     async function loadTaskContext() {
@@ -388,6 +420,118 @@ import {
         }
       } catch (error) {
         appendLog(`任务主信息加载失败：${error.message || "unknown"}`);
+      }
+    }
+
+    function normalizeDraftItem(raw) {
+      const src = (raw && typeof raw === "object") ? raw : {};
+      return {
+        id: String(src.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`),
+        file: null,
+        fileName: String(src.fileName || ""),
+        sourceFileName: String(src.sourceFileName || ""),
+        recordName: String(src.recordName || ""),
+        rowNumber: Number(src.rowNumber) || 0,
+        sheetName: String(src.sheetName || ""),
+        isRecordRow: !!src.isRecordRow,
+        sourceType: String(src.sourceType || "UNKNOWN"),
+        recognitionOverride: String(src.recognitionOverride || ""),
+        fileId: String(src.fileId || ""),
+        rawText: String(src.rawText || ""),
+        sourceCode: String(src.sourceCode || ""),
+        recordCount: Number(src.recordCount) || 0,
+        category: String(src.category || ""),
+        fields: { ...createEmptyFields(), ...((src.fields && typeof src.fields === "object") ? src.fields : {}) },
+        recognizedFields: { ...createEmptyFields(), ...((src.recognizedFields && typeof src.recognizedFields === "object") ? src.recognizedFields : {}) },
+        templateName: String(src.templateName || ""),
+        matchedBy: String(src.matchedBy || ""),
+        templateUserSelected: !!src.templateUserSelected,
+        status: String(src.status || "pending"),
+        message: String(src.message || "待处理"),
+        reportId: String(src.reportId || ""),
+        reportDownloadUrl: String(src.reportDownloadUrl || ""),
+        reportFileName: String(src.reportFileName || ""),
+        reportGenerateMode: String(src.reportGenerateMode || ""),
+        modeReports: (src.modeReports && typeof src.modeReports === "object") ? src.modeReports : {},
+      };
+    }
+
+    function buildWorkspaceDraftPayload() {
+      return {
+        queue: state.queue.map((item) => normalizeDraftItem(item)),
+        active_id: String(state.activeId || ""),
+        selected_ids: Array.from(state.selectedIds || []),
+        list_filter: state.listFilter,
+        source_view_mode: String(state.sourceViewMode || "preview"),
+        right_view_mode: String(state.rightViewMode || "preview"),
+        saved_at: new Date().toISOString(),
+      };
+    }
+
+    function applyWorkspaceDraft(draft) {
+      const payload = (draft && typeof draft === "object") ? draft : {};
+      const queue = Array.isArray(payload.queue) ? payload.queue.map((x) => normalizeDraftItem(x)) : [];
+      state.queue = queue;
+      const idSet = new Set(queue.map((x) => String(x.id || "")));
+      const selectedIds = Array.isArray(payload.selected_ids) ? payload.selected_ids.map((x) => String(x || "")).filter((x) => idSet.has(x)) : [];
+      state.selectedIds = new Set(selectedIds);
+      const activeId = String(payload.active_id || "");
+      state.activeId = idSet.has(activeId) ? activeId : (queue[0] ? String(queue[0].id || "") : "");
+      if (!state.selectedIds.size && state.activeId) state.selectedIds.add(state.activeId);
+      if (payload.list_filter && typeof payload.list_filter === "object") {
+        state.listFilter = {
+          keyword: String(payload.list_filter.keyword || ""),
+          status: String(payload.list_filter.status || ""),
+          sortKey: String(payload.list_filter.sortKey || ""),
+          sortDir: payload.list_filter.sortDir === "desc" ? "desc" : "asc",
+          columnFilters: (payload.list_filter.columnFilters && typeof payload.list_filter.columnFilters === "object")
+            ? payload.list_filter.columnFilters
+            : {},
+          activeFilterKey: String(payload.list_filter.activeFilterKey || ""),
+        };
+      }
+      state.sourceViewMode = payload.source_view_mode === "fields" ? "fields" : "preview";
+      state.rightViewMode = payload.right_view_mode === "field" ? "field" : "preview";
+    }
+
+    function applyTaskDefaultTemplateToQueueItems() {
+      const defaultTemplateName = getTaskDefaultTemplateName();
+      if (!defaultTemplateName) return;
+      state.queue.forEach((item) => {
+        if (!item || typeof item !== "object") return;
+        if (String(item.templateName || "").trim()) return;
+        item.templateName = defaultTemplateName;
+        item.matchedBy = item.matchedBy || "task:export_default";
+        item.templateUserSelected = false;
+        if (!item.message || String(item.message || "").includes("待匹配模板")) {
+          item.message = "模板已自动命中（task:export_default）";
+        }
+      });
+    }
+
+    async function saveWorkspaceDraft() {
+      const taskId = String((state.taskContext && state.taskContext.id) || "").trim();
+      if (!taskId) return;
+      const payload = buildWorkspaceDraftPayload();
+      try {
+        await upsertTaskWorkspaceDraftApi(taskId, payload);
+      } catch (error) {
+        appendLog(`草稿保存失败：${error.message || "unknown"}`);
+      }
+    }
+
+    async function loadWorkspaceDraft() {
+      const taskId = String((state.taskContext && state.taskContext.id) || "").trim();
+      if (!taskId) return;
+      try {
+        const data = await getTaskWorkspaceDraftApi(taskId);
+        const draft = (data && data.draft && typeof data.draft === "object") ? data.draft : {};
+        if (Array.isArray(draft.queue) && draft.queue.length) {
+          applyWorkspaceDraft(draft);
+          appendLog(`已恢复草稿：${draft.queue.length} 条`);
+        }
+      } catch (error) {
+        appendLog(`草稿恢复失败：${error.message || "unknown"}`);
       }
     }
 
@@ -465,6 +609,7 @@ import {
       validateItemForGeneration,
       applyIncompleteState,
       appendLog,
+      getTaskDefaultTemplateName,
     });
 
     const {
@@ -804,6 +949,8 @@ import {
       setRightViewMode,
       setSourceViewMode,
       setStatus,
+      updateTaskStatusApi,
+      saveWorkspaceDraft,
       syncGenerateModeUiText,
       triggerDownload,
       updateSelectedCountText,
@@ -817,7 +964,10 @@ import {
       try {
         await loadRuntimeConfig();
         await loadTemplates();
+        await loadSignatures();
         await loadTaskContext();
+        await loadWorkspaceDraft();
+        applyTaskDefaultTemplateToQueueItems();
         try {
           bindEvents();
         } catch (bindError) {
@@ -828,6 +978,9 @@ import {
         $("sourceFieldList").innerHTML = '<div class="placeholder">识别字段未加载</div>';
         setPreviewPlaceholder("targetPreview", "原始记录预览未加载");
         setStatus("就绪");
+        const onExitSave = () => { void saveWorkspaceDraft(); };
+        window.addEventListener("pagehide", onExitSave);
+        window.addEventListener("beforeunload", onExitSave);
       } catch (error) {
         setStatus(`初始化失败：${error.message || "unknown"}`);
       } finally {
