@@ -981,9 +981,19 @@ import {
           appendLog(`事件绑定异常：${bindError.message || "unknown"}`);
         }
         renderQueue();
-        setPreviewPlaceholder("sourcePreview", "来源预览未加载");
-        $("sourceFieldList").innerHTML = '<div class="placeholder">识别字段未加载</div>';
-        setPreviewPlaceholder("targetPreview", "原始记录预览未加载");
+        renderTemplateSelect();
+        const active = getActiveItem();
+        if (active) {
+          renderSourceFieldList(active);
+          renderTargetFieldForm(active);
+          applyTargetFieldProblemStyles(active);
+          await renderPreviews();
+        } else {
+          setPreviewPlaceholder("sourcePreview", "来源预览未加载");
+          $("sourceFieldList").innerHTML = '<div class="placeholder">识别字段未加载</div>';
+          $("targetFieldForm").innerHTML = '<div class="placeholder">字段表单未加载</div>';
+          setPreviewPlaceholder("targetPreview", "原始记录预览未加载");
+        }
         setStatus("就绪");
         const onExitSave = () => { void saveWorkspaceDraft(); };
         window.addEventListener("pagehide", onExitSave);
