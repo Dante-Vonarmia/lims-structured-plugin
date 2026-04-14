@@ -7,6 +7,7 @@ import { createViewModeBindings } from "./view-mode.js";
 import { createBatchFilterBindings } from "./batch-filter.js";
 import { createQueueTableBindings } from "./queue-table.js";
 import { createTargetFieldEventBindings } from "./target-field-events.js";
+import { createWorkbenchInitBindings } from "./workbench-init.js";
 
 export function createBindEventsFeature(deps = {}) {
   const {
@@ -189,29 +190,18 @@ export function createBindEventsFeature(deps = {}) {
       handleTargetDateInput,
     });
 
-    function bindEvents() {
-      const headerExitBtn = $("headerExitBtn");
-      if (headerExitBtn) {
-        headerExitBtn.addEventListener("click", async () => {
-          if (typeof saveWorkspaceDraft === "function") await saveWorkspaceDraft();
-          window.location.assign("/tasks");
-        });
-      }
-
-      bindUploadEvents();
-
-      const queueListEl = $("queueList");
-      bindQueueTableEvents(queueListEl);
-      bindQueueLayoutAndDropEvents(queueListEl);
-
-      bindViewModeEvents();
-      bindPreviewZoomOverlayEvents();
-      bindTargetFieldEvents();
-
-      bindTemplateAndNavigationEvents();
-
-      bindBatchAndFilterEvents();
-    }
+    const { bindEvents } = createWorkbenchInitBindings({
+      $,
+      saveWorkspaceDraft,
+      bindUploadEvents,
+      bindQueueTableEvents,
+      bindQueueLayoutAndDropEvents,
+      bindViewModeEvents,
+      bindPreviewZoomOverlayEvents,
+      bindTargetFieldEvents,
+      bindTemplateAndNavigationEvents,
+      bindBatchAndFilterEvents,
+    });
 
   return { bindEvents };
 }
