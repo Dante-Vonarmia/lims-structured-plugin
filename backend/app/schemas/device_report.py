@@ -156,9 +156,3 @@ class EditorPrefillRequest(BaseModel):
 
 class EditorPrefillResponse(BaseModel):
     fields: dict[str, str]
-
-
-class InstrumentCatalogParseResponse(BaseModel):
-    rows: list[dict[str, str]] = Field(default_factory=list)
-    names: list[str] = Field(default_factory=list)
-    total: int = 0

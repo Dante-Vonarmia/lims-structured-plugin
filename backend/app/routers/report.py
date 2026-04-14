@@ -3,7 +3,7 @@ import io
 import re
 from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
 import hashlib
@@ -14,9 +14,6 @@ from uuid import uuid4
 
 from ..config import (
     DEFAULT_TEMPLATE_NAME,
-    INSTRUMENT_CATALOG_AUTO_DIR,
-    INSTRUMENT_CATALOG_AUTO_ENABLED,
-    INSTRUMENT_CATALOG_AUTO_KEYWORDS,
     LOCAL_DOCUMENT_LIBRARY_FILE,
     MODIFY_CERTIFICATE_BLUEPRINT_TEMPLATE_NAME,
     OUTPUT_DIR,
@@ -41,7 +38,6 @@ from ..schemas.device_report import (
     TemplateMatchResponse,
     TemplateFeedbackRequest,
     TemplateFeedbackResponse,
-    InstrumentCatalogParseResponse,
 )
 from ..services.excel_batch_service import inspect_excel_records, parse_excel_rows, preview_excel_sheet
 from ..services.extract_service import extract_fields
@@ -59,7 +55,6 @@ from ..services.docx_structure_service import (
     _extract_general_check_structure_from_docx,
 )
 from ..services.instrument_catalog_service import (
-    _catalog_names_from_rows,
     _detect_catalog_binary_format,
     _extract_measurement_rows_from_docx,
     _is_measurement_table_row_candidate,
@@ -120,8 +115,8 @@ def create_report_batch_from_excel(request: ExcelBatchRequest) -> ExcelBatchResp
     file_path = _find_uploaded_file(request.file_id)
     if not file_path:
         raise HTTPException(status_code=404, detail="File not found")
-    if file_path.suffix.lower() != ".xlsx":
-        raise HTTPException(status_code=400, detail="Only .xlsx is supported for batch mode")
+    if file_path.suffix.lower() not in {".xlsx", ".xls"}:
+        raise HTTPException(status_code=400, detail="Only .xlsx/.xls are supported for batch mode")
 
     rows, errors = parse_excel_rows(
         file_path=file_path,
@@ -170,8 +165,8 @@ def inspect_report_batch_from_excel(request: ExcelInspectRequest) -> ExcelInspec
     file_path = _find_uploaded_file(request.file_id)
     if not file_path:
         raise HTTPException(status_code=404, detail="File not found")
-    if file_path.suffix.lower() != ".xlsx":
-        raise HTTPException(status_code=400, detail="Only .xlsx is supported for batch mode")
+    if file_path.suffix.lower() not in {".xlsx", ".xls"}:
+        raise HTTPException(status_code=400, detail="Only .xlsx/.xls are supported for batch mode")
 
     rows, errors = inspect_excel_records(
         file_path=file_path,
@@ -206,8 +201,8 @@ def preview_report_batch_from_excel(request: ExcelPreviewRequest) -> ExcelPrevie
     file_path = _find_uploaded_file(request.file_id)
     if not file_path:
         raise HTTPException(status_code=404, detail="File not found")
-    if file_path.suffix.lower() != ".xlsx":
-        raise HTTPException(status_code=400, detail="Only .xlsx is supported for preview mode")
+    if file_path.suffix.lower() not in {".xlsx", ".xls"}:
+        raise HTTPException(status_code=400, detail="Only .xlsx/.xls are supported for preview mode")
 
     payload = preview_excel_sheet(file_path=file_path, sheet_name=request.sheet_name)
     return ExcelPreviewResponse(
@@ -367,67 +362,6 @@ def get_template_editor_prefill_data(request: EditorPrefillRequest) -> EditorPre
     return EditorPrefillResponse(fields=fields)
 
 
-@router.post("/instrument-catalog/parse", response_model=InstrumentCatalogParseResponse)
-async def parse_instrument_catalog(file: UploadFile = File(...)) -> InstrumentCatalogParseResponse:
-    suffix = Path(file.filename or "").suffix.lower()
-    raw_bytes = await file.read()
-    if not raw_bytes:
-        return InstrumentCatalogParseResponse(rows=[], names=[], total=0)
-
-    detected_format = _detect_catalog_binary_format(raw_bytes)
-    effective_format = detected_format or suffix
-
-    if effective_format == ".xlsx":
-        rows = _parse_catalog_xlsx(raw_bytes)
-    elif effective_format == ".csv":
-        rows = _parse_catalog_csv(raw_bytes)
-    elif effective_format == ".txt":
-        rows = _parse_catalog_text(raw_bytes)
-    elif effective_format == ".docx":
-        rows = _parse_catalog_docx(raw_bytes)
-    else:
-        raise HTTPException(status_code=400, detail="器具名单仅支持 .xlsx/.csv/.txt/.doc/.docx（其中 .doc 仅在可按 Word OpenXML 读取时支持）")
-
-    names = _catalog_names_from_rows(rows)
-    return InstrumentCatalogParseResponse(rows=rows, names=names, total=len(names))
-
-
-@router.get("/instrument-catalog/auto-load")
-def auto_load_instrument_catalog() -> dict[str, object]:
-    if not INSTRUMENT_CATALOG_AUTO_ENABLED:
-        return {"loaded": False, "rows": [], "names": [], "total": 0, "file_name": "", "file_path": ""}
-
-    file_path = _find_auto_catalog_file()
-    if not file_path:
-        return {"loaded": False, "rows": [], "names": [], "total": 0, "file_name": "", "file_path": ""}
-
-    raw_bytes = file_path.read_bytes()
-    if not raw_bytes:
-        return {"loaded": False, "rows": [], "names": [], "total": 0, "file_name": file_path.name, "file_path": str(file_path)}
-
-    effective_format = _detect_catalog_binary_format(raw_bytes) or file_path.suffix.lower()
-    if effective_format == ".xlsx":
-        rows = _parse_catalog_xlsx(raw_bytes)
-    elif effective_format == ".csv":
-        rows = _parse_catalog_csv(raw_bytes)
-    elif effective_format == ".txt":
-        rows = _parse_catalog_text(raw_bytes)
-    elif effective_format == ".docx":
-        rows = _parse_catalog_docx(raw_bytes)
-    else:
-        return {"loaded": False, "rows": [], "names": [], "total": 0, "file_name": file_path.name, "file_path": str(file_path)}
-
-    names = _catalog_names_from_rows(rows)
-    return {
-        "loaded": bool(names),
-        "rows": rows,
-        "names": names,
-        "total": len(names),
-        "file_name": file_path.name,
-        "file_path": str(file_path),
-    }
-
-
 @router.get("/instrument-table/extract")
 def extract_instrument_table(file_id: str) -> dict[str, object]:
     file_path = _find_uploaded_file(file_id)
@@ -537,28 +471,6 @@ def _find_uploaded_file(file_id: str | None) -> Path | None:
 def _find_report_batch_zip(batch_id: str) -> Path | None:
     matches = sorted(OUTPUT_DIR.glob(f"{batch_id}__excel_batch.zip"))
     return matches[0] if matches else None
-
-
-def _find_auto_catalog_file() -> Path | None:
-    if not INSTRUMENT_CATALOG_AUTO_DIR.exists():
-        return None
-    allowed_suffix = {".xlsx", ".csv", ".txt", ".doc", ".docx"}
-    keywords = [str(x or "").strip().lower() for x in INSTRUMENT_CATALOG_AUTO_KEYWORDS if str(x or "").strip()]
-    candidates: list[Path] = []
-    for path in INSTRUMENT_CATALOG_AUTO_DIR.iterdir():
-        if not path.is_file():
-            continue
-        if path.suffix.lower() not in allowed_suffix:
-            continue
-        if keywords:
-            name = path.name.lower()
-            if not any(keyword in name for keyword in keywords):
-                continue
-        candidates.append(path)
-    if not candidates:
-        return None
-    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    return candidates[0]
 
 
 def _guess_media_type(file_path):

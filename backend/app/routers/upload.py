@@ -20,6 +20,7 @@ ALLOWED_SUFFIXES = {
     ".tiff",
     ".pdf",
     ".docx",
+    ".xls",
     ".xlsx",
 }
 HEIC_SUFFIXES = {".heic", ".heif"}
@@ -35,6 +36,7 @@ CONTENT_TYPE_TO_SUFFIX = {
     "application/pdf": ".pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "application/vnd.ms-excel": ".xls",
 }
 ALLOWED_SUFFIXES = ALLOWED_SUFFIXES | HEIC_SUFFIXES
 
@@ -102,6 +104,8 @@ def _guess_media_type(file_path: Path) -> str:
         return "application/pdf"
     if suffix == ".xlsx":
         return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    if suffix == ".xls":
+        return "application/vnd.ms-excel"
     if suffix in {".jpg", ".jpeg"}:
         return "image/jpeg"
     if suffix == ".png":

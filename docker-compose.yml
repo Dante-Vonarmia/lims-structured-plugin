@@ -8,17 +8,14 @@ services:
     container_name: lims-device-report-backend
     restart: unless-stopped
     environment:
-      UPLOAD_DIR: /data/uploads
-      OUTPUT_DIR: /data/outputs
-      TEMPLATE_DIR: /data/templates
-      RAW_RECORD_DIR: /data/raw-records
+      UPLOAD_DIR: /app/uploads
+      OUTPUT_DIR: /app/outputs
+      TEMPLATE_DIR: /app/templates
+      RAW_RECORD_DIR: /app/raw-records
       DEFAULT_TEMPLATE_NAME: report_template.docx
       OFFLINE_MODE: "1"
+      OCR_ENGINE_ORDER: rapid,tesseract
     volumes:
       - ./backend:/app
-      - ./backend/uploads:/data/uploads
-      - ./backend/outputs:/data/outputs
-      - ./backend/templates:/data/templates
-      - ./backend/raw-records:/data/raw-records
     ports:
       - "18081:8000"

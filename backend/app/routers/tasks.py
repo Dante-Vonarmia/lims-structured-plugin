@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException
 
+from ..services.import_template_schema_service import load_import_template_schema
 from ..services.task_store_file import create_task as create_task_file
 from ..services.task_store_file import get_task as get_task_file
 from ..services.task_store_file import list_tasks as list_tasks_file
@@ -36,6 +37,16 @@ def get_task(task_id: str) -> dict[str, object]:
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
     return task
+
+
+@router.get("/tasks/{task_id}/import-template-schema")
+def get_task_import_template_schema(task_id: str) -> dict[str, object]:
+    task = get_task_file(task_id.strip())
+    if not task:
+        raise HTTPException(status_code=404, detail="task not found")
+    import_template_path = str((task or {}).get("import_template_type", "")).strip()
+    schema = load_import_template_schema(import_template_path)
+    return {"task_id": str(task.get("id") or ""), "schema": schema}
 
 
 @router.post("/tasks")

@@ -11,6 +11,7 @@ pillow
 pillow-heif
 pypdf
 openpyxl
+xlrd
 numpy
 opencv-python-headless
 paddlepaddle

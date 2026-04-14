@@ -57,16 +57,11 @@ def parse_excel_rows(
     sheet_name: str | None = None,
     default_template_name: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    try:
-        from openpyxl import load_workbook
-    except Exception as exc:  # pragma: no cover
-        raise RuntimeError("openpyxl is required for Excel batch mode") from exc
-
-    wb = load_workbook(filename=str(file_path), data_only=True)
-    if sheet_name and sheet_name in wb.sheetnames:
-        target_sheets = [wb[sheet_name]]
-    else:
-        target_sheets = list(wb.worksheets)
+    target_sheets, _sheet_names, _current_sheet_name = load_excel_sheets(
+        file_path=file_path,
+        sheet_name=sheet_name,
+        runtime_label="batch mode",
+    )
 
     templates = list_available_templates()
     excel_lookup = build_excel_field_lookup(target_sheets)
@@ -75,10 +70,11 @@ def parse_excel_rows(
     items: list[dict[str, Any]] = []
     errors: list[str] = []
     for ws in target_sheets:
-        rows = [[normalize_cell(v) for v in row] for row in ws.iter_rows(values_only=True)]
+        rows = ws.get("rows", [])
+        ws_title = str(ws.get("title", "") or "")
         header_idx = detect_header_row_index(rows)
         if header_idx < 0:
-            errors.append(f"[{ws.title}] 表头为空")
+            errors.append(f"[{ws_title}] 表头为空")
             continue
 
         normalized_headers = [normalize_header(v) for v in rows[header_idx]]
@@ -110,18 +106,18 @@ def parse_excel_rows(
 
             if not template_name:
                 errors.append(
-                    f"[{ws.title}] 第 {logical_row} 行缺少模板信息（template_name/source_code/default_template_name）"
+                    f"[{ws_title}] 第 {logical_row} 行缺少模板信息（template_name/source_code/default_template_name）"
                 )
                 continue
 
             if template_name not in templates:
-                errors.append(f"[{ws.title}] 第 {logical_row} 行模板不存在：{template_name}")
+                errors.append(f"[{ws_title}] 第 {logical_row} 行模板不存在：{template_name}")
                 continue
 
             row_name = fields.get("certificate_no") or fields.get("device_code") or fields.get("device_name") or f"row_{logical_row}"
             items.append(
                 {
-                    "sheet_name": ws.title,
+                    "sheet_name": ws_title,
                     "row_number": logical_row,
                     "row_name": sanitize_file_name(row_name),
                     "template_name": template_name,
@@ -137,16 +133,11 @@ def inspect_excel_records(
     sheet_name: str | None = None,
     default_template_name: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    try:
-        from openpyxl import load_workbook
-    except Exception as exc:  # pragma: no cover
-        raise RuntimeError("openpyxl is required for Excel inspect mode") from exc
-
-    wb = load_workbook(filename=str(file_path), data_only=True)
-    if sheet_name and sheet_name in wb.sheetnames:
-        target_sheets = [wb[sheet_name]]
-    else:
-        target_sheets = list(wb.worksheets)
+    target_sheets, _sheet_names, _current_sheet_name = load_excel_sheets(
+        file_path=file_path,
+        sheet_name=sheet_name,
+        runtime_label="inspect mode",
+    )
 
     templates = list_available_templates()
     excel_lookup = build_excel_field_lookup(target_sheets)
@@ -155,10 +146,11 @@ def inspect_excel_records(
     items: list[dict[str, Any]] = []
     errors: list[str] = []
     for ws in target_sheets:
-        rows = [[normalize_cell(v) for v in row] for row in ws.iter_rows(values_only=True)]
+        rows = ws.get("rows", [])
+        ws_title = str(ws.get("title", "") or "")
         header_idx = detect_header_row_index(rows)
         if header_idx < 0:
-            errors.append(f"[{ws.title}] 表头为空")
+            errors.append(f"[{ws_title}] 表头为空")
             continue
 
         normalized_headers = [normalize_header(v) for v in rows[header_idx]]
@@ -190,13 +182,13 @@ def inspect_excel_records(
 
             row_error = ""
             if template_name and template_name not in templates:
-                row_error = f"[{ws.title}] 第 {logical_row} 行模板不存在：{template_name}"
+                row_error = f"[{ws_title}] 第 {logical_row} 行模板不存在：{template_name}"
                 errors.append(row_error)
 
             row_name = fields.get("certificate_no") or fields.get("device_code") or fields.get("device_name") or f"row_{logical_row}"
             items.append(
                 {
-                    "sheet_name": ws.title,
+                    "sheet_name": ws_title,
                     "row_number": logical_row,
                     "row_name": sanitize_file_name(row_name),
                     "template_name": template_name,
@@ -214,20 +206,28 @@ def preview_excel_sheet(
     max_rows: int = 80,
     max_cols: int = 20,
 ) -> dict[str, Any]:
-    try:
-        from openpyxl import load_workbook
-    except Exception as exc:  # pragma: no cover
-        raise RuntimeError("openpyxl is required for Excel preview mode") from exc
+    target_sheets, sheet_names, current_sheet_name = load_excel_sheets(
+        file_path=file_path,
+        sheet_name=sheet_name,
+        runtime_label="preview mode",
+    )
+    if not target_sheets:
+        return {
+            "sheet_names": [],
+            "sheet_name": "",
+            "headers": [],
+            "rows": [],
+            "row_numbers": [],
+            "total_rows": 0,
+            "truncated": False,
+        }
 
-    wb = load_workbook(filename=str(file_path), data_only=True)
-    ws = wb[sheet_name] if sheet_name and sheet_name in wb.sheetnames else wb.active
-    current_sheet_name = ws.title
-
-    rows = [[normalize_cell(v) for v in row] for row in ws.iter_rows(values_only=True)]
+    ws = target_sheets[0]
+    rows = ws.get("rows", [])
     non_empty_rows = [(idx, row) for idx, row in enumerate(rows) if any(cell for cell in row)]
     if not non_empty_rows:
         return {
-            "sheet_names": list(wb.sheetnames),
+            "sheet_names": sheet_names,
             "sheet_name": current_sheet_name,
             "headers": [],
             "rows": [],
@@ -266,7 +266,7 @@ def preview_excel_sheet(
         row_numbers.append(idx + 1)
 
     return {
-        "sheet_names": list(wb.sheetnames),
+        "sheet_names": sheet_names,
         "sheet_name": current_sheet_name,
         "title": title,
         "headers": headers,
@@ -488,9 +488,8 @@ def build_excel_field_lookup(target_sheets: list[Any]) -> dict[str, dict[str, se
         "device_model_by_code": {},
     }
     for ws in target_sheets:
-        try:
-            rows = [[normalize_cell(v) for v in row] for row in ws.iter_rows(values_only=True)]
-        except Exception:
+        rows = ws.get("rows", []) if isinstance(ws, dict) else []
+        if not isinstance(rows, list):
             continue
         header_idx = detect_header_row_index(rows)
         if header_idx < 0:
@@ -507,6 +506,61 @@ def build_excel_field_lookup(target_sheets: list[Any]) -> dict[str, dict[str, se
                     fields[field_key] = value
             add_lookup_entry(result, fields)
     return result
+
+
+def load_excel_sheets(
+    file_path: Path,
+    sheet_name: str | None = None,
+    runtime_label: str = "excel mode",
+) -> tuple[list[dict[str, Any]], list[str], str]:
+    suffix = file_path.suffix.lower()
+    if suffix == ".xlsx":
+        try:
+            from openpyxl import load_workbook
+        except Exception as exc:  # pragma: no cover
+            raise RuntimeError(f"openpyxl is required for Excel {runtime_label}") from exc
+
+        wb = load_workbook(filename=str(file_path), data_only=True)
+        if sheet_name and sheet_name in wb.sheetnames:
+            source_sheets = [wb[sheet_name]]
+        else:
+            source_sheets = list(wb.worksheets)
+        sheets = [
+            {
+                "title": ws.title,
+                "rows": [[normalize_cell(v) for v in row] for row in ws.iter_rows(values_only=True)],
+            }
+            for ws in source_sheets
+        ]
+        current_sheet_name = sheets[0]["title"] if sheets else ""
+        return sheets, list(wb.sheetnames), current_sheet_name
+
+    if suffix == ".xls":
+        try:
+            import xlrd
+        except Exception as exc:  # pragma: no cover
+            raise RuntimeError(f"xlrd is required for Excel {runtime_label}") from exc
+
+        wb = xlrd.open_workbook(filename=str(file_path))
+        sheet_names = wb.sheet_names()
+        if sheet_name and sheet_name in sheet_names:
+            source_sheets = [wb.sheet_by_name(sheet_name)]
+        else:
+            source_sheets = [wb.sheet_by_index(i) for i in range(wb.nsheets)]
+        sheets = [
+            {
+                "title": ws.name,
+                "rows": [
+                    [normalize_cell(ws.cell_value(row_idx, col_idx)) for col_idx in range(ws.ncols)]
+                    for row_idx in range(ws.nrows)
+                ],
+            }
+            for ws in source_sheets
+        ]
+        current_sheet_name = sheets[0]["title"] if sheets else ""
+        return sheets, sheet_names, current_sheet_name
+
+    raise RuntimeError(f"Unsupported excel suffix: {suffix}")
 
 
 def add_lookup_entry(lookup: dict[str, dict[str, set[str]]], fields: dict[str, str]) -> None:
