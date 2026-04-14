@@ -11,6 +11,9 @@ export function createInitialState() {
     taskContext: {
       id: "",
       task_name: "",
+      import_template_type: "",
+      export_template_name: "",
+      import_template_schema: { template_name: "", columns: [], groups: [] },
       template_info: {
         info_title: "",
         file_no: "",

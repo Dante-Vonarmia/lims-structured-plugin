@@ -22,8 +22,14 @@ export function createQueueRenderingFeature(deps = {}) {
     setFullscreenButtonUi,
     resolveBlankTemplateName,
     isExcelItem,
-    TEMPLATE_INFO_FIELDS,
   } = deps;
+
+  function getSchemaColumns() {
+    const schema = (state.taskContext && state.taskContext.import_template_schema && typeof state.taskContext.import_template_schema === "object")
+      ? state.taskContext.import_template_schema
+      : { columns: [] };
+    return Array.isArray(schema.columns) ? schema.columns : [];
+  }
 
   function getTemplateInfoValue(item, key) {
     const rowFields = (item && item.fields && typeof item.fields === "object") ? item.fields : {};
@@ -103,12 +109,12 @@ export function createQueueRenderingFeature(deps = {}) {
         <tr data-id="${escapeAttr(item.id)}" class="${item.id === state.activeId ? "active" : ""} ${item.status === "generated" ? "row-generated" : ""}">
           <td><input type="checkbox" class="row-check" data-id="${escapeAttr(item.id)}" ${state.selectedIds.has(item.id) ? "checked" : ""} /></td>
           <td>${i + 1}</td>
-          ${TEMPLATE_INFO_FIELDS.map((field) => {
-    const value = getTemplateInfoValue(item, field.key);
+          ${getSchemaColumns().map((field) => {
+    const key = String((field && field.key) || "").trim();
+    const value = getTemplateInfoValue(item, key);
     return `<td title="${escapeAttr(value)}">${escapeHtml(value || "-")}</td>`;
   }).join("")}
           <td><span class="status ${statusClass(item.status)}">${escapeHtml(statusLabel(item))}</span></td>
-          <td title="${escapeAttr(item.templateName || "")}">${escapeHtml(item.templateName || "-")}</td>
           <td title="${escapeAttr(item.message || "")}">${escapeHtml(item.message || "")}</td>
         </tr>
       `).join("");
@@ -118,9 +124,8 @@ export function createQueueRenderingFeature(deps = {}) {
             <tr>
               <th><input id="selectAllVisible" type="checkbox" ${allVisibleChecked ? "checked" : ""} /></th>
               <th>#</th>
-              ${TEMPLATE_INFO_FIELDS.map((field) => buildHeadCell(field.label, field.key)).join("")}
+              ${getSchemaColumns().map((field) => buildHeadCell(String((field && field.label) || ""), String((field && field.key) || ""))).join("")}
               ${buildHeadCell("状态", "status")}
-              ${buildHeadCell("模板", "templateName")}
               <th>说明</th>
             </tr>
           </thead>

@@ -176,5 +176,104 @@ export function createRecognitionBatchFeature(deps = {}) {
     renderTemplateSelect();
   }
 
-  return { processAllPending, refreshAllRecognition };
+  async function refreshActiveRecognition() {
+    const activeItem = state.queue.find((x) => x && x.id === state.activeId);
+    if (!activeItem) {
+      setStatus("当前没有可刷新的预览项");
+      return;
+    }
+    if (activeItem.status === "generated" || activeItem.status === "confirmed") {
+      setStatus("当前项不可刷新识别");
+      return;
+    }
+
+    const forcedMode = String(activeItem && activeItem.recognitionOverride ? activeItem.recognitionOverride : "").trim().toLowerCase();
+    const forceAsExcel = forcedMode === "excel";
+    const isExcelRecordRow = !!(
+      activeItem.isRecordRow
+      && activeItem.fileId
+      && isExcelExt(extFromName(activeItem.fileName))
+    );
+    setLoading(true, "刷新识别中...");
+    setPreprocessProgress(0, 1, activeItem.fileName, "刷新识别");
+
+    try {
+      if (isExcelRecordRow) {
+        const groupKey = activeItem.fileId || activeItem.sourceFileName || activeItem.fileName || activeItem.id;
+        const group = state.queue.filter((item) => {
+          if (!item || !item.isRecordRow || !item.fileId) return false;
+          const key = item.fileId || item.sourceFileName || item.fileName || item.id;
+          return key === groupKey;
+        });
+        const sample = group[0] || activeItem;
+        const inspect = await runExcelInspect(sample.fileId, "");
+        const sourceItem = {
+          ...sample,
+          id: `${sample.id}-refresh-${Math.random().toString(16).slice(2, 8)}`,
+          isRecordRow: false,
+        };
+        const refreshedRows = buildExcelRecordItems(sourceItem, inspect);
+        for (const row of refreshedRows) {
+          if (!row.templateName) await applyAutoTemplateMatch(row, { force: true });
+        }
+        const oldIds = new Set(group.map((x) => x.id));
+        const indexes = [];
+        state.queue.forEach((x, idx) => {
+          if (oldIds.has(x.id)) indexes.push(idx);
+        });
+        if (indexes.length) {
+          const start = indexes[0];
+          for (let i = indexes.length - 1; i >= 0; i -= 1) {
+            state.queue.splice(indexes[i], 1);
+          }
+          state.queue.splice(start, 0, ...refreshedRows);
+          if (refreshedRows.length) state.activeId = refreshedRows[0].id;
+        }
+        appendLog(`当前项Excel记录刷新完成 ${sample.fileName}：${refreshedRows.length} 条`);
+      } else if (activeItem.status === "pending" || (!activeItem.isRecordRow && (forceAsExcel || forcedMode === "word"))) {
+        await processItem(activeItem);
+      } else {
+        activeItem.status = "processing";
+        activeItem.message = "字段重识别中";
+        activeItem.reportId = "";
+        activeItem.reportDownloadUrl = "";
+        activeItem.reportFileName = "";
+        activeItem.reportGenerateMode = "";
+        activeItem.modeReports = {};
+        renderQueue();
+
+        const rawText = String(activeItem.rawText || (activeItem.fields && activeItem.fields.raw_record) || "");
+        if (rawText) {
+          activeItem.rawText = rawText;
+          const fields = await runExtract(rawText);
+          activeItem.fields = { ...createEmptyFields(), ...(activeItem.fields || {}), ...fields, raw_record: rawText };
+          activeItem.recognizedFields = { ...activeItem.fields };
+        } else {
+          activeItem.fields = { ...createEmptyFields(), ...(activeItem.fields || {}) };
+          activeItem.recognizedFields = { ...activeItem.fields };
+        }
+        activeItem.sourceCode = resolveSourceCode(activeItem);
+        activeItem.category = inferCategory(activeItem);
+        activeItem.templateName = "";
+        activeItem.matchedBy = "";
+        activeItem.templateUserSelected = false;
+        await applyAutoTemplateMatch(activeItem, { force: true });
+      }
+      setPreprocessProgress(1, 1, activeItem.fileName, "刷新识别");
+      setStatus("当前预览项刷新识别完成");
+      appendLog(`当前预览项刷新识别完成：${activeItem.fileName}`);
+    } catch (error) {
+      activeItem.status = "error";
+      activeItem.message = error.message || "刷新失败";
+      appendLog(`当前预览项刷新失败 ${activeItem.fileName}：${activeItem.message}`);
+      setStatus(`刷新识别失败：${activeItem.message}`);
+    } finally {
+      clearPreprocessProgress();
+      setLoading(false);
+      renderQueue();
+      renderTemplateSelect();
+    }
+  }
+
+  return { processAllPending, refreshAllRecognition, refreshActiveRecognition };
 }

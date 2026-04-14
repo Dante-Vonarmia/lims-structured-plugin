@@ -1,7 +1,5 @@
 export function createRuntimeApisFeature(deps = {}) {
   const {
-    state,
-    normalizeCatalogToken,
     runOcrApi,
     runExtractApi,
     runInstrumentTableExtractApi,
@@ -72,13 +70,6 @@ export function createRuntimeApisFeature(deps = {}) {
     return runTemplateEditorSchemaApi(templateName);
   }
 
-  function isDeviceNameAllowedByCatalog(value) {
-    const token = normalizeCatalogToken(value);
-    if (!token) return false;
-    if (!state.instrumentCatalogTokenSet || !state.instrumentCatalogTokenSet.size) return true;
-    return state.instrumentCatalogTokenSet.has(token);
-  }
-
   return {
     runOcr,
     runExtract,
@@ -92,6 +83,5 @@ export function createRuntimeApisFeature(deps = {}) {
     runExcelPreview,
     runTemplateTextPreview,
     runTemplateEditorSchema,
-    isDeviceNameAllowedByCatalog,
   };
 }

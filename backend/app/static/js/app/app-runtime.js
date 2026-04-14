@@ -325,6 +325,12 @@ import {
       return rows.find((row) => String((row && row.id) || "").trim() === normalizedTaskId) || null;
     }
 
+    async function getTaskImportTemplateSchemaApi(taskId) {
+      const normalizedTaskId = String(taskId || "").trim();
+      if (!normalizedTaskId) return { schema: { template_name: "", columns: [], groups: [] } };
+      return fetchJson(`/api/tasks/${encodeURIComponent(normalizedTaskId)}/import-template-schema`, { cache: "no-store" });
+    }
+
     function getWorkspaceTaskIdFromPath() {
       const path = String((window && window.location && window.location.pathname) || "").trim();
       const match = path.match(/^\/workspace\/([^/]+)$/);
@@ -346,6 +352,9 @@ import {
       const taskId = getWorkspaceTaskIdFromPath();
       state.taskContext.id = taskId;
       state.taskContext.task_name = "";
+      state.taskContext.import_template_type = "";
+      state.taskContext.export_template_name = "";
+      state.taskContext.import_template_schema = { template_name: "", columns: [], groups: [] };
       state.taskContext.template_info = normalizeTaskTemplateInfo({});
       if (!taskId) return;
       try {
@@ -354,12 +363,29 @@ import {
           appendLog("任务不存在或已删除");
           state.taskContext.id = "";
           state.taskContext.task_name = "";
+          state.taskContext.import_template_type = "";
+          state.taskContext.export_template_name = "";
+          state.taskContext.import_template_schema = { template_name: "", columns: [], groups: [] };
           state.taskContext.template_info = normalizeTaskTemplateInfo({});
           return;
         }
         state.taskContext.id = String(task.id || taskId).trim();
         state.taskContext.task_name = String(task.task_name || "").trim();
+        state.taskContext.import_template_type = String(task.import_template_type || "").trim();
+        state.taskContext.export_template_name = String(task.export_template_name || "").trim();
         state.taskContext.template_info = normalizeTaskTemplateInfo(task.template_info);
+        try {
+          const schemaData = await getTaskImportTemplateSchemaApi(state.taskContext.id);
+          const schema = (schemaData && schemaData.schema && typeof schemaData.schema === "object") ? schemaData.schema : {};
+          state.taskContext.import_template_schema = {
+            template_name: String(schema.template_name || "").trim(),
+            columns: Array.isArray(schema.columns) ? schema.columns : [],
+            groups: Array.isArray(schema.groups) ? schema.groups : [],
+          };
+        } catch (schemaError) {
+          appendLog(`导入模板结构加载失败：${schemaError.message || "unknown"}`);
+          state.taskContext.import_template_schema = { template_name: "", columns: [], groups: [] };
+        }
       } catch (error) {
         appendLog(`任务主信息加载失败：${error.message || "unknown"}`);
       }
@@ -660,21 +686,13 @@ import {
 
     const {
       extractCalibrationInfoFields,
-      buildFocusSections,
       renderFocusSectionsHtml,
     } = createFocusSectionsFeature({
-      SOURCE_HIDDEN_SYSTEM_KEYS,
       extractBlockByLine,
       normalizeOptionalBlank,
       parseDateFromLabelText,
       isCompleteDateText,
-      inferDateTriplet,
       cleanBlockText,
-      safeNormalizeMeasurementItemsText,
-      parseTableRowsFromBlock,
-      extractGeneralCheckFullBlock,
-      getFieldLabel,
-      TEMPLATE_INFO_FIELDS,
       parseDateParts,
       escapeHtml,
       escapeAttr,
@@ -691,7 +709,6 @@ import {
       createEmptyFields,
       getSelectedNormalItems,
       getProblemFieldKeys,
-      buildFocusSections,
       renderFocusSectionsHtml,
       extractCalibrationInfoFields,
       isCompleteDateText,

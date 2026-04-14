@@ -1,7 +1,6 @@
 export function createFormSchemaFeature(deps = {}) {
   const {
     state,
-    TARGET_BASIC_FORM_FIELDS,
     ensureTemplateEditorSchema,
     hasMeaningfulValue,
     resolveTemplateRequiredFields,
@@ -27,14 +26,21 @@ export function createFormSchemaFeature(deps = {}) {
       }
       if (schemaState && schemaState.loading) {
         return {
-          fields: TARGET_BASIC_FORM_FIELDS,
+          fields: [],
           note: "",
           loading: true,
         };
       }
+      if (schemaState && !schemaState.loading) {
+        return {
+          fields: [],
+          note: "模板字段未识别",
+          loading: false,
+        };
+      }
     }
     return {
-      fields: TARGET_BASIC_FORM_FIELDS,
+      fields: [],
       note: "",
       loading: false,
     };

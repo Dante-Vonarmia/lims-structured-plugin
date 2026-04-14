@@ -23,7 +23,7 @@ export function createRuntimeCommonFeature(deps = {}) {
     return extractTemplateCode(templateName || "");
   }
 
-  function isExcelExt(ext) { return ext === ".xlsx"; }
+  function isExcelExt(ext) { return ext === ".xlsx" || ext === ".xls"; }
   function extFromName(name) {
     const idx = (name || "").lastIndexOf(".");
     return idx < 0 ? "" : name.slice(idx).toLowerCase();

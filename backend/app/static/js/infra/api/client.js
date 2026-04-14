@@ -31,6 +31,10 @@ export async function updateTaskTemplateInfoApi(taskId, payload) {
   });
 }
 
+export async function getTaskImportTemplateSchemaApi(taskId) {
+  return fetchJson(`/api/tasks/${encodeURIComponent(taskId || "")}/import-template-schema`, { cache: "no-store" });
+}
+
 export async function uploadFileApi(file) {
   const fd = new FormData();
   fd.append("file", file);

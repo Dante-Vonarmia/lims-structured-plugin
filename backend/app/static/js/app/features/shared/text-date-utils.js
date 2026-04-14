@@ -116,10 +116,6 @@ export function normalizeValidationToken(value) {
   return String(value || "").toLowerCase().replace(/[\s:：/\\\-_.|*（）()]+/g, "");
 }
 
-export function normalizeCatalogToken(value) {
-  return normalizeValidationToken(String(value || "").trim());
-}
-
 export function normalizeOptionalBlank(value) {
   const text = String(value || "").trim();
   if (!text) return "";

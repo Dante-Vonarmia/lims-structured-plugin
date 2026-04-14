@@ -973,12 +973,12 @@ export function createPreviewWorkflowFeature(deps = {}) {
 
   async function renderSourcePreview(item) {
     if (!item) {
-      setPreviewPlaceholder("sourcePreview", "证书模板预览未加载");
+      setPreviewPlaceholder("sourcePreview", "来源预览未加载");
       return;
     }
     const selectedNormalItems = getSelectedNormalItems();
     if (selectedNormalItems.length > 1) {
-      setPreviewPlaceholder("sourcePreview", `证书模板预览：已选 ${selectedNormalItems.length} 条记录`);
+      setPreviewPlaceholder("sourcePreview", `来源预览：已选 ${selectedNormalItems.length} 条记录`);
       return;
     }
     try {
@@ -1102,10 +1102,10 @@ export function createPreviewWorkflowFeature(deps = {}) {
         state.blobUrls.source = url;
         $("sourcePreview").innerHTML = `<iframe src="${url}"></iframe>`;
       } else {
-        setPreviewPlaceholder("sourcePreview", "该类型不支持证书模板预览");
+        setPreviewPlaceholder("sourcePreview", "该类型不支持来源预览");
       }
     } catch (error) {
-      setPreviewPlaceholder("sourcePreview", `证书模板预览失败：${error.message || "unknown"}`);
+      setPreviewPlaceholder("sourcePreview", `来源预览失败：${error.message || "unknown"}`);
     }
   }
 
@@ -1125,7 +1125,7 @@ export function createPreviewWorkflowFeature(deps = {}) {
     );
     const selectedNormalItems = getSelectedNormalItems();
     if (selectedNormalItems.length > 1) {
-      setPreviewPlaceholder("targetPreview", `${isModifyCertificate ? "证书预览" : "原始记录预览"}：已选 ${selectedNormalItems.length} 条记录`);
+      setPreviewPlaceholder("targetPreview", `${isModifyCertificate ? "导出预览" : "原始记录预览"}：已选 ${selectedNormalItems.length} 条记录`);
       return;
     }
     try {
@@ -1215,7 +1215,7 @@ export function createPreviewWorkflowFeature(deps = {}) {
         $("targetPreview").innerHTML = `<iframe src="${url}"></iframe>`;
       }
     } catch (error) {
-      setPreviewPlaceholder("targetPreview", `${isModifyCertificate ? "证书预览" : "原始记录预览"}失败：${error.message || "unknown"}`);
+      setPreviewPlaceholder("targetPreview", `${isModifyCertificate ? "导出预览" : "原始记录预览"}失败：${error.message || "unknown"}`);
     }
   }
 
@@ -1322,7 +1322,7 @@ export function createPreviewWorkflowFeature(deps = {}) {
   async function renderPreviews() {
     const item = getActiveItem();
     if (!item) {
-      setPreviewPlaceholder("sourcePreview", "证书模板预览未加载");
+      setPreviewPlaceholder("sourcePreview", "来源预览未加载");
       $("sourceFieldList").innerHTML = '<div class="placeholder">识别字段未加载</div>';
       $("targetFieldForm").innerHTML = '<div class="placeholder">字段表单未加载</div>';
       setPreviewPlaceholder("targetPreview", "原始记录预览未加载");

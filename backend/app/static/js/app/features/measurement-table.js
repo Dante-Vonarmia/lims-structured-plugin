@@ -1,8 +1,6 @@
 export function createMeasurementTableFeature(deps = {}) {
   const {
-    state,
     extractBlockByLine,
-    normalizeCatalogToken,
     normalizeValidationToken,
     renderRichCellHtml,
   } = deps;
@@ -99,71 +97,6 @@ export function createMeasurementTableFeature(deps = {}) {
 
       const preparedLines = splitMergedInstrumentLines(dataLines);
 
-      const parseRowsByCatalogName = () => {
-        if (!state.instrumentCatalogTokenSet || !state.instrumentCatalogTokenSet.size) return null;
-        const nameIndexes = [];
-        for (let i = 0; i < preparedLines.length; i += 1) {
-          const token = normalizeCatalogToken(preparedLines[i]);
-          if (token && state.instrumentCatalogTokenSet.has(token)) nameIndexes.push(i);
-        }
-        if (!nameIndexes.length) return null;
-
-        const looksLikeCode = (v) => /^[A-Za-z]{1,4}[A-Za-z0-9-]{3,}$/.test(String(v || "").replace(/\s+/g, ""));
-        const looksLikeRange = (v) => /(?:~|～|至|to|μA|mA|A|V|kV|mm|cm|m|℃|°C|\(\s*[-\d~～]+\s*\))/i.test(String(v || ""));
-        const looksLikeUncertainty = (v) => /(?:u\s*=|Urel|U=|k\s*=|电压|电流|长度|重复性|时间间隔|日差|μV|mV|%RH)/i.test(String(v || ""));
-        const looksLikeDate = (v) => /(?:\d{4}年\d{1,2}月\d{1,2}日|\d{4}[./-]\d{1,2}[./-]\d{1,2})/.test(String(v || ""));
-        const looksLikeInstitution = (v) => /^[A-Z]{2,8}$/.test(String(v || "").trim());
-        const header = ["计量标准器具名称", "型号/规格", "编号", "测量范围", "准确度/不确定度", "证书编号/有效期", "溯源机构"];
-        const rows = [];
-
-        for (let ni = 0; ni < nameIndexes.length; ni += 1) {
-          const start = nameIndexes[ni];
-          const end = ni + 1 < nameIndexes.length ? nameIndexes[ni + 1] : preparedLines.length;
-          const seg = preparedLines.slice(start, end).map((x) => String(x || "").trim()).filter(Boolean);
-          if (!seg.length) continue;
-          const name = seg[0];
-          let model = "";
-          let code = "";
-          let range = "";
-          const uncertaintyParts = [];
-          const certParts = [];
-          let institution = "";
-          for (let i = 1; i < seg.length; i += 1) {
-            const text = seg[i];
-            if (!text) continue;
-            if (!institution && looksLikeInstitution(text)) {
-              institution = text;
-              continue;
-            }
-            if (!code && looksLikeCode(text)) {
-              code = text;
-              continue;
-            }
-            if (looksLikeDate(text) || /(?:^[A-Za-z0-9-]{6,}$)/.test(text)) {
-              certParts.push(text);
-              continue;
-            }
-            if (!range && looksLikeRange(text)) {
-              range = text;
-              continue;
-            }
-            if (looksLikeUncertainty(text)) {
-              uncertaintyParts.push(text);
-              continue;
-            }
-            if (!model) {
-              model = text;
-              continue;
-            }
-            uncertaintyParts.push(text);
-          }
-          if (!model && seg.length > 1) model = seg[1];
-          rows.push([name, model, code, range, uncertaintyParts.join(" ").trim(), certParts.join(" ").trim(), institution]);
-        }
-
-        if (!rows.length) return null;
-        return [header, ...rows];
-      };
 
       const parseRowsByLikelyName = () => {
         const isLikelyName = (text) => {
@@ -242,9 +175,6 @@ export function createMeasurementTableFeature(deps = {}) {
 
       const rowsByName = parseRowsByLikelyName();
       if (rowsByName && rowsByName.length > 1) return rowsByName;
-
-      const rowsByCatalog = parseRowsByCatalogName();
-      if (rowsByCatalog && rowsByCatalog.length > 1) return rowsByCatalog;
 
       let chunkSize = 0;
       if (preparedLines.length % 8 === 0) chunkSize = 8;
@@ -449,28 +379,7 @@ export function createMeasurementTableFeature(deps = {}) {
     const header = ["计量标准器具名称", "型号/规格", "编号", "测量范围", "准确度/不确定度", "证书编号/有效期", "溯源机构"];
     const raw = String(text || "").trim();
     if (!raw) return [header, ["", "", "", "", "", "", ""]];
-    const rows = [];
-    const normalizedRaw = normalizeValidationToken(raw);
-    const seen = new Set();
-    const catalogRows = Array.isArray(state.instrumentCatalogRows) ? state.instrumentCatalogRows : [];
-    for (const row of catalogRows) {
-      const name = String((row && row.name) || "").trim();
-      const token = normalizeCatalogToken(name);
-      if (!token || seen.has(token)) continue;
-      if (!normalizedRaw.includes(token)) continue;
-      seen.add(token);
-      rows.push([
-        name,
-        String((row && row.model) || "").trim(),
-        String((row && row.code) || "").trim(),
-        String((row && row.measurement_range) || "").trim(),
-        String((row && row.uncertainty) || "").trim(),
-        [String((row && row.certificate_no) || "").trim(), String((row && row.valid_date) || "").trim()].filter(Boolean).join(" ").trim(),
-        String((row && row.traceability_institution) || "").trim(),
-      ]);
-    }
-    if (!rows.length) rows.push([raw, "", "", "", "", "", ""]);
-    return [header, ...rows];
+    return [header, [raw, "", "", "", "", "", ""]];
   }
 
   function getMeasurementHeaderIndexes(headerRow) {
@@ -497,27 +406,9 @@ export function createMeasurementTableFeature(deps = {}) {
 
   function buildMeasurementCatalogMatchInfo(tableRows) {
     if (!Array.isArray(tableRows) || tableRows.length < 2) return [];
-    const [header, ...body] = tableRows;
-    const { nameIdx, modelIdx, codeIdx } = getMeasurementHeaderIndexes(header);
-    const hasCatalog = !!(state.instrumentCatalogRows && state.instrumentCatalogRows.length);
+    const [, ...body] = tableRows;
     return body.map((row) => {
-      const name = String((row && row[nameIdx]) || "").trim();
-      const model = String((row && row[modelIdx]) || "").trim();
-      const code = String((row && row[codeIdx]) || "").trim();
-      if (!hasCatalog) {
-        return { mismatch: false, reason: "", catalogRow: null };
-      }
-      const token = normalizeCatalogToken(name);
-      const catalogRow = token ? state.instrumentCatalogRowByToken.get(token) : null;
-      if (!catalogRow) {
-        return { mismatch: true, reason: "目录无此器具", catalogRow: null };
-      }
-      const modelMismatch = !!model && !!catalogRow.model && normalizeValidationToken(model) !== normalizeValidationToken(catalogRow.model);
-      const codeMismatch = !!code && !!catalogRow.code && normalizeValidationToken(code) !== normalizeValidationToken(catalogRow.code);
-      if (modelMismatch || codeMismatch) {
-        return { mismatch: true, reason: modelMismatch && codeMismatch ? "型号/编号不一致" : (modelMismatch ? "型号不一致" : "编号不一致"), catalogRow };
-      }
-      return { mismatch: false, reason: "", catalogRow };
+      return { mismatch: false, reason: "", catalogRow: null };
     });
   }
 

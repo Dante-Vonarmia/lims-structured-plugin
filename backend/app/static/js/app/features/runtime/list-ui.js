@@ -6,7 +6,6 @@ export function createRuntimeListUiFeature(deps = {}) {
     toDateOnlyDisplay,
     getModelCodeDisplay,
     getDeviceCodeDisplay,
-    TEMPLATE_INFO_FIELDS,
     isExcelItem,
     escapeAttr,
     setPreviewPlaceholder,
@@ -24,6 +23,13 @@ export function createRuntimeListUiFeature(deps = {}) {
 
   function getActiveItem() {
     return state.queue.find((x) => x.id === state.activeId) || null;
+  }
+
+  function getSchemaColumns() {
+    const schema = (state.taskContext && state.taskContext.import_template_schema && typeof state.taskContext.import_template_schema === "object")
+      ? state.taskContext.import_template_schema
+      : { columns: [] };
+    return Array.isArray(schema.columns) ? schema.columns : [];
   }
 
   function isTypingTarget(target) {
@@ -70,11 +76,11 @@ export function createRuntimeListUiFeature(deps = {}) {
     const isModifyCertificate = getGenerateMode() === "source_file";
     const previewTabBtn = $("rightTabPreviewBtn");
     if (previewTabBtn) {
-      setButtonText(previewTabBtn, isModifyCertificate ? "证书预览" : "原始记录预览");
+      setButtonText(previewTabBtn, isModifyCertificate ? "导出预览" : "原始记录预览");
     }
     const generatePreviewBtn = $("generatePreviewBtn");
     if (generatePreviewBtn) {
-      setButtonText(generatePreviewBtn, "生成选中");
+      setButtonText(generatePreviewBtn, "开始生成");
     }
     const targetPaneTitle = $("targetPaneTitle");
     if (targetPaneTitle) {
@@ -100,7 +106,7 @@ export function createRuntimeListUiFeature(deps = {}) {
     const taskTemplateInfo = (state.taskContext && state.taskContext.template_info && typeof state.taskContext.template_info === "object")
       ? state.taskContext.template_info
       : {};
-    if (Array.isArray(TEMPLATE_INFO_FIELDS) && TEMPLATE_INFO_FIELDS.some((field) => field && field.key === key)) {
+    if (getSchemaColumns().some((field) => String((field && field.key) || "").trim() === key)) {
       const itemValue = String(f[key] || "").trim();
       if (itemValue) return itemValue;
       return String(taskTemplateInfo[key] || "");
@@ -147,7 +153,7 @@ export function createRuntimeListUiFeature(deps = {}) {
       const f = item.fields || {};
       const text = [
         item.recordName || "",
-        ...((Array.isArray(TEMPLATE_INFO_FIELDS) ? TEMPLATE_INFO_FIELDS : []).map((field) => readListColumnValue(item, field.key))),
+        ...(getSchemaColumns().map((field) => readListColumnValue(item, String((field && field.key) || "").trim()))),
         f.device_name || "",
         f.device_model || "",
         f.device_code || "",

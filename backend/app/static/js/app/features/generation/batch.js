@@ -155,7 +155,7 @@ export function createGenerationBatchFeature(deps = {}) {
         default_template_name: item.templateName || null,
       }),
     });
-    await triggerDownload(data.download_url, `${item.fileName.replace(/\.xlsx$/i, "") || "excel_batch"}.zip`);
+    await triggerDownload(data.download_url, `${item.fileName.replace(/\.xlsx?$/i, "") || "excel_batch"}.zip`);
     item.status = "generated";
     item.message = `Excel批量：生成${data.generated_count} 跳过${data.skipped_count}`;
     renderQueue();

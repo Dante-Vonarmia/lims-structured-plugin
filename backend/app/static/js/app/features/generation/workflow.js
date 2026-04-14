@@ -59,8 +59,6 @@ export function createGenerationWorkflowFeature(deps = {}) {
       source_file_as_template: isModifyCertificate,
       fields: {
         ...fieldsForGenerate,
-        instrument_catalog_names: state.instrumentCatalogNames.join("\n"),
-        instrument_catalog_rows_json: JSON.stringify(state.instrumentCatalogRows || []),
         raw_record: fieldsForGenerate.raw_record || item.rawText || "",
       },
     };

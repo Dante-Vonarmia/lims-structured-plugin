@@ -22,7 +22,6 @@ export function createBindEventsFeature(deps = {}) {
     getColumnFilterOptionEntries,
     getFilteredSortedQueue,
     getGenerateMode,
-    getMeasurementHeaderIndexes,
     getSelectedNormalItems,
     inferCategory,
     isSupportedFile,
@@ -30,12 +29,10 @@ export function createBindEventsFeature(deps = {}) {
     isTypingTarget,
     maybeCopyGeneralCheckForBlankTemplate,
     navigateActiveItem,
-    normalizeCatalogToken,
-    parseInstrumentCatalog,
     parseTableRowsFromBlock,
     processAllPending,
     refreshActionButtons,
-    refreshAllRecognition,
+    refreshActiveRecognition,
     refreshTargetFieldFormBySelection,
     renderPreviews,
     renderQueue,
@@ -46,8 +43,6 @@ export function createBindEventsFeature(deps = {}) {
     renderTemplateSelect,
     resolveBlankTemplateName,
     runExcelBatch,
-    setCatalogDetailVisible,
-    setInstrumentCatalog,
     setLoading,
     setPreviewFullscreen,
     setPreviewPlaceholder,
@@ -439,7 +434,7 @@ export function createBindEventsFeature(deps = {}) {
 
       const setQueueListHeight = (height) => {
         const minHeight = 140;
-        const maxHeight = Math.max(minHeight, Math.floor(window.innerHeight * 0.72));
+        const maxHeight = Math.max(minHeight, 216);
         const nextHeight = Math.max(minHeight, Math.min(maxHeight, Math.round(height)));
         queueListEl.style.height = `${nextHeight}px`;
       };
@@ -527,7 +522,14 @@ export function createBindEventsFeature(deps = {}) {
         if (skipped > 0) appendLog(`已忽略 ${skipped} 个不支持文件`);
       };
 
-      bindUploadCatalogEvents(addFilesToQueue);
+      const headerExitBtn = $("headerExitBtn");
+      if (headerExitBtn) {
+        headerExitBtn.addEventListener("click", () => {
+          window.location.assign("/tasks");
+        });
+      }
+
+      bindUploadEvents(addFilesToQueue);
 
       const queueListEl = $("queueList");
       bindQueueTableEvents(queueListEl);
@@ -704,15 +706,6 @@ export function createBindEventsFeature(deps = {}) {
           if (rowIdx < 0 || rowIdx >= body.length) return;
           if (colIdx < 0 || colIdx >= body[rowIdx].length) return;
           body[rowIdx][colIdx] = String(target.value || "").trim();
-          if (String(target.getAttribute("data-role") || "") === "measurement-item-name") {
-            const token = normalizeCatalogToken(body[rowIdx][colIdx]);
-            const catalogRow = token ? state.instrumentCatalogRowByToken.get(token) : null;
-            if (catalogRow) {
-              const idx = getMeasurementHeaderIndexes(header);
-              if (idx.modelIdx >= 0 && idx.modelIdx < body[rowIdx].length && catalogRow.model) body[rowIdx][idx.modelIdx] = String(catalogRow.model || "").trim();
-              if (idx.codeIdx >= 0 && idx.codeIdx < body[rowIdx].length && catalogRow.code) body[rowIdx][idx.codeIdx] = String(catalogRow.code || "").trim();
-            }
-          }
           item.fields.measurement_items = [header, ...body].map((row) => row.join("\t")).join("\n");
           if (!(item.fields.measurement_item_count || "").trim()) {
             item.fields.measurement_item_count = String(body.length);
@@ -910,81 +903,6 @@ export function createBindEventsFeature(deps = {}) {
           setStatus("已更新：一般检查");
           return;
         }
-        const applyMeasurementCatalogMatch = (targetItem) => {
-          const tableRows = parseTableRowsFromBlock(String((targetItem && targetItem.fields && targetItem.fields.measurement_items) || ""));
-          if (!tableRows || tableRows.length < 2) return 0;
-          const [header, ...body] = tableRows;
-          const { nameIdx, modelIdx, codeIdx } = getMeasurementHeaderIndexes(header);
-          const nextBody = body.map((row) => [...row]);
-          let changed = 0;
-          for (let i = 0; i < nextBody.length; i += 1) {
-            const row = nextBody[i];
-            const token = normalizeCatalogToken(String(row[nameIdx] || ""));
-            const catalogRow = token ? state.instrumentCatalogRowByToken.get(token) : null;
-            if (!catalogRow) continue;
-            const before = `${row[nameIdx] || ""}|${row[modelIdx] || ""}|${row[codeIdx] || ""}`;
-            if (nameIdx >= 0 && catalogRow.name) row[nameIdx] = String(catalogRow.name || "").trim();
-            if (modelIdx >= 0 && catalogRow.model) row[modelIdx] = String(catalogRow.model || "").trim();
-            if (codeIdx >= 0 && catalogRow.code) row[codeIdx] = String(catalogRow.code || "").trim();
-            const after = `${row[nameIdx] || ""}|${row[modelIdx] || ""}|${row[codeIdx] || ""}`;
-            if (before !== after) changed += 1;
-          }
-          targetItem.fields.measurement_items = [header, ...nextBody].map((row) => row.join("\t")).join("\n");
-          return changed;
-        };
-        if (action === "match-measurement-items") {
-          if (!state.instrumentCatalogRows || !state.instrumentCatalogRows.length) {
-            setStatus("目录未就绪：请先装填计量标准器具目录");
-            appendLog("目录未就绪：请先装填计量标准器具目录");
-            return;
-          }
-          const changed = applyMeasurementCatalogMatch(item);
-          renderTargetFieldForm(item);
-          applyTargetFieldProblemStyles(item);
-          renderQueue();
-          renderTargetPreview(item);
-          const doneText = changed > 0 ? `器具目录一键配对完成：更新 ${changed} 行` : "器具目录一键配对完成：无可更新项";
-          setStatus(doneText);
-          appendLog(doneText);
-          return;
-        }
-        if (action === "match-measurement-items-multi") {
-          const selectedItems = getSelectedNormalItems();
-          const scope = selectedItems.map((x) => String(x && x.id || "")).filter(Boolean).sort().join(",");
-          if (!state.instrumentCatalogRows || !state.instrumentCatalogRows.length) {
-            state.measurementMultiSyncNotice = {
-              scope,
-              text: "目录未就绪，请先加载目录",
-            };
-            renderTargetFieldForm(item);
-            setStatus("目录未就绪：请先装填计量标准器具目录");
-            appendLog("目录未就绪：请先装填计量标准器具目录");
-            return;
-          }
-          if (!selectedItems.length) return;
-          let changedRows = 0;
-          let changedRecords = 0;
-          selectedItems.forEach((targetItem) => {
-            if (!targetItem.fields) targetItem.fields = createEmptyFields();
-            const changed = applyMeasurementCatalogMatch(targetItem);
-            if (changed > 0) changedRecords += 1;
-            changedRows += changed;
-          });
-          state.measurementMultiSyncNotice = {
-            scope,
-            text: changedRows > 0 ? "已全部同步最新" : "已检查完成（无更新）",
-          };
-          renderTargetFieldForm(item);
-          applyTargetFieldProblemStyles(item);
-          renderQueue();
-          renderTargetPreview(item);
-          const doneText = changedRows > 0
-            ? `器具目录一键配对完成（多选）：更新 ${changedRecords} 条记录，共 ${changedRows} 行`
-            : "器具目录一键配对完成（多选）：无可更新项";
-          setStatus(doneText);
-          appendLog(doneText);
-          return;
-        }
         const normalizeLine = (line) => String(line || "")
           .replace(/\s+/g, " ")
           .trim();
@@ -1127,7 +1045,6 @@ export function createBindEventsFeature(deps = {}) {
           setPreviewFullscreen(false);
           return;
         }
-        if (event.key === "Escape") setCatalogDetailVisible(false);
         if (event.key === "ArrowUp" || event.key === "k" || event.key === "K") {
           event.preventDefault();
           navigateActiveItem(-1);
@@ -1140,30 +1057,11 @@ export function createBindEventsFeature(deps = {}) {
       });
     }
 
-    function bindUploadCatalogEvents(addFilesToQueue) {
+    function bindUploadEvents(addFilesToQueue) {
       $("uploadBtn").addEventListener("click", (event) => {
         if (state.busy) return;
         event.preventDefault();
         $("sourceFiles").click();
-      });
-
-      $("uploadInstrumentCatalogBtn").addEventListener("click", (event) => {
-        if (state.busy) return;
-        event.preventDefault();
-        $("instrumentCatalogFile").click();
-      });
-
-      $("viewInstrumentCatalogDetailBtn").addEventListener("click", () => {
-        if (!state.instrumentCatalogRows.length) return;
-        setCatalogDetailVisible(true);
-      });
-
-      $("closeCatalogDetailBtn").addEventListener("click", () => {
-        setCatalogDetailVisible(false);
-      });
-
-      $("catalogDetailMask").addEventListener("click", (event) => {
-        if (event.target === $("catalogDetailMask")) setCatalogDetailVisible(false);
       });
 
       $("sourceFiles").addEventListener("change", async () => {
@@ -1171,30 +1069,6 @@ export function createBindEventsFeature(deps = {}) {
         addFilesToQueue(files);
         $("sourceFiles").value = "";
         if (!state.busy) await processAllPending();
-      });
-
-      $("instrumentCatalogFile").addEventListener("change", async () => {
-        const file = ($("instrumentCatalogFile").files || [])[0];
-        $("instrumentCatalogFile").value = "";
-        if (!file || state.busy) return;
-        try {
-          setLoading(true, `解析计量标准器具目录：${file.name}`);
-          const data = await parseInstrumentCatalog(file);
-          setInstrumentCatalog((data && data.names) || [], file.name || "", (data && data.rows) || []);
-          setStatus(`计量标准器具目录已装填：${((data && data.total) || 0)} 项`);
-          appendLog(`计量标准器具目录装填完成 ${file.name}：${((data && data.total) || 0)} 项`);
-        } catch (error) {
-          setStatus(`计量标准器具目录解析失败：${error.message || "unknown"}`);
-          appendLog(`计量标准器具目录解析失败 ${file.name}：${error.message || "unknown"}`);
-        } finally {
-          setLoading(false);
-        }
-      });
-
-      $("clearInstrumentCatalogBtn").addEventListener("click", () => {
-        if (state.busy) return;
-        setInstrumentCatalog([], "");
-        setStatus("计量标准器具目录已清除");
       });
     }
 
@@ -1287,7 +1161,7 @@ export function createBindEventsFeature(deps = {}) {
 
       $("refreshAllRecognitionBtn").addEventListener("click", async () => {
         if (state.busy) return;
-        await refreshAllRecognition();
+        await refreshActiveRecognition();
       });
 
       $("runBatchBtn").addEventListener("click", async () => {
@@ -1296,21 +1170,24 @@ export function createBindEventsFeature(deps = {}) {
         await exportAll(selected);
       });
 
-      $("clearQueueBtn").addEventListener("click", () => {
-        if (state.busy) return;
-        state.queue = [];
-        state.selectedIds.clear();
-        state.activeId = "";
-        setPreviewFullscreen(false);
-        clearPreprocessProgress();
-        state.excelPreviewSheetByFileId = {};
-        renderQueue();
-        renderTemplateSelect();
-        setPreviewPlaceholder("sourcePreview", "证书模板预览未加载");
-        $("sourceFieldList").innerHTML = '<div class="placeholder">识别字段未加载</div>';
-        setPreviewPlaceholder("targetPreview", "原始记录预览未加载");
-        setStatus("队列已清空");
-      });
+      const clearQueueBtn = $("clearQueueBtn");
+      if (clearQueueBtn) {
+        clearQueueBtn.addEventListener("click", () => {
+          if (state.busy) return;
+          state.queue = [];
+          state.selectedIds.clear();
+          state.activeId = "";
+          setPreviewFullscreen(false);
+          clearPreprocessProgress();
+          state.excelPreviewSheetByFileId = {};
+          renderQueue();
+          renderTemplateSelect();
+          setPreviewPlaceholder("sourcePreview", "来源预览未加载");
+          $("sourceFieldList").innerHTML = '<div class="placeholder">识别字段未加载</div>';
+          setPreviewPlaceholder("targetPreview", "原始记录预览未加载");
+          setStatus("队列已清空");
+        });
+      }
 
       $("generatePreviewBtn").addEventListener("click", async () => {
         const item = getActiveItem();
@@ -1419,52 +1296,6 @@ export function createBindEventsFeature(deps = {}) {
         });
       }
 
-      $("generateModeSelect").addEventListener("change", async () => {
-        blockDownloadUntil = Date.now() + 400;
-        const item = getActiveItem();
-        const generateMode = getGenerateMode();
-        const resolveModeReport = (targetItem) => {
-          const modeReports = targetItem && targetItem.modeReports && typeof targetItem.modeReports === "object"
-            ? targetItem.modeReports
-            : {};
-          const modeReport = modeReports[generateMode] && typeof modeReports[generateMode] === "object"
-            ? modeReports[generateMode]
-            : null;
-          const hasModeReport = !!String((modeReport && modeReport.reportDownloadUrl) || "").trim();
-          return { modeReport, hasModeReport };
-        };
-        state.queue.forEach((targetItem) => {
-          if (!targetItem || typeof targetItem !== "object") return;
-          const { hasModeReport } = resolveModeReport(targetItem);
-          if (hasModeReport) {
-            targetItem.status = "generated";
-            targetItem.reportGenerateMode = generateMode;
-            if (!String(targetItem.message || "").includes("字段不全")) targetItem.message = "已生成";
-            return;
-          }
-          targetItem.reportGenerateMode = "";
-          if (targetItem.status !== "generated") return;
-          const validation = validateItemForGeneration(targetItem, generateMode);
-          if (validation.ok) {
-            targetItem.status = "ready";
-            targetItem.message = "可生成";
-          } else {
-            targetItem.status = "incomplete";
-            targetItem.message = "待补全";
-          }
-        });
-        if (item) {
-          const { modeReport, hasModeReport } = resolveModeReport(item);
-          item.reportId = String((modeReport && modeReport.reportId) || "");
-          item.reportDownloadUrl = String((modeReport && modeReport.reportDownloadUrl) || "");
-          item.reportFileName = String((modeReport && modeReport.reportFileName) || "");
-          item.reportGenerateMode = hasModeReport ? generateMode : "";
-        }
-        renderQueue();
-        syncGenerateModeUiText();
-        await renderTargetPreview(getActiveItem());
-      });
-
       $("filterKeyword").addEventListener("input", () => {
         state.listFilter.keyword = $("filterKeyword").value || "";
         renderQueue();
@@ -1501,7 +1332,7 @@ export function createBindEventsFeature(deps = {}) {
         state.selectedIds.clear();
         if (!state.queue.length) {
           state.activeId = "";
-          setPreviewPlaceholder("sourcePreview", "证书模板预览未加载");
+          setPreviewPlaceholder("sourcePreview", "来源预览未加载");
           $("sourceFieldList").innerHTML = '<div class="placeholder">识别字段未加载</div>';
           setPreviewPlaceholder("targetPreview", "原始记录预览未加载");
         } else if (!state.queue.some((item) => item.id === state.activeId)) {

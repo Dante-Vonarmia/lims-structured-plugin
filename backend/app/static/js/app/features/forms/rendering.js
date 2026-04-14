@@ -2,13 +2,11 @@ export function createFormRenderingFeature(deps = {}) {
   const {
     $,
     state,
-    TARGET_EDIT_GROUPS,
     MULTI_EDIT_DISABLED_FIELD_KEYS,
     MULTI_EDIT_MIXED_PLACEHOLDER,
     createEmptyFields,
     getSelectedNormalItems,
     getProblemFieldKeys,
-    buildFocusSections,
     renderFocusSectionsHtml,
     extractCalibrationInfoFields,
     isCompleteDateText,
@@ -35,61 +33,46 @@ export function createFormRenderingFeature(deps = {}) {
       el.innerHTML = '<div class="placeholder">识别字段未加载</div>';
       return;
     }
-    const selectedNormalItems = getSelectedNormalItems();
-    const isMultiMode = selectedNormalItems.length > 1;
-    const mergedSections = () => {
-      const taskTemplateInfo = (state.taskContext && state.taskContext.template_info && typeof state.taskContext.template_info === "object")
-        ? state.taskContext.template_info
-        : {};
-      const allSections = selectedNormalItems.map((selectedItem) => {
-        const src = (selectedItem.recognizedFields && typeof selectedItem.recognizedFields === "object")
-          ? selectedItem.recognizedFields
-          : (selectedItem.fields || {});
-        const mergedSrc = {
-          ...taskTemplateInfo,
-          ...src,
-        };
-        const problemKeys = getProblemFieldKeys(selectedItem);
-        return buildFocusSections(selectedItem, mergedSrc, problemKeys, false);
-      });
-      const base = Array.isArray(allSections[0]) ? allSections[0] : [];
-      return base.map((section, sectionIndex) => {
-        const rows = Array.isArray(section.rows) ? section.rows.map((row, rowIndex) => {
-          const values = allSections.map((sections) => String((((sections[sectionIndex] || {}).rows || [])[rowIndex] || {}).value || ""));
-          const same = values.every((v) => v === values[0]);
-          return { ...row, value: same ? values[0] : MULTI_EDIT_MIXED_PLACEHOLDER };
-        }) : [];
-        const sectionBlock = String(section.block || "");
-        let block = sectionBlock;
-        if (sectionBlock.trim()) {
-          const blocks = allSections.map((sections) => String((sections[sectionIndex] && sections[sectionIndex].block) || ""));
-          const sameBlock = blocks.every((v) => v === blocks[0]);
-          block = sameBlock ? blocks[0] : MULTI_EDIT_MIXED_PLACEHOLDER;
-        }
-        return { ...section, rows, block };
-      });
-    };
-    const src = (item.recognizedFields && typeof item.recognizedFields === "object")
-      ? item.recognizedFields
-      : (item.fields || {});
-    const taskTemplateInfo = (state.taskContext && state.taskContext.template_info && typeof state.taskContext.template_info === "object")
-      ? state.taskContext.template_info
-      : {};
-    const mergedSrc = {
-      ...taskTemplateInfo,
-      ...src,
-    };
-    const problemKeys = isMultiMode ? new Set() : getProblemFieldKeys(item);
-    const sections = isMultiMode ? mergedSections() : buildFocusSections(item, mergedSrc, problemKeys, false);
-    if (!sections.length) {
-      el.innerHTML = '<div class="placeholder">识别字段为空</div>';
+    const taskSchema = (state.taskContext && state.taskContext.import_template_schema && typeof state.taskContext.import_template_schema === "object")
+      ? state.taskContext.import_template_schema
+      : { template_name: "", columns: [], groups: [] };
+    const schemaColumns = Array.isArray(taskSchema.columns) ? taskSchema.columns : [];
+    if (!schemaColumns.length) {
+      el.innerHTML = '<div class="placeholder">模板字段结构未加载</div>';
       return;
     }
-    el.innerHTML = renderFocusSectionsHtml(sections, problemKeys, {
-      collapsible: true,
-      collapseState: state.sourceFieldGroupCollapsed,
-      scope: isMultiMode ? `source:multi:${selectedNormalItems.length}` : `source:${item.id || item.fileName || ""}`,
-    });
+    const sourceName = String(item.sourceFileName || item.fileName || "").trim();
+    const allRows = state.queue
+      .filter((row) => String(row && (row.sourceFileName || row.fileName) || "").trim() === sourceName)
+      .filter((row) => row && row.isRecordRow)
+      .sort((a, b) => Number(a.rowNumber || 0) - Number(b.rowNumber || 0));
+    const tableRows = allRows.length ? allRows : [item];
+    const headHtml = `
+      <tr>
+        <th>#</th>
+        ${schemaColumns.map((col) => `<th>${escapeHtml(String((col && col.label) || ""))}</th>`).join("")}
+      </tr>
+    `;
+    const bodyHtml = tableRows.map((row, rowIndex) => {
+      const rowFields = (row && row.fields && typeof row.fields === "object") ? row.fields : {};
+      const cells = schemaColumns.map((col) => {
+        const key = String((col && col.key) || "").trim();
+        const value = String(rowFields[key] || "").trim();
+        return `<td title="${escapeAttr(value)}">${value ? escapeHtml(value) : '<span class="source-recog-empty">（空）</span>'}</td>`;
+      }).join("");
+      return `<tr><td>${Number(row.rowNumber || rowIndex + 1)}</td>${cells}</tr>`;
+    }).join("");
+    el.innerHTML = `
+      <div class="source-recog-group">
+        <div class="source-recog-group-title"><span class="source-recog-group-title-text">模板字段数据表</span></div>
+        <div class="source-recog-block source-recog-block-formatted">
+          <table class="source-recog-block-table schema-record-table">
+            <thead>${headHtml}</thead>
+            <tbody>${bodyHtml}</tbody>
+          </table>
+        </div>
+      </div>
+    `;
   }
 
   function renderTargetFieldForm(item) {
@@ -127,6 +110,7 @@ export function createFormRenderingFeature(deps = {}) {
       }
     }
     const resolved = resolveTargetFormFields(item, f);
+    const templateFields = (resolved && Array.isArray(resolved.fields)) ? resolved.fields : [];
     const note = resolved && resolved.note ? resolved.note : "";
     const loading = !!(resolved && resolved.loading);
     const problemKeys = isMultiMode ? new Set() : getProblemFieldKeys(item);
@@ -326,30 +310,32 @@ export function createFormRenderingFeature(deps = {}) {
     };
 
     const targetGroupScope = `target:${item.id || item.fileName || ""}`;
-    const groupedHtml = TARGET_EDIT_GROUPS.map((group, index) => {
-      const fieldsInGroup = Array.isArray(group.fields) ? group.fields : [];
-      const controlsHtml = fieldsInGroup.map((field) => renderFieldControl(field)).join("");
-      if (!controlsHtml) return "";
-      const groupTitle = String(group.title || "");
-      const groupKey = `${targetGroupScope}:${index}:${groupTitle}`;
-      const collapsed = !!state.targetFieldGroupCollapsed[groupKey];
-      const toggleHtml = `<button type="button" class="source-recog-group-toggle" data-group-toggle="1" data-group-key="${escapeAttr(groupKey)}" aria-expanded="${collapsed ? "false" : "true"}" title="${collapsed ? "展开" : "收起"}">${collapsed ? "▶" : "▼"}</button>`;
-      return `
-          <div class="source-recog-group ${collapsed ? "is-collapsed" : ""}">
-            <div class="source-recog-group-title">
-              ${toggleHtml}
-              <span class="source-recog-group-title-text">${escapeHtml(groupTitle)}</span>
-            </div>
-            ${collapsed ? "" : `<div class="source-form-grid">${controlsHtml}</div>`}
+    const controlsHtml = templateFields.map((field) => renderFieldControl(field)).join("");
+    const groupTitle = "模板字段";
+    const groupKey = `${targetGroupScope}:0:${groupTitle}`;
+    const collapsed = !!state.targetFieldGroupCollapsed[groupKey];
+    const toggleHtml = `<button type="button" class="source-recog-group-toggle" data-group-toggle="1" data-group-key="${escapeAttr(groupKey)}" aria-expanded="${collapsed ? "false" : "true"}" title="${collapsed ? "展开" : "收起"}">${collapsed ? "▶" : "▼"}</button>`;
+    const groupedHtml = controlsHtml ? `
+        <div class="source-recog-group ${collapsed ? "is-collapsed" : ""}">
+          <div class="source-recog-group-title">
+            ${toggleHtml}
+            <span class="source-recog-group-title-text">${escapeHtml(groupTitle)}</span>
           </div>
-        `;
-    }).join("");
+          ${collapsed ? "" : `<div class="source-form-grid">${controlsHtml}</div>`}
+        </div>
+      ` : "";
 
     const noteParts = [];
     if (noteTextBase) noteParts.push(noteTextBase);
     if (loading) noteParts.push("模板字段加载中...");
     if (note) noteParts.push(note);
     const noteText = noteParts.join(" ");
+    if (!templateFields.length) {
+      const emptyMessage = loading ? "模板字段加载中..." : (note || "模板字段未加载");
+      $("targetFieldForm").innerHTML = `<div class="placeholder">${escapeHtml(emptyMessage)}</div>`;
+      return;
+    }
+
     $("targetFieldForm").innerHTML = `
         <div class="source-form">
           <div class="source-form-head">
