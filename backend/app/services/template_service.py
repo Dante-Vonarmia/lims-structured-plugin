@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from ..config import OUTPUT_DIR, TEMPLATE_DIR
 from .field_dictionary import apply_field_dictionary
+from .template_bundle import BundleError, resolve_output_bundle
 from .docx_fill_service import (
     fill_generic_record_docx,
     fill_modify_certificate_docx,
@@ -51,6 +52,27 @@ class FixedTemplateFillError(RuntimeError):
     pass
 
 
+def _normalize_bundle_ref(value: str) -> str:
+    text = str(value or "").strip()
+    if not text.lower().startswith("bundle:"):
+        return ""
+    return text.split(":", 1)[1].strip()
+
+
+def _resolve_template_path(template_name: str) -> tuple[Path, str]:
+    bundle_id = _normalize_bundle_ref(template_name)
+    if bundle_id:
+        bundle = resolve_output_bundle(bundle_id)
+        entries = bundle.get("entries") if isinstance(bundle.get("entries"), dict) else {}
+        template_path = Path(str(entries.get("template") or ""))
+        if not template_path.exists() or not template_path.is_file():
+            raise FileNotFoundError(f"Template not found for bundle: {bundle_id}")
+        display_name = str(template_path.name or template_name).strip() or template_name
+        return template_path, display_name
+    template_path = TEMPLATE_DIR / template_name
+    return template_path, template_name
+
+
 def render_report(
     template_name: str,
     context: dict[str, str],
@@ -63,7 +85,10 @@ def render_report(
         template_path = source_file_path
         effective_template_name = source_file_path.name
     else:
-        template_path = TEMPLATE_DIR / template_name
+        try:
+            template_path, effective_template_name = _resolve_template_path(template_name)
+        except BundleError as exc:
+            raise FileNotFoundError(str(exc)) from exc
 
     context = apply_field_dictionary(context, template_name=effective_template_name)
     if not template_path.exists():
@@ -126,13 +151,28 @@ def render_report(
 
 
 def list_available_templates() -> list[str]:
-    return sorted(
-        [
-            p.name
-            for p in TEMPLATE_DIR.iterdir()
-            if p.is_file() and p.suffix.lower() in ALLOWED_TEMPLATE_SUFFIXES
-        ]
-    )
+    names = {
+        p.name
+        for p in TEMPLATE_DIR.iterdir()
+        if p.is_file() and p.suffix.lower() in ALLOWED_TEMPLATE_SUFFIXES
+    }
+    try:
+        from .template_bundle import list_bundle_options
+
+        for item in list_bundle_options("output"):
+            bundle_id = str((item or {}).get("id") or "").strip()
+            if not bundle_id:
+                continue
+            if str((item or {}).get("availability") or "") != "available":
+                continue
+            try:
+                resolve_output_bundle(bundle_id)
+            except BundleError:
+                continue
+            names.add(f"bundle:{bundle_id}")
+    except Exception:
+        pass
+    return sorted(names)
 
 
 def get_template_editor_prefill(
@@ -221,6 +261,19 @@ def _prefer_docx(templates: list[str]) -> str:
 
 
 def _infer_fixed_handler_key(template_name: str) -> str | None:
+    bundle_id = _normalize_bundle_ref(template_name)
+    if bundle_id:
+        try:
+            bundle = resolve_output_bundle(bundle_id)
+            compatibility = bundle.get("compatibility") if isinstance(bundle.get("compatibility"), dict) else {}
+            handler_key = str((compatibility or {}).get("handlerKey") or "").strip()
+            if handler_key:
+                return handler_key
+            business_type = str(bundle.get("businessType") or "").strip()
+            if business_type == "modify_certificate":
+                return "modify_certificate_blueprint"
+        except Exception:
+            pass
     normalized = _normalize_for_match(template_name)
     if "修改证书蓝本" in template_name or "modify-certificate-blueprint" in normalized or "modify_certificate_blueprint" in normalized:
         return "modify_certificate_blueprint"

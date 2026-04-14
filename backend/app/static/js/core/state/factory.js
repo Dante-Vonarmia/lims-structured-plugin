@@ -12,6 +12,8 @@ export function createInitialState() {
     taskContext: {
       id: "",
       task_name: "",
+      input_bundle_id: "",
+      output_bundle_id: "",
       import_template_type: "",
       export_template_name: "",
       import_template_schema: { template_name: "", columns: [], groups: [] },

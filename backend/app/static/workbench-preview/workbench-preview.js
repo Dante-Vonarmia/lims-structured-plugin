@@ -1,7 +1,5 @@
 import {
-  IMPORT_TEMPLATE_OPTIONS,
   TASK_TEMPLATE_INFO_FIELDS,
-  TEMPLATE_OPTIONS,
 } from "./constants/template-metadata.js";
 
 const app = document.getElementById("app");
@@ -58,6 +56,14 @@ function buildAutoTaskName(tasks = []) {
 async function getTasks() {
   const data = await requestJson("/api/tasks", { cache: "no-store" });
   return Array.isArray(data.tasks) ? data.tasks : [];
+}
+
+async function getTemplateBundles() {
+  const data = await requestJson("/api/template-bundles", { cache: "no-store" });
+  return {
+    inputBundles: Array.isArray(data.input_bundles) ? data.input_bundles : [],
+    outputBundles: Array.isArray(data.output_bundles) ? data.output_bundles : [],
+  };
 }
 
 function navigate(path) {
@@ -233,12 +239,19 @@ async function renderSignatures() {
 }
 
 async function renderTaskCreate() {
-  const exportTemplateOptions = TEMPLATE_OPTIONS.map(
-    (t) => `<option value="${t.id}">${t.displayName || t.name}</option>`,
-  ).join("");
-  const importTemplateOptions = IMPORT_TEMPLATE_OPTIONS.map(
-    (t) => `<option value="${t.id}">${t.displayName || t.name}</option>`,
-  ).join("");
+  const bundles = await getTemplateBundles();
+  const enabledInputBundles = bundles.inputBundles.filter((x) => x && x.enabled && x.availability === "available");
+  const enabledOutputBundles = bundles.outputBundles.filter((x) => x && x.enabled && x.availability === "available");
+  const exportTemplateOptions = enabledOutputBundles.map((bundle) => {
+    const name = String(bundle.displayName || bundle.id || "").trim();
+    const version = String(bundle.version || "").trim();
+    return `<option value="${escapeHtml(String(bundle.id || ""))}">${escapeHtml(version ? `${name} v${version}` : name)}</option>`;
+  }).join("");
+  const importTemplateOptions = enabledInputBundles.map((bundle) => {
+    const name = String(bundle.displayName || bundle.id || "").trim();
+    const version = String(bundle.version || "").trim();
+    return `<option value="${escapeHtml(String(bundle.id || ""))}">${escapeHtml(version ? `${name} v${version}` : name)}</option>`;
+  }).join("");
   const autoTaskName = buildAutoTaskName(await getTasks());
 
   const content = `
@@ -269,10 +282,10 @@ async function renderTaskCreate() {
 
   document.getElementById("createTaskBtn").addEventListener("click", async () => {
     const taskName = autoTaskName;
-    const exportTemplateId = document.getElementById("exportTemplate").value;
-    const importTemplateType = document.getElementById("importTemplateType").value;
+    const outputBundleId = document.getElementById("exportTemplate").value;
+    const inputBundleId = document.getElementById("importTemplateType").value;
     const err = document.getElementById("createErr");
-    if (!taskName || !exportTemplateId || !importTemplateType) {
+    if (!taskName || !outputBundleId || !inputBundleId) {
       err.style.display = "block";
       err.textContent = "请确认模板类型";
       return;
@@ -280,24 +293,14 @@ async function renderTaskCreate() {
     err.style.display = "none";
     err.textContent = "";
 
-    const templates = TEMPLATE_OPTIONS.reduce((acc, item) => {
-      acc[item.id] = item.filePath || item.name;
-      return acc;
-    }, {});
-    const importTemplates = IMPORT_TEMPLATE_OPTIONS.reduce((acc, item) => {
-      acc[item.id] = item.filePath || item.name;
-      return acc;
-    }, {});
-
     const taskId = `task-${Date.now()}`;
     const task = await requestJson("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         task_name: taskName,
-        import_template_type: importTemplates[importTemplateType] || "常用导入模板",
-        export_template_id: exportTemplateId,
-        export_template_name: templates[exportTemplateId] || exportTemplateId,
+        input_bundle_id: inputBundleId,
+        output_bundle_id: outputBundleId,
       }),
     });
     navigate(`/workspace/${(task && task.id) || taskId}`);

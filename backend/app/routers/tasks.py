@@ -2,6 +2,12 @@ from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException
 
 from ..services.import_template_schema_service import load_import_template_schema
+from ..services.template_bundle import (
+    BundleError,
+    list_bundle_options_payload,
+    resolve_input_bundle,
+    resolve_output_bundle,
+)
 from ..services.task_store_file import archive_task as archive_task_file
 from ..services.task_store_file import create_task as create_task_file
 from ..services.task_store_file import get_task as get_task_file
@@ -17,9 +23,11 @@ router = APIRouter()
 
 class TaskCreateRequest(BaseModel):
     task_name: str
-    import_template_type: str
-    export_template_id: str
-    export_template_name: str
+    import_template_type: str = ""
+    export_template_id: str = ""
+    export_template_name: str = ""
+    input_bundle_id: str | None = None
+    output_bundle_id: str | None = None
 
 
 class TaskTemplateInfoUpdateRequest(BaseModel):
@@ -56,9 +64,21 @@ def get_task_import_template_schema(task_id: str) -> dict[str, object]:
     task = get_task_file(task_id.strip())
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
+    input_bundle_id = str((task or {}).get("input_bundle_id", "") or "").strip()
     import_template_path = str((task or {}).get("import_template_type", "")).strip()
+    if input_bundle_id:
+        try:
+            bundle = resolve_input_bundle(input_bundle_id)
+            import_template_path = str(((bundle.get("entries") or {}).get("schema")) or "").strip()
+        except BundleError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     schema = load_import_template_schema(import_template_path)
     return {"task_id": str(task.get("id") or ""), "schema": schema}
+
+
+@router.get("/template-bundles")
+def list_template_bundles() -> dict[str, object]:
+    return list_bundle_options_payload()
 
 
 @router.post("/tasks")
@@ -67,21 +87,47 @@ def create_task(request: TaskCreateRequest) -> dict[str, object]:
     import_template_type = request.import_template_type.strip()
     export_template_id = request.export_template_id.strip()
     export_template_name = request.export_template_name.strip()
+    input_bundle_id = str(request.input_bundle_id or "").strip()
+    output_bundle_id = str(request.output_bundle_id or "").strip()
 
     if not task_name:
         raise HTTPException(status_code=422, detail="task_name is required")
-    if not import_template_type:
-        raise HTTPException(status_code=422, detail="import_template_type is required")
-    if not export_template_id:
-        raise HTTPException(status_code=422, detail="export_template_id is required")
-    if not export_template_name:
-        raise HTTPException(status_code=422, detail="export_template_name is required")
+
+    input_bundle_display_name = ""
+    output_bundle_display_name = ""
+
+    if input_bundle_id or output_bundle_id:
+        if not input_bundle_id:
+            raise HTTPException(status_code=422, detail="input_bundle_id is required")
+        if not output_bundle_id:
+            raise HTTPException(status_code=422, detail="output_bundle_id is required")
+        try:
+            input_bundle = resolve_input_bundle(input_bundle_id)
+            output_bundle = resolve_output_bundle(output_bundle_id)
+        except BundleError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        import_template_type = str(((input_bundle.get("entries") or {}).get("schema")) or "").strip()
+        export_template_name = f"bundle:{output_bundle_id}"
+        export_template_id = output_bundle_id
+        input_bundle_display_name = str(input_bundle.get("displayName") or "").strip()
+        output_bundle_display_name = str(output_bundle.get("displayName") or "").strip()
+    else:
+        if not import_template_type:
+            raise HTTPException(status_code=422, detail="import_template_type is required")
+        if not export_template_id:
+            raise HTTPException(status_code=422, detail="export_template_id is required")
+        if not export_template_name:
+            raise HTTPException(status_code=422, detail="export_template_name is required")
 
     return create_task_file(
         task_name=task_name,
         import_template_type=import_template_type,
         export_template_id=export_template_id,
         export_template_name=export_template_name,
+        input_bundle_id=input_bundle_id,
+        output_bundle_id=output_bundle_id,
+        input_bundle_display_name=input_bundle_display_name,
+        output_bundle_display_name=output_bundle_display_name,
     )
 
 

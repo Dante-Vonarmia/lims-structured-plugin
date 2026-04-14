@@ -122,6 +122,9 @@ import {
         category: "",
         fields: createEmptyFields(),
         recognizedFields: createEmptyFields(),
+        typedFields: {},
+        fieldPipeline: {},
+        groupPipeline: {},
         templateName: "",
         matchedBy: "",
         templateUserSelected: false,
@@ -373,17 +376,16 @@ import {
     }
 
     function getTaskDefaultTemplateName() {
+      const outputBundleId = String((state.taskContext && state.taskContext.output_bundle_id) || "").trim();
+      if (outputBundleId) {
+        const bundleRef = `bundle:${outputBundleId}`;
+        if (state.templates.includes(bundleRef)) return bundleRef;
+      }
       const raw = String((state.taskContext && state.taskContext.export_template_name) || "").trim();
       if (!raw) return "";
-      const legacyNameMap = {
-        "2026030604-大特.docx": "modify-certificate-blueprint.docx",
-        "修改证书蓝本.docx": "modify-certificate-blueprint.docx",
-      };
-      const fileNameRaw = raw.split(/[\\/]/).pop() || "";
-      const fileName = legacyNameMap[fileNameRaw] || fileNameRaw;
+      const fileName = raw.split(/[\\/]/).pop() || raw;
       if (fileName && state.templates.includes(fileName)) return fileName;
-      const normalizedRaw = legacyNameMap[raw] || raw;
-      if (state.templates.includes(normalizedRaw)) return normalizedRaw;
+      if (state.templates.includes(raw)) return raw;
       return "";
     }
 
@@ -391,6 +393,8 @@ import {
       const taskId = getWorkspaceTaskIdFromPath();
       state.taskContext.id = taskId;
       state.taskContext.task_name = "";
+      state.taskContext.input_bundle_id = "";
+      state.taskContext.output_bundle_id = "";
       state.taskContext.import_template_type = "";
       state.taskContext.export_template_name = "";
       state.taskContext.import_template_schema = { template_name: "", columns: [], groups: [] };
@@ -402,6 +406,8 @@ import {
           appendLog("任务不存在或已删除");
           state.taskContext.id = "";
           state.taskContext.task_name = "";
+          state.taskContext.input_bundle_id = "";
+          state.taskContext.output_bundle_id = "";
           state.taskContext.import_template_type = "";
           state.taskContext.export_template_name = "";
           state.taskContext.import_template_schema = { template_name: "", columns: [], groups: [] };
@@ -410,6 +416,8 @@ import {
         }
         state.taskContext.id = String(task.id || taskId).trim();
         state.taskContext.task_name = String(task.task_name || "").trim();
+        state.taskContext.input_bundle_id = String(task.input_bundle_id || "").trim();
+        state.taskContext.output_bundle_id = String(task.output_bundle_id || "").trim();
         state.taskContext.import_template_type = String(task.import_template_type || "").trim();
         state.taskContext.export_template_name = String(task.export_template_name || "").trim();
         state.taskContext.template_info = normalizeTaskTemplateInfo(task.template_info);
@@ -450,6 +458,9 @@ import {
         category: String(src.category || ""),
         fields: { ...createEmptyFields(), ...((src.fields && typeof src.fields === "object") ? src.fields : {}) },
         recognizedFields: { ...createEmptyFields(), ...((src.recognizedFields && typeof src.recognizedFields === "object") ? src.recognizedFields : {}) },
+        typedFields: (src.typedFields && typeof src.typedFields === "object") ? src.typedFields : {},
+        fieldPipeline: (src.fieldPipeline && typeof src.fieldPipeline === "object") ? src.fieldPipeline : {},
+        groupPipeline: (src.groupPipeline && typeof src.groupPipeline === "object") ? src.groupPipeline : {},
         templateName: String(src.templateName || ""),
         matchedBy: String(src.matchedBy || ""),
         templateUserSelected: !!src.templateUserSelected,

@@ -707,7 +707,17 @@ def _apply_column_rules(raw_text: str, col_index: int) -> tuple[str, float]:
         fixed = text.replace("-", ".").replace(":", ".").replace("l", "1").replace("I", "1")
         fixed = re.sub(r"^[zZ]", "2", fixed)
         if re.fullmatch(r"\d{1,2}\.\d{1,2}", fixed):
-            return fixed, 1.0
+            mm_raw, dd_raw = fixed.split(".", 1)
+            try:
+                mm = int(mm_raw)
+                dd = int(dd_raw)
+            except Exception:
+                return "", 0.2
+            # Date column hard guard: reject impossible month/day to avoid
+            # leaking visual noise from neighboring cells (e.g. 21.5).
+            if 1 <= mm <= 12 and 1 <= dd <= 31:
+                return f"{mm}.{dd}", 1.0
+            return "", 0.2
         return fixed, 0.82
 
     if col_index in {1}:

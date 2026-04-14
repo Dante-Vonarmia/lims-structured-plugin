@@ -51,6 +51,8 @@ from ..services.template_service import (
     render_report,
 )
 from ..services.template_feedback_service import build_template_feedback_entry
+from ..services.template_bundle import BundleError, resolve_output_bundle
+from ..services.template_compat_service import normalize_legacy_template_name
 from ..services.docx_structure_service import (
     _extract_general_check_structure_from_docx,
 )
@@ -67,18 +69,17 @@ from ..services.instrument_catalog_service import (
 
 router = APIRouter()
 REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
-_TEMPLATE_NAME_ALIAS = {
-    "2026030604-大特.docx": "modify-certificate-blueprint.docx",
-    "修改证书蓝本.docx": "modify-certificate-blueprint.docx",
-}
-
-
-def _resolve_template_alias(template_name: str) -> str:
+def _resolve_template_file_path(template_name: str) -> Path:
     raw = str(template_name or "").strip()
-    if not raw:
-        return raw
-    base = Path(raw).name
-    return _TEMPLATE_NAME_ALIAS.get(raw, _TEMPLATE_NAME_ALIAS.get(base, raw))
+    if raw.lower().startswith("bundle:"):
+        bundle_id = raw.split(":", 1)[1].strip()
+        try:
+            bundle = resolve_output_bundle(bundle_id)
+        except BundleError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        entries = bundle.get("entries") if isinstance(bundle.get("entries"), dict) else {}
+        return Path(str(entries.get("template") or ""))
+    return TEMPLATE_DIR / raw
 
 @router.post("/extract", response_model=DeviceFields)
 def extract(request: ExtractRequest) -> DeviceFields:
@@ -88,7 +89,7 @@ def extract(request: ExtractRequest) -> DeviceFields:
 
 @router.post("/report", response_model=ReportResponse)
 def create_report(request: ReportRequest) -> ReportResponse:
-    template_name = _resolve_template_alias(request.template_name or DEFAULT_TEMPLATE_NAME)
+    template_name = normalize_legacy_template_name(request.template_name or DEFAULT_TEMPLATE_NAME)
     context = request.fields.model_dump()
     source_file_path = _find_uploaded_file(request.source_file_id) if request.source_file_id else None
     source_file_as_template = bool(request.source_file_as_template)
@@ -270,11 +271,11 @@ def list_templates() -> dict[str, list[str]]:
 
 @router.get("/templates/download")
 def download_template(template_name: str) -> FileResponse:
-    template_name = _resolve_template_alias(template_name)
+    template_name = normalize_legacy_template_name(template_name)
     available = set(list_available_templates())
     if template_name not in available:
         raise HTTPException(status_code=404, detail="Template not found")
-    file_path = TEMPLATE_DIR / template_name
+    file_path = _resolve_template_file_path(template_name)
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(status_code=404, detail="Template not found")
     return FileResponse(
@@ -286,11 +287,11 @@ def download_template(template_name: str) -> FileResponse:
 
 @router.get("/templates/text-preview")
 def preview_template_text(template_name: str) -> dict[str, object]:
-    template_name = _resolve_template_alias(template_name)
+    template_name = normalize_legacy_template_name(template_name)
     available = set(list_available_templates())
     if template_name not in available:
         raise HTTPException(status_code=404, detail="Template not found")
-    file_path = TEMPLATE_DIR / template_name
+    file_path = _resolve_template_file_path(template_name)
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(status_code=404, detail="Template not found")
     if file_path.suffix.lower() != ".docx":

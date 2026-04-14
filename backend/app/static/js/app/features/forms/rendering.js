@@ -1,3 +1,5 @@
+import { createSourceFieldComponents } from "../components/source-field/index.js";
+
 export function createFormRenderingFeature(deps = {}) {
   const {
     $,
@@ -25,6 +27,15 @@ export function createFormRenderingFeature(deps = {}) {
     escapeHtml,
     escapeAttr,
   } = deps;
+  const {
+    resolveSchemaGroups,
+    resolveInfoFields,
+    renderSourceFieldRow,
+  } = createSourceFieldComponents({
+    escapeHtml,
+    escapeAttr,
+    parseDateParts,
+  });
 
   function renderSourceFieldList(item) {
     const el = $("sourceFieldList");
@@ -37,41 +48,107 @@ export function createFormRenderingFeature(deps = {}) {
       ? state.taskContext.import_template_schema
       : { template_name: "", columns: [], groups: [] };
     const schemaColumns = Array.isArray(taskSchema.columns) ? taskSchema.columns : [];
+    const schemaGroupsRaw = Array.isArray(taskSchema.groups) ? taskSchema.groups : [];
     if (!schemaColumns.length) {
       el.innerHTML = '<div class="placeholder">模板字段结构未加载</div>';
       return;
     }
-    const sourceName = String(item.sourceFileName || item.fileName || "").trim();
-    const allRows = state.queue
-      .filter((row) => String(row && (row.sourceFileName || row.fileName) || "").trim() === sourceName)
-      .filter((row) => row && row.isRecordRow)
-      .sort((a, b) => Number(a.rowNumber || 0) - Number(b.rowNumber || 0));
-    const tableRows = allRows.length ? allRows : [item];
-    const headHtml = `
-      <tr>
-        <th>#</th>
-        ${schemaColumns.map((col) => `<th>${escapeHtml(String((col && col.label) || ""))}</th>`).join("")}
-      </tr>
-    `;
-    const bodyHtml = tableRows.map((row, rowIndex) => {
-      const rowFields = (row && row.fields && typeof row.fields === "object") ? row.fields : {};
-      const cells = schemaColumns.map((col) => {
-        const key = String((col && col.key) || "").trim();
-        const value = String(rowFields[key] || "").trim();
-        return `<td title="${escapeAttr(value)}">${value ? escapeHtml(value) : ""}</td>`;
-      }).join("");
-      return `<tr><td>${Number(row.rowNumber || rowIndex + 1)}</td>${cells}</tr>`;
+
+    const fieldPipeline = (item && item.fieldPipeline && typeof item.fieldPipeline === "object") ? item.fieldPipeline : {};
+    const itemFields = (item && item.fields && typeof item.fields === "object") ? item.fields : {};
+    const itemTypedFields = (item && item.typedFields && typeof item.typedFields === "object") ? item.typedFields : {};
+    const groupPipeline = (item && item.groupPipeline && typeof item.groupPipeline === "object") ? item.groupPipeline : {};
+    const taskTemplateInfo = (state.taskContext && state.taskContext.template_info && typeof state.taskContext.template_info === "object")
+      ? state.taskContext.template_info
+      : {};
+    const schemaRules = (taskSchema && taskSchema.rules && typeof taskSchema.rules === "object") ? taskSchema.rules : {};
+    const infoFields = resolveInfoFields(schemaRules);
+
+    const fieldByKey = new Map();
+    schemaColumns.forEach((col) => {
+      const key = String((col && col.key) || "").trim();
+      if (!key) return;
+      fieldByKey.set(key, col);
+    });
+    const schemaGroups = resolveSchemaGroups(schemaColumns, schemaGroupsRaw);
+
+    const groupHtml = schemaGroups.map((group, idx) => {
+      const groupName = String(group.name || "").trim() || `分组${idx + 1}`;
+      const columns = Array.isArray(group.columns) ? group.columns : [];
+      const rows = columns
+        .map((col) => {
+          const key = String((col && col.key) || "").trim();
+          return fieldByKey.get(key) || col;
+        })
+        .map((col) => renderSourceFieldRow({
+          col,
+          itemFields,
+          itemTypedFields,
+          fieldPipeline,
+          schemaRules,
+        }))
+        .filter(Boolean)
+        .join("");
+      const groupState = groupPipeline[groupName] && typeof groupPipeline[groupName] === "object" ? groupPipeline[groupName] : null;
+      const groupStatus = String((groupState && groupState.status) || "").trim() || "waiting";
+      const groupSummary = groupState
+        ? `parsed ${Number(groupState.parsed || 0)} / warning ${Number(groupState.warning || 0)} / failed ${Number(groupState.failed || 0)}`
+        : "";
+      const sourceGroupScope = `source:${item.id || item.fileName || ""}`;
+      const groupKey = `${sourceGroupScope}:${idx}:${groupName}`;
+      const collapsed = !!state.sourceFieldGroupCollapsed[groupKey];
+      const toggleHtml = `<button type="button" class="source-recog-group-toggle" data-group-toggle="1" data-group-key="${escapeAttr(groupKey)}" aria-expanded="${collapsed ? "false" : "true"}" title="${collapsed ? "展开" : "收起"}">${collapsed ? "▶" : "▼"}</button>`;
+      return `
+        <div class="source-recog-group ${collapsed ? "is-collapsed" : ""}">
+          <div class="source-recog-group-title">
+            ${toggleHtml}
+            <span class="source-recog-group-title-text">${escapeHtml(groupName)}</span>
+            <span class="source-group-status source-group-status-${escapeAttr(groupStatus)}">${escapeHtml(groupStatus)}</span>
+            ${groupSummary ? `<span class="source-group-summary">${escapeHtml(groupSummary)}</span>` : ""}
+          </div>
+          ${collapsed ? "" : `<div class="source-recog-block source-recog-block-formatted"><table class="source-recog-block-table source-field-table"><tbody>${rows || '<tr><td class="source-recog-empty">（空）</td><td></td></tr>'}</tbody></table></div>`}
+        </div>
+      `;
     }).join("");
+
+    const sourceName = String(item.sourceFileName || item.fileName || "").trim();
+    const rowText = item.isRecordRow ? `行 ${Number(item.rowNumber || 0) || 1}` : "待拆行";
+    const sourceGroupScope = `source:${item.id || item.fileName || ""}`;
+    const infoGroupHtml = infoFields.length
+      ? (() => {
+        const infoGroupTitle = "基础信息";
+        const infoGroupKey = `${sourceGroupScope}:info:${infoGroupTitle}`;
+        const infoCollapsed = !!state.sourceFieldGroupCollapsed[infoGroupKey];
+        const infoToggleHtml = `<button type="button" class="source-recog-group-toggle" data-group-toggle="1" data-group-key="${escapeAttr(infoGroupKey)}" aria-expanded="${infoCollapsed ? "false" : "true"}" title="${infoCollapsed ? "展开" : "收起"}">${infoCollapsed ? "▶" : "▼"}</button>`;
+        const infoRowsHtml = infoFields.map((field) => {
+          const value = String(taskTemplateInfo[field.key] || "").trim();
+          return `
+            <tr class="source-field-row">
+              <td class="source-field-col-key">${escapeHtml(field.label)}</td>
+              <td class="source-field-col-value"><span class="source-field-value ${value ? "" : "source-recog-empty"}">${value ? escapeHtml(value) : "（空）"}</span></td>
+            </tr>
+          `;
+        }).join("");
+        return `
+          <div class="source-recog-group ${infoCollapsed ? "is-collapsed" : ""}">
+            <div class="source-recog-group-title">
+              ${infoToggleHtml}
+              <span class="source-recog-group-title-text">${escapeHtml(infoGroupTitle)}</span>
+            </div>
+            ${infoCollapsed ? "" : `<div class="source-recog-block source-recog-block-formatted"><table class="source-recog-block-table source-field-table"><tbody>${infoRowsHtml}</tbody></table></div>`}
+          </div>
+        `;
+      })()
+      : "";
     el.innerHTML = `
       <div class="source-recog-group">
-        <div class="source-recog-group-title"><span class="source-recog-group-title-text">模板字段数据表</span></div>
-        <div class="source-recog-block source-recog-block-formatted">
-          <table class="source-recog-block-table schema-record-table">
-            <thead>${headHtml}</thead>
-            <tbody>${bodyHtml}</tbody>
-          </table>
+        <div class="source-recog-group-title">
+          <span class="source-recog-group-title-text">模板字段分组识别</span>
+          <span class="source-group-summary">${escapeHtml(sourceName)} / ${escapeHtml(rowText)}</span>
         </div>
       </div>
+      ${infoGroupHtml}
+      ${groupHtml || '<div class="source-recog-block">模板分组未定义</div>'}
     `;
   }
 

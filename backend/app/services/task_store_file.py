@@ -109,6 +109,21 @@ def _normalize_template_info(task: dict[str, Any]) -> bool:
     return changed
 
 
+def _normalize_bundle_refs(task: dict[str, Any]) -> bool:
+    changed = False
+    if "input_bundle_id" not in task:
+        task["input_bundle_id"] = ""
+        changed = True
+    if "output_bundle_id" not in task:
+        task["output_bundle_id"] = ""
+        changed = True
+    export_template_name = str(task.get("export_template_name", "") or "").strip()
+    if not str(task.get("output_bundle_id", "") or "").strip() and export_template_name.startswith("bundle:"):
+        task["output_bundle_id"] = export_template_name.split(":", 1)[1].strip()
+        changed = True
+    return changed
+
+
 def list_tasks() -> list[dict[str, Any]]:
     with _LOCK:
         tasks = _read_tasks_unlocked()
@@ -120,6 +135,8 @@ def list_tasks() -> list[dict[str, Any]]:
             if "workspace_draft" not in task or not isinstance(task.get("workspace_draft"), dict):
                 task["workspace_draft"] = {}
                 changed = True
+            if _normalize_bundle_refs(task):
+                changed = True
             if _normalize_template_info(task):
                 changed = True
         if changed:
@@ -127,7 +144,17 @@ def list_tasks() -> list[dict[str, Any]]:
     return [task for task in tasks if not bool(task.get("archived"))]
 
 
-def create_task(*, task_name: str, import_template_type: str, export_template_id: str, export_template_name: str) -> dict[str, Any]:
+def create_task(
+    *,
+    task_name: str,
+    import_template_type: str,
+    export_template_id: str,
+    export_template_name: str,
+    input_bundle_id: str = "",
+    output_bundle_id: str = "",
+    input_bundle_display_name: str = "",
+    output_bundle_display_name: str = "",
+) -> dict[str, Any]:
     now = _now_text()
     with _LOCK:
         tasks = _read_tasks_unlocked()
@@ -149,6 +176,8 @@ def create_task(*, task_name: str, import_template_type: str, export_template_id
         "import_template_type": import_template_type,
         "export_template_id": export_template_id,
         "export_template_name": export_template_name,
+        "input_bundle_id": str(input_bundle_id or "").strip(),
+        "output_bundle_id": str(output_bundle_id or "").strip(),
         "status": "待处理",
         "archived": False,
         "created_at": now,
@@ -156,7 +185,7 @@ def create_task(*, task_name: str, import_template_type: str, export_template_id
         "remark": "",
         "workspace_draft": {},
         "template_info": {
-            "info_title": import_template_title or export_template_name,
+            "info_title": str(input_bundle_display_name or "").strip() or import_template_title or str(output_bundle_display_name or "").strip() or export_template_name,
             "file_no": last_file_no,
             "inspect_standard": import_template_standard,
             "record_no": "",
@@ -195,6 +224,8 @@ def get_task(task_id: str) -> dict[str, Any] | None:
                     changed = True
                 if "workspace_draft" not in task or not isinstance(task.get("workspace_draft"), dict):
                     task["workspace_draft"] = {}
+                    changed = True
+                if _normalize_bundle_refs(task):
                     changed = True
                 if _normalize_template_info(task):
                     changed = True

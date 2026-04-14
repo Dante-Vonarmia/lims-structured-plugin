@@ -1,4 +1,7 @@
-import { applyDateLinkageRules } from "../rules/date-linkage.js";
+import { applyDateLinkageRules } from "../shared/date-linkage.js";
+import { createTargetDateInputHandler } from "../shared/target-date-input-handler.js";
+import { createPreviewZoomBindings } from "./preview-zoom.js";
+import { createUploadDropBindings } from "./upload-drop.js";
 
 export function createBindEventsFeature(deps = {}) {
   const {
@@ -59,261 +62,31 @@ export function createBindEventsFeature(deps = {}) {
     validateItemForGeneration,
     extFromName,
   } = deps;
+    const { handleTargetDateInput } = createTargetDateInputHandler({
+      $,
+      shiftDateText,
+      applyDateLinkageRules,
+    });
+    const { bindPreviewZoomOverlayEvents } = createPreviewZoomBindings({ $ });
+    const {
+      addFilesToQueue,
+      bindUploadEvents,
+      bindQueueLayoutAndDropEvents,
+    } = createUploadDropBindings({
+      $,
+      state,
+      isSupportedFile,
+      extFromName,
+      createQueueItem,
+      renderQueue,
+      renderTemplateSelect,
+      setStatus,
+      appendLog,
+      updateTaskStatusApi,
+      processAllPending,
+    });
     let blockDownloadUntil = 0;
     let downloadPointerArmed = false;
-    const PREVIEW_ZOOM_IDS = ["sourcePreview", "targetPreview"];
-    const PREVIEW_ZOOM_OPTIONS = ["50", "75", "100", "125", "150", "175", "200"];
-    const previewZoomStates = new Map();
-
-    function clampPreviewZoomPercent(value) {
-      const n = Number(value);
-      if (!Number.isFinite(n)) return 100;
-      return Math.max(50, Math.min(200, Math.round(n)));
-    }
-
-    function getPreviewZoomState(previewId) {
-      const key = String(previewId || "");
-      if (!previewZoomStates.has(key)) {
-        previewZoomStates.set(key, { mode: "manual", percent: 100, timer: 0, observer: null });
-      }
-      return previewZoomStates.get(key);
-    }
-
-    function ensurePreviewZoomOverlay(previewId) {
-      const root = $(previewId);
-      if (!(root instanceof HTMLElement)) return null;
-      const getOverlayHost = () => {
-        if (previewId === "sourcePreview") {
-          const host = $("sourcePreviewPanel");
-          if (host instanceof HTMLElement) return host;
-        }
-        if (previewId === "targetPreview") {
-          const host = $("rightPreviewPanel");
-          if (host instanceof HTMLElement) return host;
-        }
-        return root;
-      };
-      const host = getOverlayHost();
-      let overlay = document.querySelector(`.preview-zoom-overlay[data-preview-id="${previewId}"]`);
-      if (overlay instanceof HTMLElement && overlay.parentElement !== host) {
-        host.appendChild(overlay);
-      }
-      if (!(overlay instanceof HTMLElement)) {
-        overlay = document.createElement("div");
-        overlay.className = "preview-zoom-overlay in-preview";
-        overlay.setAttribute("data-preview-id", previewId);
-        overlay.innerHTML = [
-          `<button type="button" data-preview-zoom-action="out" data-preview-id="${previewId}" title="缩小" aria-label="缩小"><i class="fa-solid fa-magnifying-glass-minus" aria-hidden="true"></i></button>`,
-          `<select data-preview-zoom-action="select" data-preview-id="${previewId}">${PREVIEW_ZOOM_OPTIONS.map((x) => `<option value="${x}">${x}%</option>`).join("")}</select>`,
-          `<button type="button" data-preview-zoom-action="in" data-preview-id="${previewId}" title="放大" aria-label="放大"><i class="fa-solid fa-magnifying-glass-plus" aria-hidden="true"></i></button>`,
-          `<button type="button" data-preview-zoom-action="fit" data-preview-id="${previewId}" title="适应页宽" aria-label="适应页宽"><i class="fa-solid fa-left-right" aria-hidden="true"></i></button>`,
-        ].join("");
-        host.appendChild(overlay);
-      } else {
-        overlay.classList.remove("in-toolbar");
-        overlay.classList.add("in-preview");
-      }
-      if (overlay.getAttribute("data-bound") !== "1") {
-        overlay.addEventListener("click", (event) => {
-          const target = event.target;
-          if (!(target instanceof HTMLElement)) return;
-          const actionEl = target.closest("[data-preview-zoom-action]");
-          if (!(actionEl instanceof HTMLElement)) return;
-          const action = String(actionEl.getAttribute("data-preview-zoom-action") || "");
-          const stateObj = getPreviewZoomState(previewId);
-          if (action === "out") {
-            stateObj.mode = "manual";
-            stateObj.percent = clampPreviewZoomPercent(stateObj.percent - 25);
-            applyPreviewZoom(previewId);
-          } else if (action === "in") {
-            stateObj.mode = "manual";
-            stateObj.percent = clampPreviewZoomPercent(stateObj.percent + 25);
-            applyPreviewZoom(previewId);
-          } else if (action === "fit") {
-            stateObj.mode = stateObj.mode === "fit_width" ? "manual" : "fit_width";
-            applyPreviewZoom(previewId);
-          }
-        });
-        const select = overlay.querySelector(`select[data-preview-zoom-action="select"][data-preview-id="${previewId}"]`);
-        if (select instanceof HTMLSelectElement) {
-          select.addEventListener("change", () => {
-            const stateObj = getPreviewZoomState(previewId);
-            stateObj.mode = "manual";
-            stateObj.percent = clampPreviewZoomPercent(select.value);
-            applyPreviewZoom(previewId);
-          });
-        }
-        overlay.setAttribute("data-bound", "1");
-      }
-      return overlay;
-    }
-
-    function syncPreviewZoomUi(previewId) {
-      const stateObj = getPreviewZoomState(previewId);
-      const overlay = ensurePreviewZoomOverlay(previewId);
-      if (!(overlay instanceof HTMLElement)) return;
-      const select = overlay.querySelector(`select[data-preview-zoom-action="select"][data-preview-id="${previewId}"]`);
-      const fitBtn = overlay.querySelector(`button[data-preview-zoom-action="fit"][data-preview-id="${previewId}"]`);
-      if (select instanceof HTMLSelectElement) {
-        const value = String(clampPreviewZoomPercent(stateObj.percent));
-        const dynamicOption = select.querySelector('option[data-dynamic="1"]');
-        if (dynamicOption) dynamicOption.remove();
-        const hasExact = Array.from(select.options).some((opt) => String(opt.value) === value);
-        if (!hasExact) {
-          const option = document.createElement("option");
-          option.value = value;
-          option.textContent = `${value}%`;
-          option.setAttribute("data-dynamic", "1");
-          select.insertBefore(option, select.firstChild);
-        }
-        if (select.value !== value) select.value = value;
-      }
-      if (fitBtn instanceof HTMLButtonElement) fitBtn.classList.toggle("is-active", stateObj.mode === "fit_width");
-    }
-
-    function getPreviewContentElement(previewId) {
-      const root = $(previewId);
-      if (!(root instanceof HTMLElement)) return null;
-      const children = Array.from(root.children).filter((node) => !(node instanceof HTMLElement && node.classList.contains("preview-zoom-overlay")));
-      const el = children[0];
-      return el instanceof HTMLElement ? el : null;
-    }
-
-    function measurePreviewContentWidth(root, contentEl) {
-      if (!(root instanceof HTMLElement) || !(contentEl instanceof HTMLElement)) return 0;
-      const prevTransform = contentEl.style.transform;
-      const prevWidth = contentEl.style.width;
-      contentEl.style.transform = "";
-      contentEl.style.width = "";
-      const measured = Math.max(
-        Number(contentEl.scrollWidth) || 0,
-        Number(contentEl.clientWidth) || 0,
-        Number(contentEl.getBoundingClientRect().width) || 0,
-      );
-      contentEl.style.transform = prevTransform;
-      contentEl.style.width = prevWidth;
-      return measured;
-    }
-
-    function calcFitWidthScale(previewId) {
-      const root = $(previewId);
-      const contentEl = getPreviewContentElement(previewId);
-      if (!(root instanceof HTMLElement) || !(contentEl instanceof HTMLElement)) return 1;
-      const contentWidth = measurePreviewContentWidth(root, contentEl);
-      const viewportWidth = Math.max(0, (Number(root.clientWidth) || 0) - 16);
-      if (!contentWidth || !viewportWidth) return 1;
-      return Math.max(0.3, Math.min(3, viewportWidth / contentWidth));
-    }
-
-    function applyPreviewZoom(previewId) {
-      const root = $(previewId);
-      const contentEl = getPreviewContentElement(previewId);
-      const stateObj = getPreviewZoomState(previewId);
-      ensurePreviewZoomOverlay(previewId);
-      if (!(root instanceof HTMLElement) || !(contentEl instanceof HTMLElement)) {
-        syncPreviewZoomUi(previewId);
-        return;
-      }
-      if (contentEl.classList.contains("placeholder")) {
-        contentEl.style.transformOrigin = "";
-        contentEl.style.transform = "";
-        contentEl.style.width = "";
-        contentEl.style.height = "";
-        syncPreviewZoomUi(previewId);
-        return;
-      }
-      const scale = stateObj.mode === "fit_width"
-        ? calcFitWidthScale(previewId)
-        : (clampPreviewZoomPercent(stateObj.percent) / 100);
-      const isImage = contentEl.tagName === "IMG";
-      contentEl.style.transformOrigin = "top left";
-      contentEl.style.transform = `scale(${scale})`;
-      if (isImage) {
-        // Keep source image at intrinsic size; let container scroll instead of forced fit.
-        contentEl.style.width = "";
-        contentEl.style.height = "";
-      } else {
-        contentEl.style.width = `${100 / scale}%`;
-        if (contentEl.tagName === "IFRAME") contentEl.style.height = `${100 / scale}%`;
-        else contentEl.style.height = "";
-      }
-      if (stateObj.mode === "fit_width") stateObj.percent = clampPreviewZoomPercent(Math.round(scale * 100));
-      syncPreviewZoomUi(previewId);
-    }
-
-    function scheduleApplyPreviewZoom(previewId) {
-      const stateObj = getPreviewZoomState(previewId);
-      if (stateObj.timer) window.clearTimeout(stateObj.timer);
-      stateObj.timer = window.setTimeout(() => {
-        stateObj.timer = 0;
-        applyPreviewZoom(previewId);
-      }, 0);
-    }
-
-    function bindPreviewZoomOverlayFor(previewId) {
-      const root = $(previewId);
-      if (!(root instanceof HTMLElement)) return;
-      ensurePreviewZoomOverlay(previewId);
-      const stateObj = getPreviewZoomState(previewId);
-      if (!stateObj.observer && typeof MutationObserver !== "undefined") {
-        stateObj.observer = new MutationObserver(() => {
-          scheduleApplyPreviewZoom(previewId);
-        });
-        stateObj.observer.observe(root, { childList: true });
-      }
-      applyPreviewZoom(previewId);
-    }
-
-    function bindPreviewZoomOverlayEvents() {
-      PREVIEW_ZOOM_IDS.forEach((previewId) => {
-        bindPreviewZoomOverlayFor(previewId);
-      });
-      window.addEventListener("resize", () => {
-        PREVIEW_ZOOM_IDS.forEach((previewId) => {
-          const stateObj = getPreviewZoomState(previewId);
-          if (stateObj.mode === "fit_width") applyPreviewZoom(previewId);
-        });
-      });
-    }
-
-    async function readDirectoryEntries(reader) {
-      const all = [];
-      while (true) {
-        const chunk = await new Promise((resolve, reject) => reader.readEntries(resolve, reject));
-        if (!chunk || !chunk.length) break;
-        all.push(...chunk);
-      }
-      return all;
-    }
-
-    async function filesFromEntry(entry) {
-      if (!entry) return [];
-      if (entry.isFile) {
-        const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
-        return file ? [file] : [];
-      }
-      if (entry.isDirectory) {
-        const entries = await readDirectoryEntries(entry.createReader());
-        const nested = await Promise.all(entries.map((x) => filesFromEntry(x)));
-        return nested.flat();
-      }
-      return [];
-    }
-
-    async function filesFromDataTransfer(dt) {
-      if (!dt) return [];
-      const items = Array.from(dt.items || []);
-      if (items.length && items.some((x) => typeof x.webkitGetAsEntry === "function")) {
-        const entries = items
-          .map((x) => (typeof x.webkitGetAsEntry === "function" ? x.webkitGetAsEntry() : null))
-          .filter(Boolean);
-        if (entries.length) {
-          const groups = await Promise.all(entries.map((entry) => filesFromEntry(entry)));
-          return groups.flat();
-        }
-      }
-      return Array.from(dt.files || []);
-    }
 
     function bindQueueTableEvents(queueListEl) {
       queueListEl.addEventListener("click", async (event) => {
@@ -465,106 +238,7 @@ export function createBindEventsFeature(deps = {}) {
       });
     }
 
-    function bindQueueLayoutAndDropEvents(queueListEl, addFilesToQueue) {
-      const splitterEl = $("listDetailSplitter");
-      let splitterDragging = false;
-      let splitterStartY = 0;
-      let splitterStartHeight = 0;
-
-      const setQueueListHeight = (height) => {
-        const minHeight = 140;
-        const maxHeight = Math.max(minHeight, 216);
-        const nextHeight = Math.max(minHeight, Math.min(maxHeight, Math.round(height)));
-        queueListEl.style.height = `${nextHeight}px`;
-      };
-
-      if (splitterEl) {
-        splitterEl.addEventListener("mousedown", (event) => {
-          if (event.button !== 0) return;
-          splitterDragging = true;
-          splitterStartY = event.clientY;
-          splitterStartHeight = queueListEl.getBoundingClientRect().height;
-          document.body.style.cursor = "ns-resize";
-          document.body.style.userSelect = "none";
-          event.preventDefault();
-        });
-      }
-
-      document.addEventListener("mousemove", (event) => {
-        if (!splitterDragging) return;
-        const delta = event.clientY - splitterStartY;
-        setQueueListHeight(splitterStartHeight + delta);
-      });
-
-      document.addEventListener("mouseup", () => {
-        if (!splitterDragging) return;
-        splitterDragging = false;
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-      });
-
-      let dragDepth = 0;
-      const showDropState = () => queueListEl.classList.add("drop-active");
-      const hideDropState = () => queueListEl.classList.remove("drop-active");
-
-      queueListEl.addEventListener("dragenter", (event) => {
-        event.preventDefault();
-        dragDepth += 1;
-        showDropState();
-      });
-
-      queueListEl.addEventListener("dragover", (event) => {
-        event.preventDefault();
-        if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-        showDropState();
-      });
-
-      queueListEl.addEventListener("dragleave", (event) => {
-        event.preventDefault();
-        dragDepth = Math.max(0, dragDepth - 1);
-        if (dragDepth === 0) hideDropState();
-      });
-
-      queueListEl.addEventListener("drop", async (event) => {
-        event.preventDefault();
-        dragDepth = 0;
-        hideDropState();
-        if (state.busy) return;
-        try {
-          const files = await filesFromDataTransfer(event.dataTransfer);
-          addFilesToQueue(files);
-          if (!state.busy) await processAllPending();
-        } catch (error) {
-          setStatus(`拖拽失败：${error.message || "unknown"}`);
-          appendLog(`拖拽失败：${error.message || "unknown"}`);
-        }
-      });
-    }
-
     function bindEvents() {
-      const addFilesToQueue = (files) => {
-        if (!files.length) return;
-        const supported = files.filter((f) => isSupportedFile(f));
-        const skipped = files.length - supported.length;
-        const extSet = new Set(supported.map((f) => extFromName((f && f.name) || "")));
-        if (!supported.length) {
-          setStatus("未发现可识别文件");
-          if (skipped > 0) appendLog(`拖拽/上传中有 ${skipped} 个不支持文件已忽略`);
-          return;
-        }
-        supported.forEach((f) => state.queue.push(createQueueItem(f)));
-        renderQueue();
-        renderTemplateSelect();
-        setStatus(`已加入队列：${supported.length} 个`);
-        appendLog(`新增 ${supported.length} 个文件到队列`);
-        if (extSet.size > 1) appendLog("提示：本次上传包含多种来源类型，建议按同类型分批上传。");
-        if (skipped > 0) appendLog(`已忽略 ${skipped} 个不支持文件`);
-        const taskId = String((state.taskContext && state.taskContext.id) || "").trim();
-        if (taskId && typeof updateTaskStatusApi === "function") {
-          void updateTaskStatusApi(taskId, "草稿").catch(() => {});
-        }
-      };
-
       const headerExitBtn = $("headerExitBtn");
       if (headerExitBtn) {
         headerExitBtn.addEventListener("click", async () => {
@@ -573,11 +247,11 @@ export function createBindEventsFeature(deps = {}) {
         });
       }
 
-      bindUploadEvents(addFilesToQueue);
+      bindUploadEvents();
 
       const queueListEl = $("queueList");
       bindQueueTableEvents(queueListEl);
-      bindQueueLayoutAndDropEvents(queueListEl, addFilesToQueue);
+      bindQueueLayoutAndDropEvents(queueListEl);
 
       bindViewModeEvents();
       bindPreviewZoomOverlayEvents();
@@ -585,98 +259,7 @@ export function createBindEventsFeature(deps = {}) {
       const handleTargetFieldChange = (event) => {
         const target = event.target;
         if (!(target instanceof HTMLElement)) return;
-        const datePart = String(target.getAttribute("data-date-part") || "").trim();
-        const dateField = String(target.getAttribute("data-date-field") || "").trim();
-        if (datePart && dateField && target instanceof HTMLInputElement) {
-          const grid = target.closest(".target-date-grid");
-          if (!(grid instanceof HTMLElement)) return;
-          const formRoot = $("targetFieldForm");
-          const yearInput = grid.querySelector('input[data-date-field][data-date-part="year"]');
-          const monthInput = grid.querySelector('input[data-date-field][data-date-part="month"]');
-          const dayInput = grid.querySelector('input[data-date-field][data-date-part="day"]');
-          const hiddenInput = grid.parentElement ? grid.parentElement.querySelector(`input[type="hidden"][data-field="${dateField}"]`) : null;
-          if (!(yearInput instanceof HTMLInputElement) || !(monthInput instanceof HTMLInputElement) || !(dayInput instanceof HTMLInputElement)) return;
-          if (!(hiddenInput instanceof HTMLInputElement)) return;
-          const normalizeDigits = (raw, maxLen) => String(raw || "").replace(/\D+/g, "").slice(0, maxLen);
-          const year = normalizeDigits(yearInput.value, 4);
-          const month = normalizeDigits(monthInput.value, 2);
-          const day = normalizeDigits(dayInput.value, 2);
-          if (yearInput.value !== year) yearInput.value = year;
-          if (monthInput.value !== month) monthInput.value = month;
-          if (dayInput.value !== day) dayInput.value = day;
-          const isDateComplete = !!(year && month && day);
-          let composed = "";
-          if (year || month || day) {
-            composed = `${year}${year ? "年" : ""}${month ? `${month}月` : ""}${day ? `${day}日` : ""}`;
-          }
-          if (hiddenInput.value !== composed) {
-            hiddenInput.value = composed;
-          }
-          if (isDateComplete) hiddenInput.setAttribute("data-date-exact", "1");
-          else hiddenInput.removeAttribute("data-date-exact");
-          hiddenInput.dispatchEvent(new Event(event.type === "change" ? "change" : "input", { bubbles: true }));
-
-          if (formRoot instanceof HTMLElement) {
-            const readDateField = (fieldName) => {
-              const yearInputEl = formRoot.querySelector(`input[data-date-field="${fieldName}"][data-date-part="year"]`);
-              const monthInputEl = formRoot.querySelector(`input[data-date-field="${fieldName}"][data-date-part="month"]`);
-              const dayInputEl = formRoot.querySelector(`input[data-date-field="${fieldName}"][data-date-part="day"]`);
-              const hiddenInputEl = formRoot.querySelector(`input[type="hidden"][data-field="${fieldName}"]`);
-              if (
-                !(yearInputEl instanceof HTMLInputElement)
-                || !(monthInputEl instanceof HTMLInputElement)
-                || !(dayInputEl instanceof HTMLInputElement)
-                || !(hiddenInputEl instanceof HTMLInputElement)
-              ) return null;
-              return {
-                year: String(yearInputEl.value || ""),
-                month: String(monthInputEl.value || ""),
-                day: String(dayInputEl.value || ""),
-                value: String(hiddenInputEl.value || ""),
-                exact: hiddenInputEl.getAttribute("data-date-exact") === "1",
-              };
-            };
-            const writeDateField = (fieldName, nextField) => {
-              if (!nextField || typeof nextField !== "object") return;
-              const yearInputEl = formRoot.querySelector(`input[data-date-field="${fieldName}"][data-date-part="year"]`);
-              const monthInputEl = formRoot.querySelector(`input[data-date-field="${fieldName}"][data-date-part="month"]`);
-              const dayInputEl = formRoot.querySelector(`input[data-date-field="${fieldName}"][data-date-part="day"]`);
-              const hiddenInputEl = formRoot.querySelector(`input[type="hidden"][data-field="${fieldName}"]`);
-              if (
-                !(yearInputEl instanceof HTMLInputElement)
-                || !(monthInputEl instanceof HTMLInputElement)
-                || !(dayInputEl instanceof HTMLInputElement)
-                || !(hiddenInputEl instanceof HTMLInputElement)
-              ) return;
-              const nextYear = String(nextField.year || "");
-              const nextMonth = String(nextField.month || "");
-              const nextDay = String(nextField.day || "");
-              const nextValue = String(nextField.value || "");
-              if (yearInputEl.value !== nextYear) yearInputEl.value = nextYear;
-              if (monthInputEl.value !== nextMonth) monthInputEl.value = nextMonth;
-              if (dayInputEl.value !== nextDay) dayInputEl.value = nextDay;
-              if (hiddenInputEl.value !== nextValue) {
-                hiddenInputEl.value = nextValue;
-                if (nextField.exact) hiddenInputEl.setAttribute("data-date-exact", "1");
-                else hiddenInputEl.removeAttribute("data-date-exact");
-                hiddenInputEl.dispatchEvent(new Event(event.type === "change" ? "change" : "input", { bubbles: true }));
-              }
-            };
-            const fields = {
-              receive_date: readDateField("receive_date"),
-              calibration_date: readDateField("calibration_date"),
-              release_date: readDateField("release_date"),
-            };
-            const nextFields = applyDateLinkageRules({
-              changedField: dateField,
-              changedPart: datePart,
-              fields,
-              shiftDateText,
-            });
-            writeDateField("receive_date", nextFields.receive_date);
-            writeDateField("calibration_date", nextFields.calibration_date);
-            writeDateField("release_date", nextFields.release_date);
-          }
+        if (handleTargetDateInput(target, event.type)) {
           return;
         }
         const key = String(target.getAttribute("data-field") || "").trim();
@@ -1098,21 +681,6 @@ export function createBindEventsFeature(deps = {}) {
           event.preventDefault();
           navigateActiveItem(1);
         }
-      });
-    }
-
-    function bindUploadEvents(addFilesToQueue) {
-      $("uploadBtn").addEventListener("click", (event) => {
-        if (state.busy) return;
-        event.preventDefault();
-        $("sourceFiles").click();
-      });
-
-      $("sourceFiles").addEventListener("change", async () => {
-        const files = Array.from($("sourceFiles").files || []);
-        addFilesToQueue(files);
-        $("sourceFiles").value = "";
-        if (!state.busy) await processAllPending();
       });
     }
 

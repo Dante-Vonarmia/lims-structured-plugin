@@ -161,19 +161,19 @@ export function createQueueRenderingFeature(deps = {}) {
       const templates = Array.isArray(state.templates) ? state.templates.map((x) => String(x || "").trim()).filter(Boolean) : [];
       if (!templates.length) return "";
       const exists = (name) => !!name && templates.includes(name);
-      const legacyNameMap = {
-        "2026030604-大特.docx": "modify-certificate-blueprint.docx",
-        "修改证书蓝本.docx": "modify-certificate-blueprint.docx",
-      };
+      const outputBundleId = String((state.taskContext && state.taskContext.output_bundle_id) || "").trim();
+      if (outputBundleId) {
+        const bundleRef = `bundle:${outputBundleId}`;
+        if (exists(bundleRef)) return bundleRef;
+      }
       const taskDefaultRaw = String((state.taskContext && state.taskContext.export_template_name) || "").trim();
       const taskDefaultBase = taskDefaultRaw.split(/[\\/]/).pop() || taskDefaultRaw;
-      const taskDefaultName = legacyNameMap[taskDefaultBase] || taskDefaultBase;
+      const taskDefaultName = taskDefaultBase;
       if (exists(taskDefaultName)) return taskDefaultName;
-      const configuredRaw = String((state.runtime && state.runtime.modifyCertificateBlueprintTemplateName) || "modify-certificate-blueprint.docx").trim();
-      const configuredBlueprint = legacyNameMap[configuredRaw] || configuredRaw;
+      const configuredBlueprint = String((state.runtime && state.runtime.modifyCertificateBlueprintTemplateName) || "modify-certificate-blueprint.docx").trim();
       if (exists(configuredBlueprint)) return configuredBlueprint;
       const itemTemplateRaw = String((item && item.templateName) || "").trim();
-      const itemTemplateName = legacyNameMap[itemTemplateRaw] || itemTemplateRaw;
+      const itemTemplateName = itemTemplateRaw;
       if (exists(itemTemplateName)) return itemTemplateName;
       const firstDocx = templates.find((x) => /\.docx$/i.test(x));
       if (firstDocx) return firstDocx;

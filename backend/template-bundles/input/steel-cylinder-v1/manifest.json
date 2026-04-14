@@ -1,0 +1,19 @@
+{
+  "bundleId": "input.steel-cylinder.v1",
+  "displayName": "钢质无缝气瓶定期检验导入模板",
+  "version": "1.0.0",
+  "kind": "input",
+  "enabled": true,
+  "description": "钢质无缝气瓶定期检验与评定记录导入资料包",
+  "entries": {
+    "schema": "schema.csv",
+    "rules": "rules.json",
+    "companion": []
+  },
+  "documentType": "cylinder_inspection",
+  "businessType": "periodic_inspection",
+  "tags": ["cylinder", "inspection"],
+  "compatibility": {
+    "engine": "workbench"
+  }
+}
