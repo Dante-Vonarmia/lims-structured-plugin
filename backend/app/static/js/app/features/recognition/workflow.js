@@ -17,6 +17,7 @@ import { processSchemaRowInGroups, waitMs } from "./pipeline/group-pipeline.js";
 import { createReplaceSourceWithRowsProgressively } from "./pipeline/progressive-rows.js";
 import { handleForcedExcelSingleBranch } from "./pipeline/process-item-forced-excel.js";
 import { handleExcelSingleBranch } from "./pipeline/process-item-excel.js";
+import { handleRecordRowBranch } from "./pipeline/process-item-record-row.js";
 
 export function createRecognitionWorkflowFeature(deps = {}) {
   const {
@@ -56,17 +57,13 @@ export function createRecognitionWorkflowFeature(deps = {}) {
     const forcedMode = String(item && item.recognitionOverride ? item.recognitionOverride : "").trim().toLowerCase();
     const forceAsExcel = forcedMode === "excel";
     const forceAsWord = forcedMode === "word";
-    if (item.isRecordRow) {
-      if (!item.recognizedFields || typeof item.recognizedFields !== "object") {
-        item.recognizedFields = { ...(item.fields || {}) };
-      }
-      item.status = "ready";
-      if (!item.templateName) await applyAutoTemplateMatch(item, { force: true });
-      else item.message = "记录已就绪，可生成";
-      renderQueue();
-      renderTemplateSelect();
-      return;
-    }
+    const recordRowHandled = await handleRecordRowBranch({
+      item,
+      applyAutoTemplateMatch,
+      renderQueue,
+      renderTemplateSelect,
+    });
+    if (recordRowHandled) return;
     const forcedExcelHandled = await handleForcedExcelSingleBranch({
       item,
       forceAsExcel,
