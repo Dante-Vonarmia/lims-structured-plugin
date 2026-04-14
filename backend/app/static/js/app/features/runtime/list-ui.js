@@ -84,12 +84,12 @@ export function createRuntimeListUiFeature(deps = {}) {
     }
     const targetPaneTitle = $("targetPaneTitle");
     if (targetPaneTitle) {
-      targetPaneTitle.textContent = isModifyCertificate ? "" : "原始记录模板";
+      targetPaneTitle.textContent = isModifyCertificate ? "导出模版" : "原始记录模板";
     }
     const templateSearch = $("templateSearch");
     if (templateSearch) {
-      templateSearch.placeholder = isModifyCertificate ? "浏览并选择证书模板" : "搜索并选择模板";
-      templateSearch.style.display = isModifyCertificate ? "none" : "";
+      templateSearch.placeholder = isModifyCertificate ? "导出模版（当前固定）" : "搜索并选择模板";
+      templateSearch.readOnly = isModifyCertificate;
     }
     const useBlankTemplateBtn = $("useBlankTemplateBtn");
     if (useBlankTemplateBtn) {

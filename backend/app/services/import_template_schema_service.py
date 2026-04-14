@@ -7,6 +7,10 @@ from typing import Any
 
 from ..config import TEMPLATE_DIR
 
+_IMPORT_TEMPLATE_ALIAS = {
+    "导入模板-钢质无缝气瓶定期检验与评定记录.csv": "import-template-steel-cylinder-periodic-inspection.csv",
+}
+
 
 def _safe_read_text(path: Path) -> str:
     for encoding in ("utf-8-sig", "utf-8", "gb18030"):
@@ -38,13 +42,17 @@ def _resolve_template_csv_path(raw_path: str) -> Path | None:
     text = str(raw_path or "").strip()
     if not text:
         return None
+    if text in _IMPORT_TEMPLATE_ALIAS:
+        text = _IMPORT_TEMPLATE_ALIAS[text]
     path = Path(text)
     if path.is_absolute():
         if not path.exists():
             # Stored host absolute paths are invalid in container runtime.
-            path = TEMPLATE_DIR / path.name
+            normalized_name = _IMPORT_TEMPLATE_ALIAS.get(path.name, path.name)
+            path = TEMPLATE_DIR / normalized_name
     else:
-        path = TEMPLATE_DIR / path
+        normalized_name = _IMPORT_TEMPLATE_ALIAS.get(path.name, path.name)
+        path = TEMPLATE_DIR / normalized_name
     try:
         resolved = path.resolve()
     except Exception:

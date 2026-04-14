@@ -146,7 +146,7 @@ class DocxFillServiceTDD(unittest.TestCase):
         self.assertEqual(got, [("-27.2", "-33.2", "6.0"), ("-27.2", "-33.3", "6.1")])
 
     def test_should_fill_modify_certificate_continued_page_from_general_check_full(self) -> None:
-        template_path = BACKEND_DIR / "templates" / "修改证书蓝本.docx"
+        template_path = BACKEND_DIR / "templates" / "modify-certificate-blueprint.docx"
         with zipfile.ZipFile(template_path, "r") as zin:
             root = ET.fromstring(zin.read("word/document.xml"))
 
@@ -270,7 +270,7 @@ class DocxFillServiceTDD(unittest.TestCase):
         self.assertEqual(get_cell_text(cells[1]), "CC25-0202C-14")
 
     def test_should_copy_continued_page_table_from_source_in_modify_certificate_mode(self) -> None:
-        template_path = BACKEND_DIR / "templates" / "修改证书蓝本.docx"
+        template_path = BACKEND_DIR / "templates" / "modify-certificate-blueprint.docx"
         sentinel = "SOURCE_CONTINUED_PAGE_SENTINEL"
 
         with zipfile.ZipFile(template_path, "r") as zin:

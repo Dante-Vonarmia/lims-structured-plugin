@@ -1146,13 +1146,13 @@ export function createPreviewWorkflowFeature(deps = {}) {
           return;
         }
         revokeBlobUrl("target");
-        const blueprintTemplateName = String((state.runtime && state.runtime.modifyCertificateBlueprintTemplateName) || "修改证书蓝本.docx").trim();
-        if (!blueprintTemplateName) {
-          setPreviewPlaceholder("targetPreview", "修改证书蓝本未配置");
+        const previewTemplateName = resolveModifyPreviewTemplateName(item);
+        if (!previewTemplateName) {
+          setPreviewPlaceholder("targetPreview", "导出模版未配置");
           return;
         }
-        const tplBlob = await fetchBlob(`/api/templates/download?template_name=${encodeURIComponent(blueprintTemplateName)}`);
-        const tplExt = extFromName(blueprintTemplateName);
+        const tplBlob = await fetchBlob(`/api/templates/download?template_name=${encodeURIComponent(previewTemplateName)}`);
+        const tplExt = extFromName(previewTemplateName);
         if (tplExt === ".docx") {
           const docxReady = await ensureDocxLib();
           if (docxReady) {
@@ -1160,7 +1160,7 @@ export function createPreviewWorkflowFeature(deps = {}) {
             await renderDocx("targetPreview", buf);
             await injectEmbeddedReadonlyPreview("targetPreview", buf);
           } else {
-            const data = await runTemplateTextPreview(blueprintTemplateName);
+            const data = await runTemplateTextPreview(previewTemplateName);
             const text = String((data && data.text) || "").trim();
             const truncated = !!(data && data.truncated);
             const tail = truncated ? "\n\n[文本过长，已截断]" : "";
@@ -1217,6 +1217,29 @@ export function createPreviewWorkflowFeature(deps = {}) {
     } catch (error) {
       setPreviewPlaceholder("targetPreview", `${isModifyCertificate ? "导出预览" : "原始记录预览"}失败：${error.message || "unknown"}`);
     }
+  }
+
+  function resolveModifyPreviewTemplateName(item) {
+    const templates = Array.isArray(state.templates) ? state.templates.map((x) => String(x || "").trim()).filter(Boolean) : [];
+    if (!templates.length) return "";
+    const exists = (name) => !!name && templates.includes(name);
+    const legacyNameMap = {
+      "2026030604-大特.docx": "modify-certificate-blueprint.docx",
+      "修改证书蓝本.docx": "modify-certificate-blueprint.docx",
+    };
+    const taskDefaultRaw = String((state.taskContext && state.taskContext.export_template_name) || "").trim();
+    const taskDefaultBase = taskDefaultRaw.split(/[\\/]/).pop() || taskDefaultRaw;
+    const taskDefaultName = legacyNameMap[taskDefaultBase] || taskDefaultBase;
+    if (exists(taskDefaultName)) return taskDefaultName;
+    const configuredRaw = String((state.runtime && state.runtime.modifyCertificateBlueprintTemplateName) || "modify-certificate-blueprint.docx").trim();
+    const configuredBlueprint = legacyNameMap[configuredRaw] || configuredRaw;
+    if (exists(configuredBlueprint)) return configuredBlueprint;
+    const itemTemplateRaw = String((item && item.templateName) || "").trim();
+    const itemTemplateName = legacyNameMap[itemTemplateRaw] || itemTemplateRaw;
+    if (exists(itemTemplateName)) return itemTemplateName;
+    const firstDocx = templates.find((x) => /\.docx$/i.test(x));
+    if (firstDocx) return firstDocx;
+    return templates[0] || "";
   }
 
   function normalizePreviewText(value) {

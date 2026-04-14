@@ -222,7 +222,7 @@ def _prefer_docx(templates: list[str]) -> str:
 
 def _infer_fixed_handler_key(template_name: str) -> str | None:
     normalized = _normalize_for_match(template_name)
-    if "修改证书蓝本" in template_name:
+    if "修改证书蓝本" in template_name or "modify-certificate-blueprint" in normalized or "modify_certificate_blueprint" in normalized:
         return "modify_certificate_blueprint"
     if re.search(r"r[-_ ]?802b", normalized, flags=re.IGNORECASE):
         return "r802b"

@@ -295,6 +295,7 @@ import {
       refreshSourceViewButtons,
       refreshRightViewTabs,
       syncGenerateModeUiText,
+      getGenerateMode,
       setFullscreenButtonUi,
       resolveBlankTemplateName,
       isExcelItem,
@@ -306,7 +307,7 @@ import {
         const data = await loadRuntimeConfigApi();
         state.runtime.offlineMode = !!data.offline_mode;
         state.runtime.modifyCertificateBlueprintTemplateName = String(
-          (data && data.modify_certificate_blueprint_template_name) || "修改证书蓝本.docx",
+          (data && data.modify_certificate_blueprint_template_name) || "modify-certificate-blueprint.docx",
         ).trim();
       } catch (_) {
         // noop
@@ -374,9 +375,15 @@ import {
     function getTaskDefaultTemplateName() {
       const raw = String((state.taskContext && state.taskContext.export_template_name) || "").trim();
       if (!raw) return "";
-      const fileName = raw.split(/[\\/]/).pop() || "";
+      const legacyNameMap = {
+        "2026030604-大特.docx": "modify-certificate-blueprint.docx",
+        "修改证书蓝本.docx": "modify-certificate-blueprint.docx",
+      };
+      const fileNameRaw = raw.split(/[\\/]/).pop() || "";
+      const fileName = legacyNameMap[fileNameRaw] || fileNameRaw;
       if (fileName && state.templates.includes(fileName)) return fileName;
-      if (state.templates.includes(raw)) return raw;
+      const normalizedRaw = legacyNameMap[raw] || raw;
+      if (state.templates.includes(normalizedRaw)) return normalizedRaw;
       return "";
     }
 

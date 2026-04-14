@@ -419,6 +419,12 @@ export function createBindEventsFeature(deps = {}) {
           } else {
             state.selectedIds.delete(id);
           }
+          if (target.checked) {
+            state.activeId = id;
+          } else if (state.activeId === id) {
+            const nextSelected = Array.from(state.selectedIds)[0] || "";
+            state.activeId = nextSelected;
+          }
           updateSelectedCountText();
           refreshActionButtons();
           refreshTargetFieldFormBySelection();
@@ -434,6 +440,12 @@ export function createBindEventsFeature(deps = {}) {
             if (target.checked) state.selectedIds.add(item.id);
             else state.selectedIds.delete(item.id);
           });
+          if (target.checked) {
+            const firstVisible = visibleItems[0];
+            if (firstVisible && firstVisible.id) state.activeId = firstVisible.id;
+          } else if (state.activeId && !state.selectedIds.has(state.activeId)) {
+            state.activeId = "";
+          }
           renderQueue();
           refreshTargetFieldFormBySelection();
           renderSourceFieldList(getActiveItem());

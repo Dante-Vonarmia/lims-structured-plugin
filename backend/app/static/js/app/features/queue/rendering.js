@@ -19,6 +19,7 @@ export function createQueueRenderingFeature(deps = {}) {
     refreshSourceViewButtons,
     refreshRightViewTabs,
     syncGenerateModeUiText,
+    getGenerateMode,
     setFullscreenButtonUi,
     resolveBlankTemplateName,
     isExcelItem,
@@ -154,6 +155,30 @@ export function createQueueRenderingFeature(deps = {}) {
     const search = $("templateSearch");
     const blankBtn = $("useBlankTemplateBtn");
     const sourceTemplates = state.templates;
+    const generateMode = typeof getGenerateMode === "function" ? getGenerateMode() : "";
+    const isModifyCertificate = generateMode === "source_file";
+    const resolveModifyTemplateName = () => {
+      const templates = Array.isArray(state.templates) ? state.templates.map((x) => String(x || "").trim()).filter(Boolean) : [];
+      if (!templates.length) return "";
+      const exists = (name) => !!name && templates.includes(name);
+      const legacyNameMap = {
+        "2026030604-大特.docx": "modify-certificate-blueprint.docx",
+        "修改证书蓝本.docx": "modify-certificate-blueprint.docx",
+      };
+      const taskDefaultRaw = String((state.taskContext && state.taskContext.export_template_name) || "").trim();
+      const taskDefaultBase = taskDefaultRaw.split(/[\\/]/).pop() || taskDefaultRaw;
+      const taskDefaultName = legacyNameMap[taskDefaultBase] || taskDefaultBase;
+      if (exists(taskDefaultName)) return taskDefaultName;
+      const configuredRaw = String((state.runtime && state.runtime.modifyCertificateBlueprintTemplateName) || "modify-certificate-blueprint.docx").trim();
+      const configuredBlueprint = legacyNameMap[configuredRaw] || configuredRaw;
+      if (exists(configuredBlueprint)) return configuredBlueprint;
+      const itemTemplateRaw = String((item && item.templateName) || "").trim();
+      const itemTemplateName = legacyNameMap[itemTemplateRaw] || itemTemplateRaw;
+      if (exists(itemTemplateName)) return itemTemplateName;
+      const firstDocx = templates.find((x) => /\.docx$/i.test(x));
+      if (firstDocx) return firstDocx;
+      return templates[0] || "";
+    };
     select.innerHTML = '<option value="">请选择模板</option>';
     if (datalist) datalist.innerHTML = "";
     sourceTemplates.forEach((name) => {
@@ -167,7 +192,9 @@ export function createQueueRenderingFeature(deps = {}) {
         datalist.appendChild(itemOpt);
       }
     });
-    const value = item && item.templateName && state.templates.includes(item.templateName) ? item.templateName : "";
+    const value = isModifyCertificate
+      ? resolveModifyTemplateName()
+      : (item && item.templateName && state.templates.includes(item.templateName) ? item.templateName : "");
     select.value = value;
     if (search) search.value = value;
     if (blankBtn) {

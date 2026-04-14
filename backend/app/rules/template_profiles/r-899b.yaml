@@ -1,6 +1,8 @@
 code: r-899b
-template_name: "2026030604-大特.docx"
+template_name: "modify-certificate-blueprint.docx"
 template_aliases:
+  - "modify-certificate-blueprint.docx"
+  - "modify-certificate-blueprint"
   - "2026030604-大特.docx"
   - "2026030604-大特"
 editor:
