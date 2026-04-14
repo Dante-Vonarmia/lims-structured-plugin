@@ -790,6 +790,7 @@ tr.row-generated.active { background: #dceddf; }
 #sourcePreviewPanel.source-tab-panel.is-active {
   display: grid;
   min-height: 0;
+  position: relative;
 }
 
 #sourceFieldsPanel.source-tab-panel.is-active {
@@ -1072,6 +1073,16 @@ tr.row-generated.active { background: #dceddf; }
 
 .schema-record-table {
   min-width: 1400px;
+  table-layout: auto;
+}
+
+.schema-record-table th,
+.schema-record-table td {
+  min-width: 72px;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  word-break: break-word;
 }
 
 .source-recog-block-table th {
@@ -1259,6 +1270,7 @@ tr.row-generated.active { background: #dceddf; }
   grid-template-rows: auto 1fr;
   gap: 6px;
   min-height: 0;
+  position: relative;
 }
 
 #rightPreviewPanel .pane-head {
@@ -1605,6 +1617,21 @@ tr.row-generated.active { background: #dceddf; }
   border-radius: 4px;
 }
 
+.preview-zoom-overlay.in-toolbar {
+  position: sticky;
+  top: 4px;
+  right: 6px;
+  margin-left: auto;
+  z-index: 1200;
+}
+
+.preview-zoom-overlay.in-preview {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1300;
+}
+
 .preview-zoom-overlay button,
 .preview-zoom-overlay select {
   height: 24px;
@@ -1641,6 +1668,13 @@ tr.row-generated.active { background: #dceddf; }
   border: 0;
   min-height: 100%;
   display: block;
+}
+
+/* Source image preview: prefer intrinsic size and scrolling over forced fill. */
+#sourcePreview > img {
+  width: auto;
+  max-width: none;
+  min-height: 0;
 }
 
 .foot {

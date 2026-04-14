@@ -49,6 +49,8 @@ export function createBindEventsFeature(deps = {}) {
     setRightViewMode,
     setSourceViewMode,
     setStatus,
+    updateTaskStatusApi,
+    saveWorkspaceDraft,
     syncGenerateModeUiText,
     shiftDateText,
     triggerDownload,
@@ -80,10 +82,25 @@ export function createBindEventsFeature(deps = {}) {
     function ensurePreviewZoomOverlay(previewId) {
       const root = $(previewId);
       if (!(root instanceof HTMLElement)) return null;
-      let overlay = root.querySelector(`.preview-zoom-overlay[data-preview-id="${previewId}"]`);
+      const getOverlayHost = () => {
+        if (previewId === "sourcePreview") {
+          const host = $("sourcePreviewPanel");
+          if (host instanceof HTMLElement) return host;
+        }
+        if (previewId === "targetPreview") {
+          const host = $("rightPreviewPanel");
+          if (host instanceof HTMLElement) return host;
+        }
+        return root;
+      };
+      const host = getOverlayHost();
+      let overlay = document.querySelector(`.preview-zoom-overlay[data-preview-id="${previewId}"]`);
+      if (overlay instanceof HTMLElement && overlay.parentElement !== host) {
+        host.appendChild(overlay);
+      }
       if (!(overlay instanceof HTMLElement)) {
         overlay = document.createElement("div");
-        overlay.className = "preview-zoom-overlay";
+        overlay.className = "preview-zoom-overlay in-preview";
         overlay.setAttribute("data-preview-id", previewId);
         overlay.innerHTML = [
           `<button type="button" data-preview-zoom-action="out" data-preview-id="${previewId}" title="缩小" aria-label="缩小"><i class="fa-solid fa-magnifying-glass-minus" aria-hidden="true"></i></button>`,
@@ -91,7 +108,10 @@ export function createBindEventsFeature(deps = {}) {
           `<button type="button" data-preview-zoom-action="in" data-preview-id="${previewId}" title="放大" aria-label="放大"><i class="fa-solid fa-magnifying-glass-plus" aria-hidden="true"></i></button>`,
           `<button type="button" data-preview-zoom-action="fit" data-preview-id="${previewId}" title="适应页宽" aria-label="适应页宽"><i class="fa-solid fa-left-right" aria-hidden="true"></i></button>`,
         ].join("");
-        root.appendChild(overlay);
+        host.appendChild(overlay);
+      } else {
+        overlay.classList.remove("in-toolbar");
+        overlay.classList.add("in-preview");
       }
       if (overlay.getAttribute("data-bound") !== "1") {
         overlay.addEventListener("click", (event) => {
@@ -205,11 +225,18 @@ export function createBindEventsFeature(deps = {}) {
       const scale = stateObj.mode === "fit_width"
         ? calcFitWidthScale(previewId)
         : (clampPreviewZoomPercent(stateObj.percent) / 100);
+      const isImage = contentEl.tagName === "IMG";
       contentEl.style.transformOrigin = "top left";
       contentEl.style.transform = `scale(${scale})`;
-      contentEl.style.width = `${100 / scale}%`;
-      if (contentEl.tagName === "IFRAME") contentEl.style.height = `${100 / scale}%`;
-      else contentEl.style.height = "";
+      if (isImage) {
+        // Keep source image at intrinsic size; let container scroll instead of forced fit.
+        contentEl.style.width = "";
+        contentEl.style.height = "";
+      } else {
+        contentEl.style.width = `${100 / scale}%`;
+        if (contentEl.tagName === "IFRAME") contentEl.style.height = `${100 / scale}%`;
+        else contentEl.style.height = "";
+      }
       if (stateObj.mode === "fit_width") stateObj.percent = clampPreviewZoomPercent(Math.round(scale * 100));
       syncPreviewZoomUi(previewId);
     }
@@ -520,11 +547,16 @@ export function createBindEventsFeature(deps = {}) {
         appendLog(`新增 ${supported.length} 个文件到队列`);
         if (extSet.size > 1) appendLog("提示：本次上传包含多种来源类型，建议按同类型分批上传。");
         if (skipped > 0) appendLog(`已忽略 ${skipped} 个不支持文件`);
+        const taskId = String((state.taskContext && state.taskContext.id) || "").trim();
+        if (taskId && typeof updateTaskStatusApi === "function") {
+          void updateTaskStatusApi(taskId, "草稿").catch(() => {});
+        }
       };
 
       const headerExitBtn = $("headerExitBtn");
       if (headerExitBtn) {
-        headerExitBtn.addEventListener("click", () => {
+        headerExitBtn.addEventListener("click", async () => {
+          if (typeof saveWorkspaceDraft === "function") await saveWorkspaceDraft();
           window.location.assign("/tasks");
         });
       }
@@ -1267,6 +1299,10 @@ export function createBindEventsFeature(deps = {}) {
           await triggerDownload(item.reportDownloadUrl, item.reportFileName || item.templateName || item.fileName || "report.docx");
           item.status = "generated";
           item.message = "已导出";
+          const taskId = String((state.taskContext && state.taskContext.id) || "").trim();
+          if (taskId && typeof updateTaskStatusApi === "function") {
+            await updateTaskStatusApi(taskId, "已生成");
+          }
           renderQueue();
           setStatus(`已导出：${item.fileName}`);
         } catch (error) {
