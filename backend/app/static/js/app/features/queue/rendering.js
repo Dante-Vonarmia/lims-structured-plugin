@@ -59,6 +59,13 @@ export function createQueueRenderingFeature(deps = {}) {
     const wrap = $("queueList");
     wrap.classList.remove("is-empty", "has-data");
     state.selectedIds = new Set(state.queue.filter((x) => state.selectedIds.has(x.id)).map((x) => x.id));
+    const idSet = new Set(state.queue.map((x) => String((x && x.id) || "")));
+    if (!idSet.has(String(state.activeId || ""))) {
+      state.activeId = state.queue[0] ? String(state.queue[0].id || "") : "";
+    }
+    if (!state.selectedIds.size && state.activeId) {
+      state.selectedIds.add(state.activeId);
+    }
     if (!state.queue.length) {
       wrap.classList.add("is-empty");
       wrap.innerHTML = '<div class="queue-empty-placeholder">上传文件（也可拖拽文件/文件夹到此处）</div>';

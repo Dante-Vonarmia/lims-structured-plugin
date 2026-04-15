@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import config
@@ -35,8 +35,8 @@ def validate_frontend_constants_structure() -> None:
 
 
 @app.get("/")
-def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html", headers=NO_CACHE_HEADERS)
+def index() -> RedirectResponse:
+    return RedirectResponse(url="/tasks", status_code=307)
 
 
 @app.get("/login")

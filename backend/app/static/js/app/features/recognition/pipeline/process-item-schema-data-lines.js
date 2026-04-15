@@ -1,4 +1,4 @@
-import { applyCarryForwardRows, mapLineToSchemaFields, splitTableDataLines } from "./row-pipeline.js";
+import { applyCarryForwardRows, mapLineToSchemaFieldsWithTrace, splitTableDataLines } from "./row-pipeline.js";
 import { processSchemaRowInGroups } from "./group-pipeline.js";
 import { syncPipelineFromFields } from "./schema-utils.js";
 
@@ -19,7 +19,9 @@ export async function handleDataLinesPath(deps = {}) {
   if (!dataLines.length) return false;
 
   const recordRows = dataLines.map((line, idx) => {
-    const mapped = mapLineToSchemaFields(line, schemaColumns, schemaRules);
+    const mappedWithTrace = mapLineToSchemaFieldsWithTrace(line, schemaColumns, schemaRules);
+    const mapped = mappedWithTrace.mapped || {};
+    const trace = Array.isArray(mappedWithTrace.trace) ? mappedWithTrace.trace : [];
     const groupResult = processSchemaRowInGroups({
       rowFields: {},
       rawMapped: mapped,
@@ -67,6 +69,11 @@ export async function handleDataLinesPath(deps = {}) {
       reportGenerateMode: "",
       modeReports: {},
       generalCheckStruct: null,
+      ocrDebug: {
+        mode: "data_lines",
+        line,
+        trace,
+      },
     };
   });
   applyCarryForwardRows(recordRows, schemaColumns, schemaRules);

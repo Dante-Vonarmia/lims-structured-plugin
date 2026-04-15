@@ -53,6 +53,7 @@ export async function handleGeneralBranch(deps = {}) {
   renderQueue();
   const ocr = await runOcr(item.fileId);
   item.rawText = ocr.raw_text || "";
+  item.ocrEngine = String((ocr && ocr.engine) || "").trim();
   item.ocrStructured = (ocr && ocr.structured) || {};
   const structuredRowsRaw = Array.isArray(item.ocrStructured && item.ocrStructured.row_records)
     ? item.ocrStructured.row_records
@@ -79,6 +80,7 @@ export async function handleGeneralBranch(deps = {}) {
     replaceSourceWithRowsProgressively,
     appendLog,
     structuredRowsRaw,
+    ocrEngine: item.ocrEngine,
   });
   if (schemaHandled) return;
   await handleNonSchemaBranch({

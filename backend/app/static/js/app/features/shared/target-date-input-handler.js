@@ -2,7 +2,7 @@ export function createTargetDateInputHandler(deps = {}) {
   const {
     $,
     shiftDateText,
-    applyDateLinkageRules,
+    applyDateLinkageRules = null,
   } = deps;
 
   function normalizeDigits(raw, maxLen) {
@@ -86,7 +86,7 @@ export function createTargetDateInputHandler(deps = {}) {
     else hiddenInput.removeAttribute("data-date-exact");
     hiddenInput.dispatchEvent(new Event(eventType === "change" ? "change" : "input", { bubbles: true }));
 
-    if (formRoot instanceof HTMLElement) {
+    if (formRoot instanceof HTMLElement && typeof applyDateLinkageRules === "function") {
       const fields = {
         receive_date: readDateField(formRoot, "receive_date"),
         calibration_date: readDateField(formRoot, "calibration_date"),
@@ -109,4 +109,3 @@ export function createTargetDateInputHandler(deps = {}) {
     handleTargetDateInput,
   };
 }
-

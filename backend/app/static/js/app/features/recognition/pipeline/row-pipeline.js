@@ -41,7 +41,7 @@ export function splitTableDataLines(rawText, rules = {}) {
   return [];
 }
 
-export function mapLineToSchemaFields(line, columns, rules = {}) {
+function mapLineToSchemaFieldsInternal(line, columns, rules = {}) {
   const cols = Array.isArray(columns) ? columns : [];
   const rawLine = String(line || "").trim();
   const fieldRules = (rules && typeof rules.field_rules === "object" && rules.field_rules) ? rules.field_rules : {};
@@ -97,6 +97,7 @@ export function mapLineToSchemaFields(line, columns, rules = {}) {
     .trim();
   const tokens = cleaned.split(/\s+/).filter(Boolean);
   const mapped = {};
+  const trace = [];
   if (!cols.length || !tokens.length) return mapped;
   const dateText = detectDate();
   const isNumericLikeLabel = (label) => {
@@ -226,42 +227,50 @@ export function mapLineToSchemaFields(line, columns, rules = {}) {
     if (ruleType === "date" || label === "检验日期") {
       const token = peekToken(0, { allowMarkers: true });
       if (!token || shouldReserveBlankSlot(i, token, col, rule, true)) {
-        mapped[key] = dateText || "";
-        continue;
-      }
-      consumeToken({ allowMarkers: true });
-      mapped[key] = normalizeDateToken(token) || dateText || "";
+      mapped[key] = dateText || "";
+      trace.push({ columnKey: key, columnLabel: label, token: "", mappedValue: mapped[key], reservedBlank: true, ruleType: String(rule.type || "").trim() || "date" });
       continue;
     }
+    consumeToken({ allowMarkers: true });
+    mapped[key] = normalizeDateToken(token) || dateText || "";
+    trace.push({ columnKey: key, columnLabel: label, token, mappedValue: mapped[key], reservedBlank: false, ruleType: String(rule.type || "").trim() || "date" });
+    continue;
+  }
     if (ruleType === "date_or_dash" || label === "上次检验日期") {
       const token = peekToken(0, { allowMarkers: true });
       if (!token || shouldReserveBlankSlot(i, token, col, rule, true)) {
-        mapped[key] = "";
-        continue;
-      }
-      consumeToken({ allowMarkers: true });
+      mapped[key] = "";
+      trace.push({ columnKey: key, columnLabel: label, token: "", mappedValue: "", reservedBlank: true, ruleType: String(rule.type || "").trim() || "date_or_dash" });
+      continue;
+    }
+    consumeToken({ allowMarkers: true });
       const dashTokens = Array.isArray(rule.dash_tokens) ? rule.dash_tokens.map((x) => String(x || "")).filter(Boolean) : ["/", "／", "\\", "＼"];
       const dashHit = dashTokens.some((mark) => token === mark);
       mapped[key] = dashHit ? "-" : (normalizeDateToken(token) || "");
+      trace.push({ columnKey: key, columnLabel: label, token, mappedValue: mapped[key], reservedBlank: false, ruleType: String(rule.type || "").trim() || "date_or_dash" });
       continue;
     }
     if (ruleType === "checkbox_choice" || label === "瓶阀检验") {
       mapped[key] = detectValveSelection(rule) || "";
+      trace.push({ columnKey: key, columnLabel: label, token: "", mappedValue: mapped[key], reservedBlank: false, ruleType: "checkbox_choice" });
       continue;
     }
     if (ruleType === "optional_blank" || label === "检验员" || label === "审核员") {
       mapped[key] = "";
+      trace.push({ columnKey: key, columnLabel: label, token: "", mappedValue: "", reservedBlank: true, ruleType: "optional_blank" });
       continue;
     }
     if (ruleType === "code" || ruleType === "loose_text" || label === "产权代码编号") {
       const token = peekToken();
       if (!token || shouldReserveBlankSlot(i, token, col, rule, false)) {
         mapped[key] = "";
+        trace.push({ columnKey: key, columnLabel: label, token: token || "", mappedValue: "", reservedBlank: true, ruleType: ruleType || "code" });
         continue;
       }
       const normalizedPreview = normalizeTextToken(token, rule);
       if (label === "产权代码编号" && isLikelyOwnerBlankCodeToken(normalizedPreview)) {
         mapped[key] = "";
+        trace.push({ columnKey: key, columnLabel: label, token, mappedValue: "", reservedBlank: true, ruleType: ruleType || "code" });
         continue;
       }
       consumeToken();
@@ -274,16 +283,19 @@ export function mapLineToSchemaFields(line, columns, rules = {}) {
       } else {
         mapped[key] = new RegExp(`^[A-Za-z0-9一-龥\\-]{2,${Number.isFinite(maxLen) ? maxLen : 16}}$`).test(normalized) ? normalized : "";
       }
+      trace.push({ columnKey: key, columnLabel: label, token, mappedValue: mapped[key], reservedBlank: false, ruleType: ruleType || "code" });
       continue;
     }
     const token = peekToken();
     if (!token || shouldReserveBlankSlot(i, token, col, rule, false)) {
       mapped[key] = "";
+      trace.push({ columnKey: key, columnLabel: label, token: token || "", mappedValue: "", reservedBlank: true, ruleType: ruleType || "text" });
       continue;
     }
     if (ruleType === "number") {
       consumeToken();
       mapped[key] = normalizeNumericToken(normalizeTextToken(token, rule)) || "";
+      trace.push({ columnKey: key, columnLabel: label, token, mappedValue: mapped[key], reservedBlank: false, ruleType: "number" });
       continue;
     }
     if (ruleType === "text") {
@@ -291,16 +303,27 @@ export function mapLineToSchemaFields(line, columns, rules = {}) {
       const choices = Array.isArray(rule.choices) ? rule.choices.map((x) => String((x && x.label) || "").trim()).filter(Boolean) : [];
       if (choices.length && !choices.includes(normalized)) {
         mapped[key] = "";
+        trace.push({ columnKey: key, columnLabel: label, token, mappedValue: "", reservedBlank: true, ruleType: "text" });
         continue;
       }
       consumeToken();
       mapped[key] = normalized;
+      trace.push({ columnKey: key, columnLabel: label, token, mappedValue: mapped[key], reservedBlank: false, ruleType: "text" });
       continue;
     }
     consumeToken();
     mapped[key] = normalizeTextToken(token, rule);
+    trace.push({ columnKey: key, columnLabel: label, token, mappedValue: mapped[key], reservedBlank: false, ruleType: ruleType || "text" });
   }
-  return mapped;
+  return { mapped, trace };
+}
+
+export function mapLineToSchemaFields(line, columns, rules = {}) {
+  return mapLineToSchemaFieldsInternal(line, columns, rules).mapped;
+}
+
+export function mapLineToSchemaFieldsWithTrace(line, columns, rules = {}) {
+  return mapLineToSchemaFieldsInternal(line, columns, rules);
 }
 
 export function applySchemaRulesToMappedFields(mappedInput, columns, rules = {}) {
@@ -482,4 +505,3 @@ export function applyCarryForwardRows(rows, columns, rules = {}) {
   }
   return list;
 }
-

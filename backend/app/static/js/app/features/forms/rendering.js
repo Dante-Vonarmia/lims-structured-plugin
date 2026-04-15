@@ -113,6 +113,7 @@ export function createFormRenderingFeature(deps = {}) {
 
     const sourceName = String(item.sourceFileName || item.fileName || "").trim();
     const rowText = item.isRecordRow ? `行 ${Number(item.rowNumber || 0) || 1}` : "待拆行";
+    const ocrDebug = (item && item.ocrDebug && typeof item.ocrDebug === "object") ? item.ocrDebug : null;
     const sourceGroupScope = `source:${item.id || item.fileName || ""}`;
     const infoGroupHtml = infoFields.length
       ? (() => {
@@ -140,6 +141,47 @@ export function createFormRenderingFeature(deps = {}) {
         `;
       })()
       : "";
+    const debugGroupHtml = (() => {
+      if (!ocrDebug) return "";
+      const debugTitle = "列调试（临时）";
+      const debugGroupKey = `${sourceGroupScope}:debug:${debugTitle}`;
+      const debugCollapsed = !!state.sourceFieldGroupCollapsed[debugGroupKey];
+      const debugToggleHtml = `<button type="button" class="source-recog-group-toggle" data-group-toggle="1" data-group-key="${escapeAttr(debugGroupKey)}" aria-expanded="${debugCollapsed ? "false" : "true"}" title="${debugCollapsed ? "展开" : "收起"}">${debugCollapsed ? "▶" : "▼"}</button>`;
+      const summaryParts = [];
+      if (ocrDebug.engine) summaryParts.push(`engine=${String(ocrDebug.engine)}`);
+      if (typeof ocrDebug.structuredRowsCount === "number") summaryParts.push(`structuredRows=${ocrDebug.structuredRowsCount}`);
+      if (typeof ocrDebug.tableCellsCount === "number") summaryParts.push(`tableCells=${ocrDebug.tableCellsCount}`);
+      if (typeof ocrDebug.reviewQueueCount === "number") summaryParts.push(`reviewQueue=${ocrDebug.reviewQueueCount}`);
+      if (ocrDebug.reason) summaryParts.push(`reason=${String(ocrDebug.reason)}`);
+      const traceRows = Array.isArray(ocrDebug.trace) ? ocrDebug.trace : [];
+      const traceTableHtml = traceRows.length
+        ? `
+          <table class="source-recog-block-table source-field-table">
+            <thead><tr><th>列</th><th>token</th><th>映射值</th><th>状态</th></tr></thead>
+            <tbody>
+              ${traceRows.map((x) => `
+                <tr>
+                  <td>${escapeHtml(String(x.columnLabel || x.columnKey || ""))}</td>
+                  <td>${escapeHtml(String(x.token || ""))}</td>
+                  <td>${escapeHtml(String(x.mappedValue || ""))}</td>
+                  <td>${x.reservedBlank ? '<span class="source-recog-empty">保留空槽</span>' : '已映射'}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        `
+        : '<div class="source-recog-empty">无列 trace</div>';
+      return `
+        <div class="source-recog-group ${debugCollapsed ? "is-collapsed" : ""}">
+          <div class="source-recog-group-title">
+            ${debugToggleHtml}
+            <span class="source-recog-group-title-text">${escapeHtml(debugTitle)}</span>
+            ${summaryParts.length ? `<span class="source-group-summary">${escapeHtml(summaryParts.join(" / "))}</span>` : ""}
+          </div>
+          ${debugCollapsed ? "" : `<div class="source-recog-block source-recog-block-formatted">${traceTableHtml}</div>`}
+        </div>
+      `;
+    })();
     el.innerHTML = `
       <div class="source-recog-group">
         <div class="source-recog-group-title">
@@ -147,6 +189,7 @@ export function createFormRenderingFeature(deps = {}) {
           <span class="source-group-summary">${escapeHtml(sourceName)} / ${escapeHtml(rowText)}</span>
         </div>
       </div>
+      ${debugGroupHtml}
       ${infoGroupHtml}
       ${groupHtml || '<div class="source-recog-block">模板分组未定义</div>'}
     `;

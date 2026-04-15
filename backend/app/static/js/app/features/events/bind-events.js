@@ -1,4 +1,3 @@
-import { applyDateLinkageRules } from "../shared/date-linkage.js";
 import { createTargetDateInputHandler } from "../shared/target-date-input-handler.js";
 import { createPreviewZoomBindings } from "./preview-zoom.js";
 import { createTemplateNavigationBindings } from "./template-navigation.js";
@@ -71,7 +70,6 @@ export function createBindEventsFeature(deps = {}) {
     const { handleTargetDateInput } = createTargetDateInputHandler({
       $,
       shiftDateText,
-      applyDateLinkageRules,
     });
     const { bindPreviewZoomOverlayEvents } = createPreviewZoomBindings({ $ });
     const {

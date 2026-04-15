@@ -1,4 +1,5 @@
 import { handleDocxMultiDevicePath } from "./process-item-docx-multi-device.js";
+import { handleFinalizeMatchPath } from "./process-item-finalize-match.js";
 
 export async function handleSingleRecordPath(deps = {}) {
   const {
@@ -43,12 +44,10 @@ export async function handleSingleRecordPath(deps = {}) {
     return;
   }
 
-  item.message = "识别结果整理中";
-  renderQueue();
-  item.templateName = "";
-  item.matchedBy = "";
-  item.templateUserSelected = false;
-  await applyAutoTemplateMatch(item, { force: true });
-  renderQueue();
-  renderTemplateSelect();
+  await handleFinalizeMatchPath({
+    item,
+    applyAutoTemplateMatch,
+    renderQueue,
+    renderTemplateSelect,
+  });
 }

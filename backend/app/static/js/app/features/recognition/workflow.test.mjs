@@ -222,3 +222,44 @@ test("D: integration regression with sample image fixture should keep row slots 
   assert.deepEqual(row2.recognizedFields, row2.fields);
   assert.deepEqual(row3.recognizedFields, row3.fields);
 });
+
+test("schema table branch should warn but keep text fallback when dense template has no structured result", async () => {
+  const columns = Array.from({ length: 37 }, (_, i) => ({
+    key: `col_${String(i + 1).padStart(2, "0")}`,
+    label: `列${i + 1}`,
+    index: i,
+  }));
+  const state = {
+    queue: [],
+    activeId: "",
+    taskContext: {
+      import_template_schema: {
+        columns,
+        groups: [{ name: "全表", columns }],
+        rules: { row_rules: { min_tokens: 6 }, field_rules: {} },
+      },
+    },
+  };
+  const source = buildSourceItem();
+  source.fileName = "大特测试.jpeg";
+  source.sourceFileName = "大特测试.jpeg";
+  state.queue.push(source);
+
+  const rawText = [
+    "2.11 金的 hr 15 A200441033 lu.5 15.0 49.0 5.0 20. 45.4 D 40.0 21.5 Zh hh 2.91 √ 口换阀 15.0 2 3 1.z",
+    "2.11 A WL HE147226 221.5 15.. 46.61 40.6 5.7 13.0 46.6 40. .$ h 148 3.04 口换阀 校阀 15.0 31.z",
+    "z-11 A GL A15016004 21.5 15-0147.9140.31 5.7 15 47.9 0 40.5 0 22.5 力h 14l 3.。 口换博 15.0 Z 31,2",
+  ].join("\n");
+  const feature = createRecognitionWorkflowFeature({
+    ...buildDeps({ state, rawText }),
+    runOcr: async () => ({ raw_text: rawText, engine: "rapid", structured: {} }),
+  });
+
+  await feature.processItem(source);
+
+  assert.equal(state.queue.length >= 1, true);
+  const row = state.queue[0];
+  assert.equal((row.ocrDebug && row.ocrDebug.mode) || "", "data_lines");
+  assert.equal(String((row.fields && row.fields.raw_record) || "").length > 0, true);
+  assert.equal(String((row.fields && row.fields.col_01) || "").length > 0, true);
+});

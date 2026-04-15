@@ -21,6 +21,8 @@ export async function handleSchemaTableBranch(deps = {}) {
     inferCategory,
     replaceSourceWithRowsProgressively,
     appendLog,
+    structuredRowsRaw,
+    ocrEngine,
   } = deps;
 
   if (!schemaColumns.length) return false;
@@ -45,6 +47,24 @@ export async function handleSchemaTableBranch(deps = {}) {
     renderQueue,
   });
   if (structuredRowsHandled) return true;
+  const structuredRowsCount = Array.isArray(structuredRowsRaw) ? structuredRowsRaw.length : 0;
+  const tableCellsCount = Array.isArray(tableCells) ? tableCells.length : 0;
+  const reviewQueueCount = Array.isArray(reviewQueue) ? reviewQueue.length : 0;
+  const isDenseFixedTemplate = schemaColumns.length >= 30;
+  const shouldWarnTextFallback = isDenseFixedTemplate && structuredRowsCount <= 0 && tableCellsCount <= 0;
+  item.ocrDebug = {
+    engine: String(ocrEngine || ""),
+    schemaColumns: schemaColumns.length,
+    structuredRowsCount,
+    tableCellsCount,
+    reviewQueueCount,
+    textFallbackBlocked: false,
+    textFallbackWarning: shouldWarnTextFallback,
+    reason: shouldWarnTextFallback ? "structured_table_not_hit_for_dense_template" : "",
+  };
+  if (shouldWarnTextFallback) {
+    appendLog(`结构化表格未命中，降级至文本行回退：${item.fileName}`);
+  }
   const dataLinesHandled = await handleDataLinesPath({
     item,
     schemaColumns,
