@@ -62,6 +62,7 @@ export function createBindEventsFeature(deps = {}) {
     syncGenerateModeUiText,
     shiftDateText,
     triggerDownload,
+    authorizeDownloadWindow,
     updateSelectedCountText,
     updateSourceDeviceNameText,
     validateItemForGeneration,
@@ -139,8 +140,10 @@ export function createBindEventsFeature(deps = {}) {
       setRightViewMode,
       setStatus,
       triggerDownload,
+      authorizeDownloadWindow,
       updateTaskStatusApi,
       getBlockDownloadUntil: () => blockDownloadUntil,
+      setBlockDownloadUntil: (next) => { blockDownloadUntil = Number(next) || 0; },
       setDownloadPointerArmed: (next) => { downloadPointerArmed = !!next; },
       isDownloadPointerArmed: () => !!downloadPointerArmed,
     });

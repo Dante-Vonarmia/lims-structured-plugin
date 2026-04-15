@@ -76,6 +76,17 @@ def download_uploaded_file(file_id: str) -> FileResponse:
     )
 
 
+@router.get("/upload/{file_id}/view")
+def view_uploaded_file(file_id: str) -> FileResponse:
+    file_path = _find_uploaded_file(file_id)
+    if not file_path:
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(
+        path=str(file_path),
+        media_type=_guess_media_type(file_path),
+    )
+
+
 def _resolve_suffix(file: UploadFile) -> str:
     suffix = Path(file.filename or "").suffix.lower()
     if suffix == ".pic":

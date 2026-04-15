@@ -705,7 +705,7 @@ import {
       persistTemplateDefaultMapping,
     });
 
-    const { generateAllReady, triggerDownload, exportAll, runExcelBatch } = createGenerationBatchFeature({
+    const { generateAllReady, triggerDownload, exportAll, runExcelBatch, authorizeDownloadWindow } = createGenerationBatchFeature({
       state,
       isExcelItem,
       processItem,
@@ -971,6 +971,7 @@ import {
       saveWorkspaceDraft,
       syncGenerateModeUiText,
       triggerDownload,
+      authorizeDownloadWindow,
       updateSelectedCountText,
       updateSourceDeviceNameText,
       validateItemForGeneration,

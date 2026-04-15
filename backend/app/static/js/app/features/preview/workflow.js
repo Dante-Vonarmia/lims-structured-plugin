@@ -23,6 +23,74 @@ export function createPreviewWorkflowFeature(deps = {}) {
     ensureDocxLib,
   } = deps;
 
+  async function fetchTemplatePreviewBlob(templateName) {
+    const encoded = encodeURIComponent(String(templateName || "").trim());
+    async function fetchTemplateBlobViaUrl(url) {
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) {
+        const e = new Error("加载失败");
+        e.status = res.status;
+        throw e;
+      }
+      return res.blob();
+    }
+    try {
+      return await fetchTemplateBlobViaUrl(`/api/templates/view?template_name=${encoded}`);
+    } catch (error) {
+      if (Number((error && error.status) || 0) !== 404) throw error;
+      // Backward compatibility: older backend instances may not expose /templates/view yet.
+      return fetchTemplateBlobViaUrl(`/api/templates/download?template_name=${encoded}`);
+    }
+  }
+
+  async function fetchUploadPreviewBlob(fileId) {
+    const encoded = encodeURIComponent(String(fileId || "").trim());
+    async function fetchUploadBlobViaUrl(url) {
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) {
+        const e = new Error("加载失败");
+        e.status = res.status;
+        throw e;
+      }
+      return res.blob();
+    }
+    return fetchUploadBlobViaUrl(`/api/upload/${encoded}/view`);
+  }
+
+  function resolvePreviewExtFromBlob(blob, nameCandidates = []) {
+    const type = String((blob && blob.type) || "").toLowerCase();
+    if (type.includes("wordprocessingml.document")) return ".docx";
+    if (type.includes("application/pdf")) return ".pdf";
+    if (type.includes("text/html")) return ".html";
+    if (type.startsWith("image/")) {
+      if (type.includes("jpeg")) return ".jpg";
+      if (type.includes("png")) return ".png";
+      if (type.includes("webp")) return ".webp";
+      if (type.includes("bmp")) return ".bmp";
+      if (type.includes("tiff")) return ".tiff";
+    }
+    for (const name of nameCandidates) {
+      const ext = extFromName(String(name || ""));
+      if (ext) return ext;
+    }
+    return "";
+  }
+
+  async function shouldRenderDocxBlob(blob, nameCandidates = []) {
+    const type = String((blob && blob.type) || "").toLowerCase();
+    if (type.includes("wordprocessingml.document")) return true;
+    for (const name of nameCandidates) {
+      if (extFromName(String(name || "")) === ".docx") return true;
+    }
+    if (!blob || typeof blob.arrayBuffer !== "function") return false;
+    try {
+      const head = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
+      return head.length >= 4 && head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04;
+    } catch (_) {
+      return false;
+    }
+  }
+
   function _escapeHtml(value) {
     return escapeHtml(String(value == null ? "" : value));
   }
@@ -937,7 +1005,7 @@ export function createPreviewWorkflowFeature(deps = {}) {
     if (targetHasImage || !item || !targetRootEl) return injected;
     try {
       if (item.isRecordRow) await ensureSourceFileId(item);
-      const sourceBlob = item.fileId ? await fetchBlob(`/api/upload/${item.fileId}/download`) : item.file;
+      const sourceBlob = item.fileId ? await fetchUploadPreviewBlob(item.fileId) : item.file;
       if (!sourceBlob || typeof sourceBlob.arrayBuffer !== "function") return injected;
       const sourceArrayBuffer = await sourceBlob.arrayBuffer();
       const sourceParsed = await _readDocxEmbeddedOnlyReadHtml(sourceArrayBuffer);
@@ -1031,7 +1099,7 @@ export function createPreviewWorkflowFeature(deps = {}) {
         return;
       }
       if (ext === ".docx") await ensureSourceFileId(item);
-      const sourceBlob = item.fileId ? await fetchBlob(`/api/upload/${item.fileId}/download`) : item.file;
+      const sourceBlob = item.fileId ? await fetchUploadPreviewBlob(item.fileId) : item.file;
       if (ext === ".docx") {
         const sourceArrayBuffer = await sourceBlob.arrayBuffer();
         await renderDocx("sourcePreview", sourceArrayBuffer);
@@ -1133,15 +1201,22 @@ export function createPreviewWorkflowFeature(deps = {}) {
         if (hasCurrentModeReport) {
           revokeBlobUrl("target");
           const blob = await fetchBlob(currentReportUrl);
-          const ext = extFromName(currentReportName || item.sourceFileName || item.fileName);
-          if (ext === ".docx") {
+          const shouldRenderDocx = await shouldRenderDocxBlob(blob, [
+            currentReportName,
+            item.reportFileName,
+            item.templateName,
+          ]);
+          const ext = resolvePreviewExtFromBlob(blob, [
+            currentReportName,
+            item.reportFileName,
+            item.templateName,
+          ]);
+          if (shouldRenderDocx || ext === ".docx") {
             const buf = await blob.arrayBuffer();
             await renderDocx("targetPreview", buf);
             await injectEmbeddedReadonlyPreview("targetPreview", buf);
           } else {
-            const url = URL.createObjectURL(blob);
-            state.blobUrls.target = url;
-            $("targetPreview").innerHTML = `<iframe src="${url}"></iframe>`;
+            setPreviewPlaceholder("targetPreview", "导出预览仅支持 Word 渲染（已阻止自动下载）");
           }
           return;
         }
@@ -1151,9 +1226,18 @@ export function createPreviewWorkflowFeature(deps = {}) {
           setPreviewPlaceholder("targetPreview", "导出模版未配置");
           return;
         }
-        const tplBlob = await fetchBlob(`/api/templates/download?template_name=${encodeURIComponent(previewTemplateName)}`);
-        const tplExt = extFromName(previewTemplateName);
-        if (tplExt === ".docx") {
+        const tplBlob = await fetchTemplatePreviewBlob(previewTemplateName);
+        const shouldRenderTplDocx = await shouldRenderDocxBlob(tplBlob, [
+          previewTemplateName,
+          item.templateName,
+          currentReportName,
+        ]);
+        const tplExt = resolvePreviewExtFromBlob(tplBlob, [
+          previewTemplateName,
+          item.templateName,
+          currentReportName,
+        ]);
+        if (shouldRenderTplDocx || tplExt === ".docx") {
           const docxReady = await ensureDocxLib();
           if (docxReady) {
             const buf = await tplBlob.arrayBuffer();
@@ -1166,10 +1250,12 @@ export function createPreviewWorkflowFeature(deps = {}) {
             const tail = truncated ? "\n\n[文本过长，已截断]" : "";
             $("targetPreview").innerHTML = `<div style="padding:10px;white-space:pre-wrap;line-height:1.5;font-size:12px;">${escapeHtml(text || "模板文本预览为空")}${escapeHtml(tail)}</div>`;
           }
-        } else {
+        } else if (tplExt === ".pdf" || tplExt === ".html" || /^\.jpe?g$|^\.png$|^\.bmp$|^\.webp$|^\.tiff?$/.test(tplExt)) {
           const url = URL.createObjectURL(tplBlob);
           state.blobUrls.target = url;
           $("targetPreview").innerHTML = `<iframe src="${url}"></iframe>`;
+        } else {
+          setPreviewPlaceholder("targetPreview", "导出模板预览格式不支持（已阻止自动下载）");
         }
         return;
       }
@@ -1179,9 +1265,18 @@ export function createPreviewWorkflowFeature(deps = {}) {
           return;
         }
         revokeBlobUrl("target");
-        const tplBlob = await fetchBlob(`/api/templates/download?template_name=${encodeURIComponent(item.templateName)}`);
-        const tplExt = extFromName(item.templateName);
-        if (tplExt === ".docx") {
+        const tplBlob = await fetchTemplatePreviewBlob(item.templateName);
+        const shouldRenderTplDocx = await shouldRenderDocxBlob(tplBlob, [
+          item.templateName,
+          currentReportName,
+          item.reportFileName,
+        ]);
+        const tplExt = resolvePreviewExtFromBlob(tplBlob, [
+          item.templateName,
+          currentReportName,
+          item.reportFileName,
+        ]);
+        if (shouldRenderTplDocx || tplExt === ".docx") {
           const docxReady = await ensureDocxLib();
           if (docxReady) {
             const buf = await tplBlob.arrayBuffer();
@@ -1194,25 +1289,34 @@ export function createPreviewWorkflowFeature(deps = {}) {
             const tail = truncated ? "\n\n[文本过长，已截断]" : "";
             $("targetPreview").innerHTML = `<div style="padding:10px;white-space:pre-wrap;line-height:1.5;font-size:12px;">${escapeHtml(text || "模板文本预览为空")}${escapeHtml(tail)}</div>`;
           }
-        } else {
+        } else if (tplExt === ".pdf" || tplExt === ".html" || /^\.jpe?g$|^\.png$|^\.bmp$|^\.webp$|^\.tiff?$/.test(tplExt)) {
           const url = URL.createObjectURL(tplBlob);
           state.blobUrls.target = url;
           $("targetPreview").innerHTML = `<iframe src="${url}"></iframe>`;
+        } else {
+          setPreviewPlaceholder("targetPreview", "模板预览格式不支持（已阻止自动下载）");
         }
         return;
       }
       revokeBlobUrl("target");
       const blob = await fetchBlob(currentReportUrl);
-      const ext = extFromName(currentReportName || item.templateName || item.fileName);
-      if (ext === ".docx") {
+      const shouldRenderDocx = await shouldRenderDocxBlob(blob, [
+        currentReportName,
+        item.reportFileName,
+        item.templateName,
+      ]);
+      const ext = resolvePreviewExtFromBlob(blob, [
+        currentReportName,
+        item.reportFileName,
+        item.templateName,
+      ]);
+      if (shouldRenderDocx || ext === ".docx") {
         const buf = await blob.arrayBuffer();
         await renderDocx("targetPreview", buf);
         await injectEmbeddedReadonlyPreview("targetPreview", buf);
         applyTargetPreviewSlotHighlights(item);
       } else {
-        const url = URL.createObjectURL(blob);
-        state.blobUrls.target = url;
-        $("targetPreview").innerHTML = `<iframe src="${url}"></iframe>`;
+        setPreviewPlaceholder("targetPreview", "报告预览仅支持 Word 渲染（已阻止自动下载）");
       }
     } catch (error) {
       setPreviewPlaceholder("targetPreview", `${isModifyCertificate ? "导出预览" : "原始记录预览"}失败：${error.message || "unknown"}`);

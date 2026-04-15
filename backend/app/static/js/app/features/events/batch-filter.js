@@ -21,8 +21,10 @@ export function createBatchFilterBindings(deps = {}) {
     setRightViewMode,
     setStatus,
     triggerDownload,
+    authorizeDownloadWindow,
     updateTaskStatusApi,
     getBlockDownloadUntil,
+    setBlockDownloadUntil,
     setDownloadPointerArmed,
     isDownloadPointerArmed,
   } = deps;
@@ -59,11 +61,32 @@ export function createBatchFilterBindings(deps = {}) {
       await refreshActiveRecognition();
     });
 
-    $("runBatchBtn").addEventListener("click", async () => {
-      if (state.busy) return;
-      const selected = getSelectedNormalItems().map((x) => x.id);
-      await exportAll(selected);
-    });
+    const runBatchBtn = $("runBatchBtn");
+    let runBatchPointerArmed = false;
+    if (runBatchBtn) {
+      runBatchBtn.addEventListener("pointerdown", () => {
+        runBatchPointerArmed = true;
+      });
+      runBatchBtn.addEventListener("pointercancel", () => {
+        runBatchPointerArmed = false;
+      });
+      runBatchBtn.addEventListener("pointerleave", () => {
+        runBatchPointerArmed = false;
+      });
+      runBatchBtn.addEventListener("blur", () => {
+        runBatchPointerArmed = false;
+      });
+      runBatchBtn.addEventListener("click", async (event) => {
+        if (!event || !event.isTrusted) return;
+        if (!runBatchPointerArmed) return;
+        runBatchPointerArmed = false;
+        if (Date.now() < getBlockDownloadUntil()) return;
+        if (state.busy) return;
+        const authToken = typeof authorizeDownloadWindow === "function" ? authorizeDownloadWindow(15000, true) : "";
+        const selected = getSelectedNormalItems().map((x) => x.id);
+        await exportAll(selected, authToken);
+      });
+    }
 
     const clearQueueBtn = $("clearQueueBtn");
     if (clearQueueBtn) {
@@ -139,6 +162,11 @@ export function createBatchFilterBindings(deps = {}) {
     });
 
     const downloadCurrentBtn = $("downloadCurrentBtn");
+    // Guard against stale pointer/click state when entering or restoring the page.
+    setDownloadPointerArmed(false);
+    if (typeof setBlockDownloadUntil === "function") {
+      setBlockDownloadUntil(Date.now() + 1200);
+    }
     downloadCurrentBtn.addEventListener("pointerdown", () => {
       setDownloadPointerArmed(true);
     });
@@ -151,15 +179,17 @@ export function createBatchFilterBindings(deps = {}) {
     downloadCurrentBtn.addEventListener("blur", () => {
       setDownloadPointerArmed(false);
     });
-    downloadCurrentBtn.addEventListener("click", async () => {
+    downloadCurrentBtn.addEventListener("click", async (event) => {
+      if (!event || !event.isTrusted) return;
       const item = getActiveItem();
       if (!isDownloadPointerArmed()) return;
       setDownloadPointerArmed(false);
       if (Date.now() < getBlockDownloadUntil()) return;
       if (!item || !item.reportDownloadUrl || state.busy) return;
       try {
+        const authToken = typeof authorizeDownloadWindow === "function" ? authorizeDownloadWindow(15000, true) : "";
         setLoading(true, `导出中：${item.fileName}`);
-        await triggerDownload(item.reportDownloadUrl, item.reportFileName || item.templateName || item.fileName || "report.docx");
+        await triggerDownload(item.reportDownloadUrl, item.reportFileName || item.templateName || item.fileName || "report.docx", authToken);
         item.status = "generated";
         item.message = "已导出";
         const taskId = String((state.taskContext && state.taskContext.id) || "").trim();
@@ -177,12 +207,14 @@ export function createBatchFilterBindings(deps = {}) {
 
     const runExcelBatchBtn = $("runExcelBatchBtn");
     if (runExcelBatchBtn) {
-      runExcelBatchBtn.addEventListener("click", async () => {
+      runExcelBatchBtn.addEventListener("click", async (event) => {
+        if (!event || !event.isTrusted) return;
         const item = getActiveItem();
         if (!item || state.busy) return;
         try {
+          const authToken = typeof authorizeDownloadWindow === "function" ? authorizeDownloadWindow(20000, true) : "";
           setLoading(true, `Excel批量中：${item.fileName}`);
-          await runExcelBatch(item);
+          await runExcelBatch(item, authToken);
           setStatus(`Excel批量完成：${item.fileName}`);
         } catch (error) {
           item.status = "error";

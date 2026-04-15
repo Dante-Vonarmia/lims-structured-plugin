@@ -16,6 +16,23 @@ export function createGenerationBatchFeature(deps = {}) {
     uploadFile,
   } = deps;
 
+  function authorizeDownloadWindow(windowMs = 12000, isTrustedGesture = false) {
+    if (!isTrustedGesture) return "";
+    const ms = Number(windowMs);
+    const ttl = Number.isFinite(ms) ? Math.max(1000, ms) : 12000;
+    const token = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    state.downloadAuthorizedUntil = Date.now() + ttl;
+    state.downloadAuthorizationToken = token;
+    return token;
+  }
+
+  function ensureDownloadAuthorized(authToken = "") {
+    const until = Number(state.downloadAuthorizedUntil || 0);
+    const token = String(state.downloadAuthorizationToken || "");
+    if (Date.now() <= until && token && String(authToken || "") === token) return;
+    throw new Error("下载已拦截：请手动点击导出按钮后重试");
+  }
+
   async function generateAllReady(targetIds = null) {
     const hasExplicitSelection = Array.isArray(targetIds);
     const selectedSet = hasExplicitSelection ? new Set(targetIds.filter(Boolean)) : null;
@@ -86,7 +103,8 @@ export function createGenerationBatchFeature(deps = {}) {
     return { generated, skipped, failed, total: targets.length };
   }
 
-  async function triggerDownload(url, name) {
+  async function triggerDownload(url, name, authToken = "") {
+    ensureDownloadAuthorized(authToken);
     const res = await fetch(url);
     if (!res.ok) throw new Error("下载失败");
     const blob = await res.blob();
@@ -113,7 +131,7 @@ export function createGenerationBatchFeature(deps = {}) {
     URL.revokeObjectURL(blobUrl);
   }
 
-  async function exportAll(targetIds = null) {
+  async function exportAll(targetIds = null, authToken = "") {
     const selectedSet = targetIds && targetIds.length ? new Set(targetIds) : null;
     const targets = state.queue.filter((x) => {
       if (isExcelItem(x)) return false;
@@ -127,7 +145,7 @@ export function createGenerationBatchFeature(deps = {}) {
     for (const item of targets) {
       try {
         setLoading(true, `导出中：${item.fileName}`);
-        await triggerDownload(item.reportDownloadUrl, item.reportFileName || item.templateName || item.fileName || "report.docx");
+        await triggerDownload(item.reportDownloadUrl, item.reportFileName || item.templateName || item.fileName || "report.docx", authToken);
         item.status = "generated";
         item.message = "已导出";
         renderQueue();
@@ -140,7 +158,7 @@ export function createGenerationBatchFeature(deps = {}) {
     setStatus("批量导出完成");
   }
 
-  async function runExcelBatch(item) {
+  async function runExcelBatch(item, authToken = "") {
     if (!item || !isExcelItem(item)) throw new Error("请先选择 Excel 文件");
     if (!item.fileId) {
       const up = await uploadFile(item.file);
@@ -155,7 +173,7 @@ export function createGenerationBatchFeature(deps = {}) {
         default_template_name: item.templateName || null,
       }),
     });
-    await triggerDownload(data.download_url, `${item.fileName.replace(/\.xlsx?$/i, "") || "excel_batch"}.zip`);
+    await triggerDownload(data.download_url, `${item.fileName.replace(/\.xlsx?$/i, "") || "excel_batch"}.zip`, authToken);
     item.status = "generated";
     item.message = `Excel批量：生成${data.generated_count} 跳过${data.skipped_count}`;
     renderQueue();
@@ -167,5 +185,6 @@ export function createGenerationBatchFeature(deps = {}) {
     triggerDownload,
     exportAll,
     runExcelBatch,
+    authorizeDownloadWindow,
   };
 }

@@ -285,6 +285,22 @@ def download_template(template_name: str) -> FileResponse:
     )
 
 
+@router.get("/templates/view")
+def view_template(template_name: str) -> FileResponse:
+    template_name = normalize_legacy_template_name(template_name)
+    available = set(list_available_templates())
+    if template_name not in available:
+        raise HTTPException(status_code=404, detail="Template not found")
+    file_path = _resolve_template_file_path(template_name)
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Template not found")
+    # Preview should not be served from the download endpoint; avoid attachment-style semantics.
+    return FileResponse(
+        path=str(file_path),
+        media_type=_guess_media_type(file_path),
+    )
+
+
 @router.get("/templates/text-preview")
 def preview_template_text(template_name: str) -> dict[str, object]:
     template_name = normalize_legacy_template_name(template_name)
