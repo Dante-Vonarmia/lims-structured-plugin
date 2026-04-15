@@ -162,6 +162,23 @@ class OcrTableStructuredTdd(unittest.TestCase):
         self.assertEqual(payload.get("final_text"), "")
         self.assertEqual(float(payload.get("confidence", 0.0) or 0.0), 0.0)
 
+    def test_should_rotate_portrait_table_scan_in_fast_mode(self) -> None:
+        from PIL import Image
+
+        fixture = Path(__file__).resolve().parent / "fixtures" / "benchmark_user_test.jpeg"
+        original_mode = ocr_service.OCR_PREP_MODE
+        cleanup_path = None
+        try:
+            ocr_service.OCR_PREP_MODE = "fast"
+            with patch.object(ocr_service, "_try_perspective_correction", side_effect=lambda image: image):
+                prepared_path, cleanup_path = ocr_service._prepare_image_file(fixture)
+            with Image.open(prepared_path) as prepared:
+                self.assertGreater(prepared.width, prepared.height)
+        finally:
+            ocr_service.OCR_PREP_MODE = original_mode
+            if cleanup_path and cleanup_path.exists():
+                cleanup_path.unlink()
+
 
 if __name__ == "__main__":
     unittest.main()

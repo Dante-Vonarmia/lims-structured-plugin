@@ -1,4 +1,5 @@
 import { createSourceFieldComponents } from "../components/source-field/index.js";
+import { createBooleanFieldControlRenderer } from "../components/target-field/renderers/boolean-field-control.js";
 
 export function createFormRenderingFeature(deps = {}) {
   const {
@@ -28,6 +29,7 @@ export function createFormRenderingFeature(deps = {}) {
     escapeAttr,
   } = deps;
   const {
+    resolveDisplayFieldState,
     resolveSchemaGroups,
     resolveInfoFields,
     renderSourceFieldRow,
@@ -35,6 +37,17 @@ export function createFormRenderingFeature(deps = {}) {
     escapeHtml,
     escapeAttr,
     parseDateParts,
+    getSignatureImageUrl: (name) => {
+      const target = String(name || "").trim();
+      if (!target) return "";
+      const signatures = Array.isArray(state.signatures) ? state.signatures : [];
+      const matched = signatures.find((item) => String((item && item.name) || "").trim() === target);
+      return matched ? String((matched && matched.image_url) || "").trim() : "";
+    },
+  });
+  const { renderBooleanFieldControl } = createBooleanFieldControlRenderer({
+    escapeAttr,
+    escapeHtml,
   });
 
   function renderSourceFieldList(item) {
@@ -54,10 +67,6 @@ export function createFormRenderingFeature(deps = {}) {
       return;
     }
 
-    const fieldPipeline = (item && item.fieldPipeline && typeof item.fieldPipeline === "object") ? item.fieldPipeline : {};
-    const itemFields = (item && item.fields && typeof item.fields === "object") ? item.fields : {};
-    const itemTypedFields = (item && item.typedFields && typeof item.typedFields === "object") ? item.typedFields : {};
-    const groupPipeline = (item && item.groupPipeline && typeof item.groupPipeline === "object") ? item.groupPipeline : {};
     const taskTemplateInfo = (state.taskContext && state.taskContext.template_info && typeof state.taskContext.template_info === "object")
       ? state.taskContext.template_info
       : {};
@@ -71,6 +80,17 @@ export function createFormRenderingFeature(deps = {}) {
       fieldByKey.set(key, col);
     });
     const schemaGroups = resolveSchemaGroups(schemaColumns, schemaGroupsRaw);
+    const {
+      itemFields,
+      itemTypedFields,
+      fieldPipeline,
+      groupPipeline,
+    } = resolveDisplayFieldState({
+      item,
+      schemaColumns,
+      schemaGroups,
+      schemaRules,
+    });
 
     const groupHtml = schemaGroups.map((group, idx) => {
       const groupName = String(group.name || "").trim() || `分组${idx + 1}`;
@@ -426,6 +446,19 @@ export function createFormRenderingFeature(deps = {}) {
         reviewer_sign_image: "reviewer",
         approver_sign_image: "approver",
       };
+      const booleanFieldKeys = Array.isArray(item && item.booleanFieldKeys) ? item.booleanFieldKeys : [];
+      const normalizedValue = String(value || "").trim().toLowerCase();
+      const isBooleanField = booleanFieldKeys.includes(fieldKey)
+        || normalizedValue === "true"
+        || normalizedValue === "false";
+      if (isBooleanField) {
+        return renderBooleanFieldControl({
+          fieldKey,
+          fieldLabel: field.label,
+          checked: normalizedValue === "true",
+          isProblem,
+        });
+      }
       const signatureRole = signatureRoleByField[String(field.key || "")] || "";
       const dynamicSignatureOptions = signatureRole
         ? Array.from(new Set((Array.isArray(state.signatures) ? state.signatures : [])

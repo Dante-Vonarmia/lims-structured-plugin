@@ -1881,6 +1881,10 @@ def _prepare_image_file(file_path: Path) -> tuple[Path, Path | None]:
                 best_score = score
         image = best_image if best_image is not None else candidates[0]
     else:
+        if image.height > int(image.width * 1.15):
+            rotation = _detect_best_rotation(image)
+            if rotation in {90, 180, 270}:
+                image = image.rotate(rotation, expand=True, fillcolor="white")
         image = _enhance_for_low_contrast_scan(image)
 
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:

@@ -1,3 +1,5 @@
+import { isBooleanTextValue, renderBooleanDisplayHtml } from "../shared/boolean-display.js";
+
 export function createFocusSectionsFeature(deps = {}) {
   const {
     extractBlockByLine,
@@ -107,6 +109,8 @@ export function createFocusSectionsFeature(deps = {}) {
           } else if (value) {
             display = escapeHtml(value);
           }
+        } else if (isBooleanTextValue(value)) {
+          display = renderBooleanDisplayHtml(value);
         } else if (value) {
           display = escapeHtml(value);
         }

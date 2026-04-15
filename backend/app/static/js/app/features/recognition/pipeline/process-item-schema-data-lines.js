@@ -22,9 +22,17 @@ export async function handleDataLinesPath(deps = {}) {
     const mappedWithTrace = mapLineToSchemaFieldsWithTrace(line, schemaColumns, schemaRules);
     const mapped = mappedWithTrace.mapped || {};
     const trace = Array.isArray(mappedWithTrace.trace) ? mappedWithTrace.trace : [];
+    const fieldWarnings = {};
+    trace.forEach((entry) => {
+      const key = String((entry && entry.columnKey) || "").trim();
+      const warning = String((entry && entry.warning) || "").trim();
+      if (!key || !warning) return;
+      fieldWarnings[key] = warning;
+    });
     const groupResult = processSchemaRowInGroups({
       rowFields: {},
       rawMapped: mapped,
+      fieldWarnings,
       schemaColumns,
       schemaGroups,
       schemaRules,

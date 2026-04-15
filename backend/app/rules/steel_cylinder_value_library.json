@@ -1,0 +1,35 @@
+{
+  "fields": {
+    "充装介质": [
+      { "label": "Ar" },
+      { "label": "O2" },
+      { "label": "N2" },
+      { "label": "CO2" },
+      { "label": "He" },
+      { "label": "H2" }
+    ],
+    "制造单位代码": [
+      { "label": "G正" },
+      { "label": "GL" },
+      { "label": "1m" },
+      { "label": "W" },
+      { "label": "JP" },
+      { "label": "SH" }
+    ],
+    "产权代码编号": [
+      { "label": "金" },
+      { "label": "A" },
+      { "label": "AI" },
+      { "label": "AL" },
+      { "label": "CO2" },
+      { "label": "N2" }
+    ],
+    "出厂编号": [
+      { "label": "A200441033" },
+      { "label": "HE147226" },
+      { "label": "A150160014" },
+      { "label": "HE147034" },
+      { "label": "RE020070" }
+    ]
+  }
+}

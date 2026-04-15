@@ -5,6 +5,7 @@ export function createSourceFieldRowRenderer(deps = {}) {
     escapeHtml,
     escapeAttr,
     renderDateValueWidget,
+    getSignatureImageUrl,
   } = deps;
 
   function renderSourceFieldRow(params = {}) {
@@ -32,14 +33,31 @@ export function createSourceFieldRowRenderer(deps = {}) {
       : (displayValue ? "parsed" : "waiting");
     const rule = resolveFieldRule(schemaRules, col);
     const ruleType = String((rule && rule.type) || "").trim();
+    const ruleStdType = String((rule && rule.std_type) || "").trim();
+    const keyOrLabel = `${key} ${label}`;
+    const looksLikeDateField = /日期|年月/.test(keyOrLabel);
     const pipelineType = staged ? String(staged.type || "").trim() : "";
     const typedType = typed ? String(typed.type || "").trim() : "";
-    const isDateType = ruleType === "date"
+    const isDateType = ruleStdType === "date"
+      || ruleType === "date"
       || ruleType === "date_or_dash"
       || pipelineType === "date"
       || pipelineType === "date_or_dash"
       || typedType === "date"
-      || typedType === "date_or_dash";
+      || typedType === "date_or_dash"
+      || looksLikeDateField;
+    const isCheckType = ruleStdType === "check"
+      || ruleType === "check"
+      || pipelineType === "check"
+      || typedType === "check";
+    const isCheckboxChoiceType = ruleType === "checkbox_choice"
+      || pipelineType === "checkbox_choice"
+      || typedType === "checkbox_choice";
+    const isPlainCheckType = isCheckType && !isCheckboxChoiceType;
+    const isSignatureType = ruleStdType === "signature"
+      || ruleType === "signature"
+      || pipelineType === "signature"
+      || typedType === "signature";
     const dateObjectText = (typed && typed.type === "date" && !typed.dash && !typed.inferredYear)
       ? `${String(typed.year).padStart(4, "0")}-${String(typed.month).padStart(2, "0")}-${String(typed.day).padStart(2, "0")}`
       : "";
@@ -47,6 +65,35 @@ export function createSourceFieldRowRenderer(deps = {}) {
     const dateWidgetHtml = (isDateType && finalDisplayValue && finalDisplayValue !== "-")
       ? renderDateValueWidget(finalDisplayValue)
       : "";
+    const checkValue = (() => {
+      if (!isPlainCheckType) return false;
+      if (typed && typed.type === "check") return !!typed.value;
+      const candidate = String(finalDisplayValue || normalizedValue || rawValue || "").trim().toLowerCase();
+      return candidate === "true" || candidate === "1" || candidate === "v" || candidate === "√" || candidate === "✓" || candidate === "☑";
+    })();
+    const checkWidgetHtml = isPlainCheckType
+      ? (checkValue
+        ? '<span class="source-field-value">✓</span>'
+        : '<span class="source-field-value source-recog-empty">（空）</span>')
+      : "";
+    const choiceWidgetHtml = isCheckboxChoiceType
+      ? (finalDisplayValue
+        ? `<span class="source-choice-chip">${escapeHtml(finalDisplayValue)}</span>`
+        : '<span class="source-field-value source-recog-empty">（空）</span>')
+      : "";
+    const signatureImageUrl = (isSignatureType && finalDisplayValue && typeof getSignatureImageUrl === "function")
+      ? String(getSignatureImageUrl(finalDisplayValue) || "").trim()
+      : "";
+    const signatureWidgetHtml = isSignatureType
+      ? (finalDisplayValue
+        ? `<span class="source-signature-wrap"><span class="source-signature-name">${escapeHtml(finalDisplayValue)}</span>${signatureImageUrl ? `<img class="source-signature-thumb" src="${escapeAttr(signatureImageUrl)}" alt="${escapeAttr(finalDisplayValue)}" loading="lazy" />` : ""}</span>`
+        : '<span class="source-field-value source-recog-empty">（空）</span>')
+      : "";
+    const renderedValueHtml = dateWidgetHtml
+      || checkWidgetHtml
+      || choiceWidgetHtml
+      || signatureWidgetHtml
+      || `<span class="source-field-value ${finalDisplayValue ? "" : "source-recog-empty"}">${finalDisplayValue ? escapeHtml(finalDisplayValue) : "（空）"}</span>`;
     const issues = []
       .concat(errors.map((x) => `<li class="source-field-issue error">${escapeHtml(String(x || ""))}</li>`))
       .concat(warnings.map((x) => `<li class="source-field-issue warning">${escapeHtml(String(x || ""))}</li>`))
@@ -62,7 +109,7 @@ export function createSourceFieldRowRenderer(deps = {}) {
         <td class="source-field-col-value">
           <span class="source-recog-val source-field-val-wrap">
           ${stateBadgeHtml}
-          ${dateWidgetHtml || `<span class="source-field-value ${finalDisplayValue ? "" : "source-recog-empty"}">${finalDisplayValue ? escapeHtml(finalDisplayValue) : "（空）"}</span>`}
+          ${renderedValueHtml}
           ${issueHtml}
           </span>
         </td>
@@ -74,4 +121,3 @@ export function createSourceFieldRowRenderer(deps = {}) {
     renderSourceFieldRow,
   };
 }
-

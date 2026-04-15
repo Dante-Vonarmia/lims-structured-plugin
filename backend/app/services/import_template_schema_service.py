@@ -7,6 +7,8 @@ from typing import Any
 
 from ..config import TEMPLATE_BUNDLE_ROOT, TEMPLATE_DIR
 
+_STEEL_CYLINDER_VALUE_LIBRARY_FILE = Path(__file__).resolve().parents[1] / "rules" / "steel_cylinder_value_library.json"
+
 
 def _safe_read_text(path: Path) -> str:
     for encoding in ("utf-8-sig", "utf-8", "gb18030"):
@@ -40,6 +42,14 @@ def _resolve_template_csv_path(raw_path: str) -> Path | None:
         return None
     path = Path(text)
     normalized_name = path.name
+    normalized_parts = [part for part in path.parts if part not in ("", "/", "\\")]
+    trailing_parts: list[str] = []
+    if "template-bundles" in normalized_parts:
+      idx = normalized_parts.index("template-bundles")
+      trailing_parts = normalized_parts[idx + 1:]
+    elif "input" in normalized_parts:
+      idx = normalized_parts.index("input")
+      trailing_parts = normalized_parts[idx:]
     candidates: list[Path] = []
     if path.is_absolute():
         if path.exists():
@@ -47,6 +57,8 @@ def _resolve_template_csv_path(raw_path: str) -> Path | None:
         else:
             # Stored host absolute paths are invalid in container runtime.
             candidates.append(TEMPLATE_DIR / normalized_name)
+            if trailing_parts:
+                candidates.append(TEMPLATE_BUNDLE_ROOT.joinpath(*trailing_parts))
             candidates.append(TEMPLATE_BUNDLE_ROOT / "input" / normalized_name)
     else:
         candidates.append(TEMPLATE_DIR / normalized_name)
@@ -90,8 +102,93 @@ def _load_companion_rules(csv_path: Path) -> dict[str, Any]:
         except Exception:
             continue
         if isinstance(loaded, dict):
-            return loaded
+            return _merge_value_library_into_rules(loaded)
     return {}
+
+
+def _load_steel_cylinder_value_library() -> dict[str, list[dict[str, str]]]:
+    if not _STEEL_CYLINDER_VALUE_LIBRARY_FILE.exists():
+        return {}
+    text = _safe_read_text(_STEEL_CYLINDER_VALUE_LIBRARY_FILE)
+    if not text.strip():
+        return {}
+    try:
+        payload = json.loads(text)
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    fields = payload.get("fields")
+    if not isinstance(fields, dict):
+        return {}
+    result: dict[str, list[dict[str, str]]] = {}
+    for label, options in fields.items():
+        name = _normalize_label(str(label or ""))
+        if not name or not isinstance(options, list):
+            continue
+        cleaned: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for item in options:
+            if isinstance(item, dict):
+                value = _normalize_label(str(item.get("label", "") or ""))
+            else:
+                value = _normalize_label(str(item or ""))
+            if not value:
+                continue
+            key = value.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append({"label": value})
+        if cleaned:
+            result[name] = cleaned
+    return result
+
+
+def _merge_value_library_into_rules(rules: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(rules, dict):
+        return {}
+    merged = dict(rules)
+    field_rules = merged.get("field_rules")
+    if not isinstance(field_rules, dict):
+        return merged
+    value_library = _load_steel_cylinder_value_library()
+    if not value_library:
+        return merged
+    for label, values in value_library.items():
+        rule = field_rules.get(label)
+        if not isinstance(rule, dict):
+            continue
+        existing = rule.get("choices")
+        existing_labels: set[str] = set()
+        merged_choices: list[dict[str, str]] = []
+        if isinstance(existing, list):
+            for item in existing:
+                if not isinstance(item, dict):
+                    continue
+                text = _normalize_label(str(item.get("label", "") or ""))
+                if not text:
+                    continue
+                key = text.lower()
+                if key in existing_labels:
+                    continue
+                existing_labels.add(key)
+                merged_choices.append({"label": text})
+        for item in values:
+            text = _normalize_label(str((item or {}).get("label", "") or ""))
+            if not text:
+                continue
+            key = text.lower()
+            if key in existing_labels:
+                continue
+            existing_labels.add(key)
+            merged_choices.append({"label": text})
+        if merged_choices:
+            rule["choices"] = merged_choices
+            rule["options_source"] = "steel_cylinder_value_library"
+            rule["options_edit_hint"] = str(_STEEL_CYLINDER_VALUE_LIBRARY_FILE)
+    merged["field_rules"] = field_rules
+    return merged
 
 
 def load_import_template_schema(import_template_path: str) -> dict[str, Any]:

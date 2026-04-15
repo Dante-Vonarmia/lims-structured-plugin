@@ -1271,6 +1271,58 @@ tr.row-generated.active { background: #dceddf; }
   min-width: 0;
 }
 
+.source-check-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  border: 1px solid #c2cfde;
+  background: #f6f9ff;
+  color: #466487;
+  font-weight: 700;
+}
+
+.source-check-chip.is-checked {
+  border-color: #9dcdb0;
+  background: #ebf8ef;
+  color: #1f6a3a;
+}
+
+.source-choice-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 8px;
+  border-radius: 10px;
+  border: 1px solid #b9cadf;
+  background: #f2f7ff;
+  color: #2e4f73;
+  font-weight: 700;
+}
+
+.source-signature-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.source-signature-name {
+  color: #22384f;
+  font-weight: 600;
+}
+
+.source-signature-thumb {
+  width: 72px;
+  height: 30px;
+  object-fit: contain;
+  border: 1px solid #c5d2e2;
+  border-radius: 2px;
+  background: #fff;
+}
+
 .source-field-issues {
   margin: 0;
   padding: 0;

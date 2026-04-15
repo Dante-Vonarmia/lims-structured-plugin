@@ -59,7 +59,13 @@ export function createTargetFieldEventBindings(deps = {}) {
         });
       };
       const readControlValue = () => {
-        if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
+        if (target instanceof HTMLInputElement) {
+          if (target.type === "checkbox") {
+            return target.checked ? "true" : "";
+          }
+          return String(target.value || "");
+        }
+        if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
           return String(target.value || "");
         }
         return String(target.textContent || "");
@@ -182,6 +188,10 @@ export function createTargetFieldEventBindings(deps = {}) {
       };
       editTargets.forEach((targetItem) => {
         if (!targetItem.fields) targetItem.fields = createEmptyFields();
+        if (target instanceof HTMLInputElement && target.type === "checkbox") {
+          const existing = Array.isArray(targetItem.booleanFieldKeys) ? targetItem.booleanFieldKeys : [];
+          if (!existing.includes(key)) targetItem.booleanFieldKeys = existing.concat(key);
+        }
         if (isDateKey) applyDateSyncRule(targetItem, key, value);
         else targetItem.fields[key] = value;
         if (key === "general_check_full") {
@@ -235,7 +245,7 @@ export function createTargetFieldEventBindings(deps = {}) {
       applyTargetFieldProblemStyles(item);
       renderQueue();
       if (event.type === "change") {
-        const labelEl = target.closest(".source-form-item")?.querySelector("span");
+        const labelEl = target.closest(".source-form-item")?.querySelector(":scope > span");
         const labelText = String(labelEl && labelEl.textContent ? labelEl.textContent : "").trim();
         setStatus(`已更新：${labelText || key}`);
       }

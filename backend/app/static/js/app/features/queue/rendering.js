@@ -1,3 +1,5 @@
+import { isBooleanTextValue, renderBooleanDisplayHtml } from "../shared/boolean-display.js";
+
 export function createQueueRenderingFeature(deps = {}) {
   const {
     $,
@@ -120,7 +122,8 @@ export function createQueueRenderingFeature(deps = {}) {
           ${getSchemaColumns().map((field) => {
     const key = String((field && field.key) || "").trim();
     const value = getTemplateInfoValue(item, key);
-    return `<td title="${escapeAttr(value)}">${escapeHtml(value || "-")}</td>`;
+    const booleanHtml = isBooleanTextValue(value) ? renderBooleanDisplayHtml(value, "-") : "";
+    return `<td title="${escapeAttr(value)}">${booleanHtml || escapeHtml(value || "-")}</td>`;
   }).join("")}
           <td><span class="status ${statusClass(item.status)}">${escapeHtml(statusLabel(item))}</span></td>
           <td title="${escapeAttr(item.message || "")}">${escapeHtml(item.message || "")}</td>

@@ -397,7 +397,7 @@ import {
       state.taskContext.output_bundle_id = "";
       state.taskContext.import_template_type = "";
       state.taskContext.export_template_name = "";
-      state.taskContext.import_template_schema = { template_name: "", columns: [], groups: [] };
+      state.taskContext.import_template_schema = { template_name: "", columns: [], groups: [], rules: {} };
       state.taskContext.template_info = normalizeTaskTemplateInfo({});
       if (!taskId) return;
       try {
@@ -410,7 +410,7 @@ import {
           state.taskContext.output_bundle_id = "";
           state.taskContext.import_template_type = "";
           state.taskContext.export_template_name = "";
-          state.taskContext.import_template_schema = { template_name: "", columns: [], groups: [] };
+          state.taskContext.import_template_schema = { template_name: "", columns: [], groups: [], rules: {} };
           state.taskContext.template_info = normalizeTaskTemplateInfo({});
           return;
         }
@@ -428,10 +428,11 @@ import {
             template_name: String(schema.template_name || "").trim(),
             columns: Array.isArray(schema.columns) ? schema.columns : [],
             groups: Array.isArray(schema.groups) ? schema.groups : [],
+            rules: (schema.rules && typeof schema.rules === "object") ? schema.rules : {},
           };
         } catch (schemaError) {
           appendLog(`导入模板结构加载失败：${schemaError.message || "unknown"}`);
-          state.taskContext.import_template_schema = { template_name: "", columns: [], groups: [] };
+          state.taskContext.import_template_schema = { template_name: "", columns: [], groups: [], rules: {} };
         }
       } catch (error) {
         appendLog(`任务主信息加载失败：${error.message || "unknown"}`);

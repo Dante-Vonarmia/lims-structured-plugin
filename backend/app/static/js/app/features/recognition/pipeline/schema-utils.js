@@ -16,7 +16,7 @@ export function getSchemaRulesFromState(state) {
 export function normalizeMonthDayToken(token) {
   const t = String(token || "").trim();
   if (!t) return "";
-  const m = t.match(/([zZ]?\d{1,2})\s*[.\-/、]\s*(\d{1,2})/);
+  const m = t.match(/([zZ](?:\d{0,2})|\d{1,2})\s*[.\-/、]\s*(\d{1,2})/);
   if (!m) return "";
   const mmRaw = String(m[1] || "").replace(/^[zZ]/, "2");
   const ddRaw = String(m[2] || "");
@@ -146,8 +146,8 @@ export function validateFieldStage(stage) {
   const normalizedValue = String(next.normalizedValue || "").trim();
   const allowEmpty = !!next.allowEmpty;
   const required = !!next.required;
-  const warnings = [];
-  const errors = [];
+  const warnings = Array.isArray(next.warnings) ? next.warnings.slice() : [];
+  const errors = Array.isArray(next.errors) ? next.errors.slice() : [];
   if (next.expectedPattern && normalizedValue) {
     try {
       const reg = new RegExp(String(next.expectedPattern));
@@ -194,4 +194,3 @@ export function syncPipelineFromFields(row) {
     }
   });
 }
-
