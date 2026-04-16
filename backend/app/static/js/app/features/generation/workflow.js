@@ -107,7 +107,14 @@ export function createGenerationWorkflowFeature(deps = {}) {
         nextDate: normalizeToIsoDate(pickNonEmpty(rowFields, nextCandidates)),
       };
     }).filter((x) => x.serialNo || x.makerCode || x.nextDate);
-    if (appendixRows.length) {
+    const existingAppendixRows = String(fieldsForGenerate.appendix1_rows_text || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .split("\n")
+      .map((line) => String(line || "").trim())
+      .filter(Boolean);
+    const shouldResetAppendixRows = scopeItems.length > 1 && existingAppendixRows.length !== appendixRows.length;
+    if ((shouldResetAppendixRows || !String(fieldsForGenerate.appendix1_rows_text || "").trim()) && appendixRows.length) {
       fieldsForGenerate.appendix1_rows_text = appendixRows.map((x) => [x.serialNo, x.makerCode, x.nextDate].join("\t")).join("\n");
     }
     if (scopeItems.length > 1) {
@@ -139,10 +146,6 @@ export function createGenerationWorkflowFeature(deps = {}) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    if (!item.fields || typeof item.fields !== "object") item.fields = {};
-    if (String((data && data.report_no) || "").trim() && !String(item.fields.report_no || "").trim()) {
-      item.fields.report_no = String(data.report_no || "").trim();
-    }
     item.reportId = data.report_id;
     item.reportDownloadUrl = data.download_url;
     item.reportFileName = buildReportFileName(item, data.output_format);

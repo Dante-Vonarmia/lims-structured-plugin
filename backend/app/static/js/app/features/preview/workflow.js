@@ -120,7 +120,14 @@ export function createPreviewWorkflowFeature(deps = {}) {
         nextDate: normalizeToIsoDate(pickNonEmpty(rowFields, nextCandidates)),
       };
     }).filter((x) => x.serialNo || x.makerCode || x.nextDate);
-    if (appendixRows.length) {
+    const existingAppendixRows = String(fieldsForPreview.appendix1_rows_text || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .split("\n")
+      .map((line) => String(line || "").trim())
+      .filter(Boolean);
+    const shouldResetAppendixRows = scopeItems.length > 1 && existingAppendixRows.length !== appendixRows.length;
+    if ((shouldResetAppendixRows || !String(fieldsForPreview.appendix1_rows_text || "").trim()) && appendixRows.length) {
       fieldsForPreview.appendix1_rows_text = appendixRows.map((x) => [x.serialNo, x.makerCode, x.nextDate].join("\t")).join("\n");
     }
     if (scopeItems.length > 1) {
@@ -151,10 +158,6 @@ export function createPreviewWorkflowFeature(deps = {}) {
     const data = await res.json();
     if (!res.ok) {
       throw new Error((data && data.detail) || "导出预览生成失败");
-    }
-    if (!item.fields || typeof item.fields !== "object") item.fields = {};
-    if (String((data && data.report_no) || "").trim() && !String(item.fields.report_no || "").trim()) {
-      item.fields.report_no = String(data.report_no || "").trim();
     }
     return fetchBlob(String((data && data.download_url) || "").trim());
   }

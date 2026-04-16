@@ -522,10 +522,29 @@ export function createFormRenderingFeature(deps = {}) {
           makerCode: String(x.makerCode || "").trim(),
           nextDate: normalizeToIsoDate(x.nextDate),
         }));
-        const appendixRows = derivedRows.length ? derivedRows : existingRows;
+        const selectionCountChanged = !!derivedRows.length && existingRows.length !== derivedRows.length;
+        const mergeRowsByIndex = (baseRows, editedRows) => baseRows.map((row, idx) => {
+          const edited = editedRows[idx] || {};
+          return {
+            rowNo: row.rowNo,
+            serialNo: String(edited.serialNo || "").trim() || row.serialNo,
+            makerCode: String(edited.makerCode || "").trim() || row.makerCode,
+            nextDate: normalizeToIsoDate(String(edited.nextDate || "").trim()) || row.nextDate,
+          };
+        });
+        let appendixRows = [];
+        if (derivedRows.length) {
+          appendixRows = selectionCountChanged
+            ? derivedRows
+            : (existingRows.length ? mergeRowsByIndex(derivedRows, existingRows) : derivedRows);
+        } else {
+          appendixRows = existingRows;
+        }
         const appendixValue = appendixRows.map((x) => [x.serialNo, x.makerCode, x.nextDate].join("\t")).join("\n");
         if (!item.fields || typeof item.fields !== "object") item.fields = createEmptyFields();
-        item.fields.appendix1_rows_text = appendixValue;
+        if (selectionCountChanged || isMultiMode || !String(item.fields.appendix1_rows_text || "").trim()) {
+          item.fields.appendix1_rows_text = appendixValue;
+        }
         if (isMultiMode) {
           multiItems.forEach((row) => {
             if (!row || typeof row !== "object") return;
@@ -541,18 +560,18 @@ export function createFormRenderingFeature(deps = {}) {
             <th>下次检验日期</th>
           </tr>
         `;
-        const tableBody = appendixRows.map((x) => `
-          <tr data-appendix-row="${x.rowNo}">
+        const tableBody = appendixRows.map((x, idx) => `
+          <tr data-appendix-row="${x.rowNo}" data-repeatable-row-index="${idx}">
             <td>${x.rowNo}</td>
-            <td><input type="text" data-field="appendix1_cell" data-col="serial_no" value="${escapeAttr(x.serialNo)}" placeholder="气瓶编号" /></td>
-            <td><input type="text" data-field="appendix1_cell" data-col="maker_code" value="${escapeAttr(x.makerCode)}" placeholder="制造单位代码" /></td>
+            <td><input type="text" data-field="appendix1_cell" data-col="serial_no" data-repeatable-key="appendix1:serial_no" value="${escapeAttr(x.serialNo)}" placeholder="气瓶编号" /></td>
+            <td><input type="text" data-field="appendix1_cell" data-col="maker_code" data-repeatable-key="appendix1:maker_code" value="${escapeAttr(x.makerCode)}" placeholder="制造单位代码" /></td>
             <td>
               <span class="target-date-grid">
-                <input type="text" class="target-date-input target-date-year" data-field="appendix1_cell_date_part" data-col="next_date" data-part="year" value="${escapeAttr((parseDateParts(x.nextDate) || {}).year || "")}" maxlength="4" placeholder="YYYY" />
+                <input type="text" class="target-date-input target-date-year" data-field="appendix1_cell_date_part" data-col="next_date" data-part="year" data-repeatable-key="appendix1:next_date:year" value="${escapeAttr((parseDateParts(x.nextDate) || {}).year || "")}" maxlength="4" placeholder="YYYY" />
                 <span class="target-date-unit">年</span>
-                <input type="text" class="target-date-input target-date-month" data-field="appendix1_cell_date_part" data-col="next_date" data-part="month" value="${escapeAttr((parseDateParts(x.nextDate) || {}).month || "")}" maxlength="2" placeholder="MM" />
+                <input type="text" class="target-date-input target-date-month" data-field="appendix1_cell_date_part" data-col="next_date" data-part="month" data-repeatable-key="appendix1:next_date:month" value="${escapeAttr((parseDateParts(x.nextDate) || {}).month || "")}" maxlength="2" placeholder="MM" />
                 <span class="target-date-unit">月</span>
-                <input type="text" class="target-date-input target-date-day" data-field="appendix1_cell_date_part" data-col="next_date" data-part="day" value="${escapeAttr((parseDateParts(x.nextDate) || {}).day || "")}" maxlength="2" placeholder="DD" />
+                <input type="text" class="target-date-input target-date-day" data-field="appendix1_cell_date_part" data-col="next_date" data-part="day" data-repeatable-key="appendix1:next_date:day" value="${escapeAttr((parseDateParts(x.nextDate) || {}).day || "")}" maxlength="2" placeholder="DD" />
                 <span class="target-date-unit">日</span>
               </span>
             </td>
@@ -561,8 +580,9 @@ export function createFormRenderingFeature(deps = {}) {
         return `
           <label class="source-form-item slot-field wide ${isProblem ? "is-problem" : ""}">
             <span>${escapeHtml(field.label)}</span>
-            <div class="source-recog-block source-recog-block-formatted">
-              <table class="source-recog-block-table schema-record-table schema-record-table--appendix">
+            <div class="source-recog-block source-recog-block-formatted appendix-repeatable-wrap">
+              <span class="appendix-repeatable-hint" data-tip="快捷键：Shift+Enter 覆盖其余行" aria-hidden="true"></span>
+              <table class="source-recog-block-table schema-record-table schema-record-table--appendix" data-repeatable-table="1">
                 <thead>${tableHead}</thead>
                 <tbody>${tableBody || '<tr><td></td><td></td><td></td><td></td></tr>'}</tbody>
               </table>

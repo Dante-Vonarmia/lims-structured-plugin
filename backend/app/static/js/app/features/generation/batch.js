@@ -34,6 +34,7 @@ export function createGenerationBatchFeature(deps = {}) {
   }
 
   async function generateAllReady(targetIds = null) {
+    const originalActiveId = String(state.activeId || "").trim();
     const hasExplicitSelection = Array.isArray(targetIds);
     const selectedSet = hasExplicitSelection ? new Set(targetIds.filter(Boolean)) : null;
     if (hasExplicitSelection && !selectedSet.size) {
@@ -95,6 +96,9 @@ export function createGenerationBatchFeature(deps = {}) {
       if (!targetIdSet.has(id)) continue;
       const current = state.queue.find((x) => x.id === id);
       if (!current || current.status !== "generated") state.selectedIds.delete(id);
+    }
+    if (originalActiveId && state.queue.some((x) => String((x && x.id) || "").trim() === originalActiveId)) {
+      state.activeId = originalActiveId;
     }
     renderQueue();
     const summary = `批量生成完成：成功${generated}，跳过${skipped}，失败${failed}`;

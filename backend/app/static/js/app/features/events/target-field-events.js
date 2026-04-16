@@ -73,9 +73,26 @@ export function createTargetFieldEventBindings(deps = {}) {
       hint.style.left = `${paddingLeft + textOffset}px`;
       hint.style.top = target instanceof HTMLTextAreaElement ? `${Math.max(8, (lineHeight - 16) / 2 + 8)}px` : "50%";
     };
+    const syncRepeatableHint = () => {
+      const formRoot = $("targetFieldForm");
+      if (!(formRoot instanceof HTMLElement)) return;
+      const wraps = Array.from(formRoot.querySelectorAll(".appendix-repeatable-wrap"));
+      if (!wraps.length) return;
+      const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      const activeKey = String(active && active.getAttribute("data-repeatable-key") || "").trim();
+      const rowEl = active ? active.closest("[data-repeatable-row-index]") : null;
+      const rowIndex = Number.parseInt(String(rowEl && rowEl.getAttribute("data-repeatable-row-index") || "-1"), 10);
+      const shouldShow = !!activeKey && rowIndex === 0;
+      wraps.forEach((wrap) => wrap.classList.toggle("is-hint-active", shouldShow));
+    };
     const handleTargetFieldChange = (event) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
+      const persistDraftOnChange = () => {
+        if (event.type === "change" && typeof saveWorkspaceDraft === "function") {
+          void saveWorkspaceDraft();
+        }
+      };
       syncFloatingHint(target);
       const templateInfoKey = String(target.getAttribute("data-template-info") || "").trim();
       if (templateInfoKey) {
@@ -125,6 +142,7 @@ export function createTargetFieldEventBindings(deps = {}) {
         if (event.type === "change" && typeof rememberFieldValueFromTarget === "function") {
           rememberFieldValueFromTarget(target, $("targetFieldForm"));
         }
+        persistDraftOnChange();
         return;
       }
       const key = String(target.getAttribute("data-field") || "").trim();
@@ -193,6 +211,7 @@ export function createTargetFieldEventBindings(deps = {}) {
         if (event.type === "change" && typeof rememberFieldValueFromTarget === "function") {
           rememberFieldValueFromTarget(target, $("targetFieldForm"));
         }
+        persistDraftOnChange();
         setStatus("已更新：本次校准所依据的技术规范");
         return;
       }
@@ -218,6 +237,7 @@ export function createTargetFieldEventBindings(deps = {}) {
         if (event.type === "change" && typeof rememberFieldValueFromTarget === "function") {
           rememberFieldValueFromTarget(target, $("targetFieldForm"));
         }
+        persistDraftOnChange();
         setStatus("已更新：本次校准所使用的主要计量标准器具");
         return;
       }
@@ -249,6 +269,7 @@ export function createTargetFieldEventBindings(deps = {}) {
         if (event.type === "change" && typeof rememberFieldValueFromTarget === "function") {
           rememberFieldValueFromTarget(target, $("targetFieldForm"));
         }
+        persistDraftOnChange();
         setStatus("已更新：附表1明细");
         return;
       }
@@ -276,6 +297,7 @@ export function createTargetFieldEventBindings(deps = {}) {
           if (event.type === "change" && typeof rememberFieldValueFromTarget === "function") {
             rememberFieldValueFromTarget(target, $("targetFieldForm"));
           }
+          persistDraftOnChange();
           setStatus("已更新：一般检查");
           return;
         }
@@ -303,6 +325,7 @@ export function createTargetFieldEventBindings(deps = {}) {
         if (event.type === "change" && typeof rememberFieldValueFromTarget === "function") {
           rememberFieldValueFromTarget(target, $("targetFieldForm"));
         }
+        persistDraftOnChange();
         setStatus("已更新：一般检查");
         return;
       }
@@ -415,6 +438,7 @@ export function createTargetFieldEventBindings(deps = {}) {
         rememberFieldValueFromTarget(target, $("targetFieldForm"));
       }
       if (event.type === "change") {
+        persistDraftOnChange();
         const labelEl = target.closest(".source-form-item")?.querySelector(":scope > span");
         const labelText = String(labelEl && labelEl.textContent ? labelEl.textContent : "").trim();
         setStatus(`已更新：${labelText || key}`);
@@ -422,7 +446,46 @@ export function createTargetFieldEventBindings(deps = {}) {
     };
     const handleTargetFieldKeydown = (event) => {
       if (!(event.target instanceof HTMLElement)) return;
+      const repeatableKey = String(event.target.getAttribute("data-repeatable-key") || "").trim();
+      if (event.key === "Enter" && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
+        const repeatableTarget = event.target;
+        if (repeatableKey && (repeatableTarget instanceof HTMLInputElement || repeatableTarget instanceof HTMLTextAreaElement || repeatableTarget instanceof HTMLSelectElement)) {
+          const rowEl = repeatableTarget.closest("[data-repeatable-row-index]");
+          const rowIndex = Number.parseInt(String(rowEl && rowEl.getAttribute("data-repeatable-row-index") || "-1"), 10);
+          if (rowIndex === 0) {
+            const tableEl = repeatableTarget.closest("[data-repeatable-table]");
+            if (tableEl instanceof HTMLElement) {
+              const allControls = Array.from(tableEl.querySelectorAll("[data-repeatable-key]"))
+                .filter((node) => node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement);
+              const matchedControls = allControls
+                .filter((node) => String(node.getAttribute("data-repeatable-key") || "").trim() === repeatableKey);
+              const sourceValue = String(repeatableTarget.value || "");
+              let changedCount = 0;
+              matchedControls.forEach((node) => {
+                if (!(node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement || node instanceof HTMLSelectElement)) return;
+                if (node === repeatableTarget) return;
+                const nodeRow = node.closest("[data-repeatable-row-index]");
+                const nodeRowIndex = Number.parseInt(String(nodeRow && nodeRow.getAttribute("data-repeatable-row-index") || "-1"), 10);
+                if (nodeRowIndex <= 0) return;
+                if (node.value === sourceValue) return;
+                node.value = sourceValue;
+                changedCount += 1;
+              });
+              if (changedCount > 0) {
+                repeatableTarget.dispatchEvent(new Event("input", { bubbles: true }));
+                repeatableTarget.dispatchEvent(new Event("change", { bubbles: true }));
+                setStatus(`已应用到其余行（${changedCount}处）`);
+              } else {
+                setStatus("无需应用：其余行值已一致");
+              }
+              event.preventDefault();
+              return;
+            }
+          }
+        }
+      }
       if (event.key !== "Tab" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+      if (repeatableKey) return;
       if (typeof canAcceptSuggestionFromTarget === "function") {
         const canAccept = canAcceptSuggestionFromTarget(event.target, $("targetFieldForm"));
         if (!canAccept) return;
@@ -439,11 +502,15 @@ export function createTargetFieldEventBindings(deps = {}) {
     $("targetFieldForm").addEventListener("keydown", handleTargetFieldKeydown);
     $("targetFieldForm").addEventListener("focusin", (event) => {
       syncFloatingHint(event.target);
+      syncRepeatableHint();
     });
     $("targetFieldForm").addEventListener("focusout", (event) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
-      window.setTimeout(() => syncFloatingHint(target), 0);
+      window.setTimeout(() => {
+        syncFloatingHint(target);
+        syncRepeatableHint();
+      }, 0);
     });
     $("targetFieldForm").addEventListener("click", (event) => {
       const target = event.target;

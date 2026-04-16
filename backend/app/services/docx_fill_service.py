@@ -427,9 +427,11 @@ def fill_generic_record_docx(
     if not template_path.exists():
         return False
 
-    payload = build_r825b_payload(context=context, source_file_path=source_file_path)
-    if not payload:
-        return False
+    payload = build_r825b_payload(context=context, source_file_path=source_file_path) or {}
+    explicit_report_no = normalize_space(str(context.get("report_no") or context.get("report_number") or ""))
+    if explicit_report_no:
+        payload["report_no"] = explicit_report_no
+        payload["report_number"] = explicit_report_no
     detail_general_check = _resolve_detail_general_check_for_generic_fill(context)
     detail_general_check = _trim_general_check_note_block_for_record_fill(detail_general_check)
     if detail_general_check:
@@ -681,9 +683,11 @@ def fill_modify_certificate_docx(
     if not template_path.exists():
         return False
 
-    payload = build_r825b_payload(context=context, source_file_path=source_file_path)
-    if not payload:
-        return False
+    payload = build_r825b_payload(context=context, source_file_path=source_file_path) or {}
+    explicit_report_no = normalize_space(str(context.get("report_no") or context.get("report_number") or ""))
+    if explicit_report_no:
+        payload["report_no"] = explicit_report_no
+        payload["report_number"] = explicit_report_no
     detail_general_check = _resolve_detail_general_check_for_generic_fill(context)
     if detail_general_check:
         payload["detail_general_check"] = detail_general_check
@@ -724,13 +728,22 @@ def fill_modify_certificate_docx(
         root,
         {"certificate_no": payload.get("certificate_no", "")},
     ) or changed
+    changed = _fill_jinja_placeholders_in_root(
+        root,
+        _build_jinja_placeholder_values(context=context, payload=payload),
+    ) or changed
 
     _write_docx_with_updated_root(
         template_path=template_path,
         output_path=output_path,
         root=root,
         original_namespaces=original_namespaces,
-        header_payload={"certificate_no": payload.get("certificate_no", "")},
+        header_payload={
+            "certificate_no": payload.get("certificate_no", ""),
+            "report_no": payload.get("report_no", ""),
+            "report_number": payload.get("report_number", ""),
+            "record_no": payload.get("record_no", ""),
+        },
         rel_updates=rel_updates,
     )
     return True
@@ -2852,6 +2865,7 @@ def _build_jinja_placeholder_values(context: dict[str, Any], payload: dict[str, 
             merged[k] = normalize_space(str(value or ""))
 
     merged["yyyymmdd##"] = _resolve_yyyymmdd_serial_no(context_data, payload_data)
+    merged["yyyymmdd#"] = merged["yyyymmdd##"]
     merged["#"] = merged["yyyymmdd##"]
     merged["yyyy-MM-dd"] = _resolve_iso_date_text(context_data, payload_data)
     merged["selected_rows"] = normalize_space(
@@ -3156,6 +3170,10 @@ def _fill_header_base_fields_xml(xml_data: bytes, payload: dict[str, Any]) -> by
     if tables:
         _fill_generic_base_labels_in_tables(tables, payload)
     _fill_generic_base_labels_in_paragraphs(root, payload)
+    _fill_jinja_placeholders_in_root(
+        root,
+        _build_jinja_placeholder_values(context=payload, payload=payload),
+    )
     _preserve_original_namespaces(root, original_namespaces)
     return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 

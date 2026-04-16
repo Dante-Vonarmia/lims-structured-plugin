@@ -1,5 +1,4 @@
 {
-  "note": "修改证书蓝本模板字段（按 template.docx 占位维护）",
   "fields": [
     {
       "key": "record_no",
@@ -28,8 +27,9 @@
       "label": "充装介质"
     },
     {
-      "key": "selected_rows",
-      "label": "送检总数（只）"
+      "key": "submit_org_name",
+      "label": "送检单位",
+      "wide": true
     },
     {
       "key": "inspector_sign_date",
@@ -65,7 +65,7 @@
     },
     {
       "key": "appendix1_rows_text",
-      "label": "附表1明细（每行：气瓶编号\\t制造单位代码\\t下次检验日期）",
+      "label": "附表1明细",
       "wide": true
     }
   ]

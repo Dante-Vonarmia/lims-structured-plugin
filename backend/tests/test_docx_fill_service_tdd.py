@@ -18,10 +18,13 @@ if "yaml" not in sys.modules:
     sys.modules["yaml"] = yaml_stub
 
 from app.services.docx_fill_service import (
+    _build_jinja_placeholder_values,
     _copy_r802b_general_check_table_from_source,
     _copy_modify_certificate_continued_page_table_from_source,
     _extract_r882_background_noise_values,
     _extract_r882_series_rows_from_text,
+    _fill_jinja_placeholders_in_root,
+    _fill_header_base_fields_xml,
     _fill_modify_certificate_blueprint_sections,
     _fill_modify_certificate_measurement_rows,
     _find_modify_certificate_continued_page_table,
@@ -35,10 +38,74 @@ from app.services.docx_fill_service import (
     _sanitize_general_check_table_rows,
     _strip_general_check_required_marker,
     _trim_general_check_note_block_for_record_fill,
+    fill_generic_record_docx,
 )
 
 
 class DocxFillServiceTDD(unittest.TestCase):
+    def test_should_fill_header_split_report_no_placeholder(self) -> None:
+        header_xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            "<w:p>"
+            "<w:r><w:t>报告编号：</w:t></w:r>"
+            "<w:r><w:t>{{yyyymmdd</w:t></w:r>"
+            "<w:r><w:t>#</w:t></w:r>"
+            "<w:r><w:t>}}</w:t></w:r>"
+            "</w:p>"
+            "</w:hdr>"
+        ).encode("utf-8")
+        updated = _fill_header_base_fields_xml(
+            header_xml,
+            {"report_no": "191234243"},
+        ).decode("utf-8", errors="ignore")
+        self.assertIn("报告编号：191234243", updated)
+        self.assertNotIn("yyyymmdd", updated)
+
+    def test_should_fill_yyyymmdd_single_hash_even_when_payload_is_empty(self) -> None:
+        document_xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            "<w:body><w:p><w:r><w:t>报告编号：{{yyyymmdd#}}</w:t></w:r></w:p></w:body>"
+            "</w:document>"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            template_docx = td_path / "template.docx"
+            output_docx = td_path / "output.docx"
+            with zipfile.ZipFile(template_docx, "w") as zf:
+                zf.writestr("word/document.xml", document_xml)
+
+            ok = fill_generic_record_docx(
+                template_path=template_docx,
+                output_path=output_docx,
+                context={"report_no": "2026041601"},
+                source_file_path=None,
+            )
+            self.assertTrue(ok)
+
+            with zipfile.ZipFile(output_docx, "r") as zf:
+                out_xml = zf.read("word/document.xml").decode("utf-8", errors="ignore")
+            self.assertIn("报告编号：2026041601", out_xml)
+            self.assertNotIn("{{yyyymmdd#}}", out_xml)
+
+    def test_should_fill_modify_certificate_report_no_placeholder_yyyymmdd_single_hash(self) -> None:
+        root = ET.Element(f"{{{W_NS}}}document")
+        body = ET.SubElement(root, f"{{{W_NS}}}body")
+        paragraph = ET.SubElement(body, f"{{{W_NS}}}p")
+        run = ET.SubElement(paragraph, f"{{{W_NS}}}r")
+        text = ET.SubElement(run, f"{{{W_NS}}}t")
+        text.text = "报告编号：{{yyyymmdd#}}"
+
+        values = _build_jinja_placeholder_values(
+            context={"report_no": "2026041601"},
+            payload={},
+        )
+        changed = _fill_jinja_placeholders_in_root(root, values)
+
+        self.assertTrue(changed)
+        self.assertEqual(text.text, "报告编号：2026041601")
+
     def test_should_strip_general_check_required_marker(self) -> None:
         tbl = ET.Element(f"{{{W_NS}}}tbl")
         row = ET.SubElement(tbl, f"{{{W_NS}}}tr")
