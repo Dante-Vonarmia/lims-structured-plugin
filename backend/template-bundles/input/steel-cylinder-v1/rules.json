@@ -20,10 +20,7 @@
       "label": "送检单位"
     }
   ],
-  "aliases": {
-    "submit_org": ["ownership_code"],
-    "ownership_code": ["submit_org"]
-  },
+  "aliases": {},
   "fields": {
     "inspect_date": {
       "label": "检验日期",

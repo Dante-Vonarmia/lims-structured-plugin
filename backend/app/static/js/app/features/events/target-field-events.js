@@ -30,32 +30,6 @@ export function createTargetFieldEventBindings(deps = {}) {
     canAcceptSuggestionFromTarget,
   } = deps;
 
-  function listTemplateInfoAliasKeys(key) {
-    const normalizedKey = String(key || "").trim();
-    if (!normalizedKey) return [];
-    const schemaRules = (state.taskContext && state.taskContext.import_template_schema && state.taskContext.import_template_schema.rules
-      && typeof state.taskContext.import_template_schema.rules === "object")
-      ? state.taskContext.import_template_schema.rules
-      : {};
-    const aliasMap = (schemaRules.aliases && typeof schemaRules.aliases === "object") ? schemaRules.aliases : {};
-    const aliases = [];
-    const seen = new Set([normalizedKey]);
-    const pushAlias = (value) => {
-      const aliasKey = String(value || "").trim();
-      if (!aliasKey || seen.has(aliasKey)) return;
-      seen.add(aliasKey);
-      aliases.push(aliasKey);
-    };
-    const direct = Array.isArray(aliasMap[normalizedKey]) ? aliasMap[normalizedKey] : [];
-    direct.forEach(pushAlias);
-    Object.entries(aliasMap).forEach(([canonicalKey, aliasList]) => {
-      if (!Array.isArray(aliasList)) return;
-      if (!aliasList.map((x) => String(x || "").trim()).includes(normalizedKey)) return;
-      pushAlias(canonicalKey);
-    });
-    return aliases;
-  }
-
   function bindTargetFieldEvents() {
     const getFloatingHintElements = (target) => {
       if (!(target instanceof HTMLElement)) return { wrap: null, hint: null };
@@ -115,18 +89,6 @@ export function createTargetFieldEventBindings(deps = {}) {
         if (currentTemplateInfo[templateInfoKey] === nextValue && event.type !== "change") return;
         currentTemplateInfo[templateInfoKey] = nextValue;
         state.taskContext.template_info = currentTemplateInfo;
-        if (templateInfoKey === "submit_org") {
-          const aliasKeys = listTemplateInfoAliasKeys(templateInfoKey);
-          state.queue.forEach((queueItem) => {
-            if (!queueItem || typeof queueItem !== "object") return;
-            if (!queueItem.fields || typeof queueItem.fields !== "object") {
-              queueItem.fields = createEmptyFields();
-            }
-            aliasKeys.forEach((aliasKey) => {
-              queueItem.fields[aliasKey] = nextValue;
-            });
-          });
-        }
         if (event.type === "change") {
           if (typeof rememberFieldValueFromTarget === "function") {
             rememberFieldValueFromTarget(target, $("targetFieldForm"));

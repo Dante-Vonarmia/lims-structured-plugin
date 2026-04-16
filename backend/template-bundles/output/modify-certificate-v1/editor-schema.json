@@ -11,7 +11,7 @@
     },
     {
       "key": "ownership_code",
-      "label": "报告抬头公司",
+      "label": "报告抬头公司（产权代码编号）",
       "wide": true
     },
     {
