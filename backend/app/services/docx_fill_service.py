@@ -718,6 +718,7 @@ def fill_modify_certificate_docx(
         changed = True
     _fill_page_number_placeholders_in_root(root)
     changed = _fill_modify_certificate_standard_checkboxes(root, payload, context) or changed
+    changed = _fill_appendix1_table_rows_from_context(root, context) or changed
     changed = _fill_modify_certificate_signoff_sections(root, context) or changed
     changed = _fill_generic_base_labels_in_paragraphs(
         root,
