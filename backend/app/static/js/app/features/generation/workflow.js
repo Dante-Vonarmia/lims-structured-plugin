@@ -146,6 +146,7 @@ export function createGenerationWorkflowFeature(deps = {}) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+    item.systemReportNo = String((data && data.report_no) || "").trim();
     item.reportId = data.report_id;
     item.reportDownloadUrl = data.download_url;
     item.reportFileName = buildReportFileName(item, data.output_format);
@@ -155,6 +156,7 @@ export function createGenerationWorkflowFeature(deps = {}) {
       reportId: item.reportId,
       reportDownloadUrl: item.reportDownloadUrl,
       reportFileName: item.reportFileName,
+      reportNo: item.systemReportNo,
     };
     item.modeReports = modeReports;
     if (item.templateUserSelected) {
