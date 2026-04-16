@@ -5,7 +5,7 @@ from uuid import uuid4
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
-from ..config import UPLOAD_DIR
+from ..config import UPLOAD_DIR, UPLOAD_MAX_FILE_BYTES
 from ..schemas.device_report import UploadResponse
 
 router = APIRouter()
@@ -39,6 +39,11 @@ CONTENT_TYPE_TO_SUFFIX = {
     "application/vnd.ms-excel": ".xls",
 }
 ALLOWED_SUFFIXES = ALLOWED_SUFFIXES | HEIC_SUFFIXES
+COPY_CHUNK_BYTES = 1024 * 1024
+
+
+class _UploadTooLargeError(RuntimeError):
+    pass
 
 
 @router.post("/upload", response_model=UploadResponse)
@@ -54,8 +59,11 @@ async def upload_file(file: UploadFile = File(...)) -> UploadResponse:
     file_id = uuid4().hex
     output_path = UPLOAD_DIR / f"{file_id}{suffix}"
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
+    try:
+        _copy_upload_stream_limited(file=file, output_path=output_path, limit_bytes=UPLOAD_MAX_FILE_BYTES)
+    except _UploadTooLargeError as exc:
+        output_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
 
     return UploadResponse(
         file_id=file_id,
@@ -164,3 +172,22 @@ def _peek_file_header(file: UploadFile, size: int = 32) -> bytes:
                 stream.seek(pos)
             except Exception:
                 pass
+
+
+def _copy_upload_stream_limited(file: UploadFile, output_path: Path, limit_bytes: int) -> int:
+    if limit_bytes <= 0:
+        with output_path.open("wb") as f:
+            shutil.copyfileobj(file.file, f)
+        return int(output_path.stat().st_size)
+
+    written = 0
+    with output_path.open("wb") as f:
+        while True:
+            chunk = file.file.read(COPY_CHUNK_BYTES)
+            if not chunk:
+                break
+            written += len(chunk)
+            if written > limit_bytes:
+                raise _UploadTooLargeError(f"File too large: max {limit_bytes} bytes")
+            f.write(chunk)
+    return written

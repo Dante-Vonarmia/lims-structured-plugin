@@ -9,6 +9,16 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return int(default)
+    try:
+        return int(str(value).strip())
+    except Exception:
+        return int(default)
+
+
 BASE_DIR = Path(__file__).resolve().parents[1]
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", BASE_DIR / "uploads"))
 OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", BASE_DIR / "outputs"))
@@ -29,6 +39,8 @@ MODIFY_CERTIFICATE_BLUEPRINT_TEMPLATE_NAME = os.getenv(
 )
 OFFLINE_MODE = _env_bool("OFFLINE_MODE", False)
 INSTRUMENT_CATALOG_AUTO_ENABLED = _env_bool("INSTRUMENT_CATALOG_AUTO_ENABLED", True)
+UPLOAD_MAX_FILE_BYTES = max(1, _env_int("UPLOAD_MAX_FILE_BYTES", 20 * 1024 * 1024))
+UPLOAD_RETENTION_DAYS = max(1, _env_int("UPLOAD_RETENTION_DAYS", 7))
 
 for _directory in (
     UPLOAD_DIR,

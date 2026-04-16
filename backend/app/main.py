@@ -1,4 +1,5 @@
 from pathlib import Path
+import time
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, RedirectResponse
@@ -47,14 +48,33 @@ def _cleanup_generated_cache() -> None:
                 continue
 
 
+def _cleanup_expired_uploads() -> None:
+    retention_days = int(getattr(config, "UPLOAD_RETENTION_DAYS", 7) or 7)
+    if retention_days <= 0:
+        return
+    expire_before = time.time() - (retention_days * 24 * 60 * 60)
+    if not config.UPLOAD_DIR.exists() or not config.UPLOAD_DIR.is_dir():
+        return
+    for path in config.UPLOAD_DIR.iterdir():
+        if not path.is_file():
+            continue
+        try:
+            if path.stat().st_mtime < expire_before:
+                path.unlink()
+        except Exception:
+            continue
+
+
 @app.on_event("startup")
 def cleanup_generated_cache_on_startup() -> None:
     _cleanup_generated_cache()
+    _cleanup_expired_uploads()
 
 
 @app.on_event("shutdown")
 def cleanup_generated_cache_on_shutdown() -> None:
     _cleanup_generated_cache()
+    _cleanup_expired_uploads()
 
 
 @app.get("/")
