@@ -46,6 +46,39 @@ test("display field state should rebuild pairing pipeline from recognized fields
   assert.equal(resolved.itemTypedFields.check_date.type, "date");
 });
 
+test("display field state should merge fields and recognizedFields when recognizedFields only stores diffs", () => {
+  const schemaColumns = [
+    { key: "owner_code", label: "产权代码编号", group: "钢印标记检查及余气处理", index: 0 },
+    { key: "medium", label: "充装介质", group: "钢印标记检查及余气处理", index: 1 },
+  ];
+  const schemaGroups = [
+    { key: "group_1", name: "钢印标记检查及余气处理", columns: schemaColumns },
+  ];
+  const schemaRules = {
+    field_rules: {
+      产权代码编号: { type: "string", std_type: "string" },
+      充装介质: { type: "string", std_type: "string" },
+    },
+  };
+
+  const resolved = resolveDisplayFieldState({
+    item: {
+      fields: { owner_code: "金鸽气体（测试）", medium: "Ar" },
+      recognizedFields: { owner_code: "金鸽" },
+      fieldPipeline: {},
+      groupPipeline: {},
+      typedFields: {},
+    },
+    schemaColumns,
+    schemaGroups,
+    schemaRules,
+  });
+
+  assert.equal(resolved.fieldPipeline.owner_code.normalizedValue, "金鸽");
+  assert.equal(resolved.fieldPipeline.medium.normalizedValue, "Ar");
+  assert.equal(resolved.groupPipeline["钢印标记检查及余气处理"].status, "parsed");
+});
+
 test("display field state should keep existing pairing pipeline when it already contains rendered values", () => {
   const existing = {
     check_date: { status: "parsed", rawValue: "2.11", normalizedValue: "2.11", displayValue: "2026年02月11日" },

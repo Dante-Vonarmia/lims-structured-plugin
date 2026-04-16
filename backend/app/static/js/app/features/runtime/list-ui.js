@@ -348,17 +348,13 @@ export function createRuntimeListUiFeature(deps = {}) {
     const el = $("sourceDeviceNameText");
     if (!el) return;
     const selectedNormalItems = getSelectedNormalItems();
-    if (selectedNormalItems.length > 1) {
-      el.textContent = `来源：已选 ${selectedNormalItems.length} 条`;
-      el.title = `已选 ${selectedNormalItems.length} 条记录`;
-      return;
-    }
     const sourceName = String((item && (item.sourceFileName || item.fileName)) || "").trim();
     const shortName = sourceName.length > 26
       ? `${sourceName.slice(0, 12)}...${sourceName.slice(-10)}`
       : sourceName;
-    el.textContent = `来源：${shortName || "-"}`;
-    el.title = sourceName || "";
+    const selectedSuffix = selectedNormalItems.length > 1 ? `（已选 ${selectedNormalItems.length} 条）` : "";
+    el.textContent = `来源：${shortName || "-"}${selectedSuffix}`;
+    el.title = `${sourceName || ""}${selectedNormalItems.length > 1 ? ` | 已选 ${selectedNormalItems.length} 条记录` : ""}`;
   }
 
   function setPreviewFullscreen(on) {

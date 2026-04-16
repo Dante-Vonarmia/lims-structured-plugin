@@ -58,6 +58,7 @@ import { createMatchingValidationFeature } from "./features/matching/validation.
 import { createQueueRenderingFeature } from "./features/queue/rendering.js";
 import { createSourceSplittingFeature } from "./features/source/splitting.js";
 import { createFieldMemoryFeature } from "./features/shared/field-memory.js";
+import { buildRecognizedFieldsRuntimeShape } from "./features/shared/draft-hydration.js";
 import { createRuntimeCommonFeature } from "./features/runtime/common.js";
 import { createRuntimeApisFeature } from "./features/runtime/apis.js";
 import { createRuntimeListUiFeature } from "./features/runtime/list-ui.js";
@@ -95,6 +96,7 @@ import { normalizeImportTemplateSchemaPayload } from "./features/shared/schema-f
       getFieldSuggestion,
       formatSuggestionLabel,
       acceptSuggestionFromTarget,
+      canAcceptSuggestionFromTarget,
     } = createFieldMemoryFeature({
       state,
     });
@@ -469,14 +471,15 @@ import { normalizeImportTemplateSchemaPayload } from "./features/shared/schema-f
 
     function normalizeDraftItem(raw) {
       const src = (raw && typeof raw === "object") ? raw : {};
-      const normalizedRecognizedFields = {
-        ...createEmptyFields(),
-        ...((src.recognizedFields && typeof src.recognizedFields === "object") ? src.recognizedFields : {}),
-      };
       const normalizedFields = {
         ...createEmptyFields(),
         ...((src.fields && typeof src.fields === "object") ? src.fields : {}),
       };
+      const normalizedRecognizedFields = buildRecognizedFieldsRuntimeShape({
+        fields: src.fields,
+        recognizedFields: src.recognizedFields,
+        createEmptyFields,
+      });
       Object.entries(normalizedRecognizedFields).forEach(([key, value]) => {
         const current = normalizedFields[key];
         const currentHasValue = Array.isArray(current) ? current.length > 0 : !!String(current == null ? "" : current).trim();
@@ -762,6 +765,7 @@ import { normalizeImportTemplateSchemaPayload } from "./features/shared/schema-f
       processItem,
       ensureSourceFileId,
       renderQueue,
+      getSelectedNormalItems,
       validateItemForGeneration,
       buildCategoryMessage,
       fetchJson,
@@ -1037,6 +1041,7 @@ import { normalizeImportTemplateSchemaPayload } from "./features/shared/schema-f
       saveWorkspaceDraft,
       rememberFieldValueFromTarget,
       acceptSuggestionFromTarget,
+      canAcceptSuggestionFromTarget,
       syncGenerateModeUiText,
       triggerDownload,
       authorizeDownloadWindow,

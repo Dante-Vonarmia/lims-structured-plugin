@@ -6,9 +6,10 @@ from typing import Callable
 from typing import Iterable
 from uuid import uuid4
 
-from ..config import OUTPUT_DIR, TEMPLATE_DIR
+from ..config import REPORT_OUTPUT_DIR, TEMPLATE_DIR
 from .field_dictionary import apply_field_dictionary
 from .template_bundle import BundleError, resolve_output_bundle
+from .report_number_service import ensure_report_no
 from .docx_fill_service import (
     fill_generic_record_docx,
     fill_modify_certificate_docx,
@@ -35,6 +36,7 @@ except Exception:  # pragma: no cover - optional runtime dependency
     DocxTemplate = None
 
 ALLOWED_TEMPLATE_SUFFIXES = {".html", ".docx"}
+PRIMARY_OUTPUT_BUNDLE_ID = "output.modify-certificate.v1"
 FIXED_DOCX_HANDLERS: dict[
     str,
     Callable[[Path, Path, dict[str, str], Path | None], bool],
@@ -91,13 +93,14 @@ def render_report(
             raise FileNotFoundError(str(exc)) from exc
 
     context = apply_field_dictionary(context, template_name=effective_template_name)
+    ensure_report_no(context)
     if not template_path.exists():
         raise FileNotFoundError(f"Template not found: {effective_template_name}")
 
     report_id = uuid4().hex
     suffix = template_path.suffix.lower()
     if suffix == ".html":
-        output_path = OUTPUT_DIR / _build_output_file_name(report_id, template_path.name)
+        output_path = REPORT_OUTPUT_DIR / _build_output_file_name(report_id, template_path.name)
         if Template is None:
             shutil.copyfile(template_path, output_path)
             return report_id, output_path
@@ -109,7 +112,7 @@ def render_report(
             shutil.copyfile(template_path, output_path)
         return report_id, output_path
 
-    output_path = OUTPUT_DIR / _build_output_file_name(report_id, template_path.name)
+    output_path = REPORT_OUTPUT_DIR / _build_output_file_name(report_id, template_path.name)
 
     inferred_handler_key = _infer_fixed_handler_key(template_name)
     handler_key = inferred_handler_key or resolve_handler_key(template_name)
@@ -151,28 +154,11 @@ def render_report(
 
 
 def list_available_templates() -> list[str]:
-    names = {
-        p.name
-        for p in TEMPLATE_DIR.iterdir()
-        if p.is_file() and p.suffix.lower() in ALLOWED_TEMPLATE_SUFFIXES
-    }
     try:
-        from .template_bundle import list_bundle_options
-
-        for item in list_bundle_options("output"):
-            bundle_id = str((item or {}).get("id") or "").strip()
-            if not bundle_id:
-                continue
-            if str((item or {}).get("availability") or "") != "available":
-                continue
-            try:
-                resolve_output_bundle(bundle_id)
-            except BundleError:
-                continue
-            names.add(f"bundle:{bundle_id}")
+        resolve_output_bundle(PRIMARY_OUTPUT_BUNDLE_ID)
+        return [f"bundle:{PRIMARY_OUTPUT_BUNDLE_ID}"]
     except Exception:
-        pass
-    return sorted(names)
+        return []
 
 
 def get_template_editor_prefill(

@@ -27,6 +27,7 @@ export function createTargetFieldEventBindings(deps = {}) {
     handleTargetDateInput,
     rememberFieldValueFromTarget,
     acceptSuggestionFromTarget,
+    canAcceptSuggestionFromTarget,
   } = deps;
 
   function listTemplateInfoAliasKeys(key) {
@@ -258,33 +259,21 @@ export function createTargetFieldEventBindings(deps = {}) {
         setStatus("已更新：本次校准所使用的主要计量标准器具");
         return;
       }
-      if (key === "appendix1_cell") {
+      if (key === "appendix1_cell" || key === "appendix1_cell_date_part") {
         const formRoot = $("targetFieldForm");
         if (!(formRoot instanceof HTMLElement)) return;
-        const parseDateToIso = (value) => {
-          const text = String(value || "").trim();
-          if (!text) return "";
-          let m = text.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
-          if (m) {
-            const mm = String(Number(m[2] || 0)).padStart(2, "0");
-            const dd = String(Number(m[3] || 0)).padStart(2, "0");
-            return `${m[1]}-${mm}-${dd}`;
-          }
-          m = text.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日?$/);
-          if (m) {
-            const mm = String(Number(m[2] || 0)).padStart(2, "0");
-            const dd = String(Number(m[3] || 0)).padStart(2, "0");
-            return `${m[1]}-${mm}-${dd}`;
-          }
-          return "";
-        };
         const rows = Array.from(formRoot.querySelectorAll('tr[data-appendix-row]')).map((row) => {
           const serialInput = row.querySelector('input[data-field="appendix1_cell"][data-col="serial_no"]');
           const makerInput = row.querySelector('input[data-field="appendix1_cell"][data-col="maker_code"]');
-          const dateInput = row.querySelector('input[data-field="appendix1_cell"][data-col="next_date"]');
+          const yearInput = row.querySelector('input[data-field="appendix1_cell_date_part"][data-col="next_date"][data-part="year"]');
+          const monthInput = row.querySelector('input[data-field="appendix1_cell_date_part"][data-col="next_date"][data-part="month"]');
+          const dayInput = row.querySelector('input[data-field="appendix1_cell_date_part"][data-col="next_date"][data-part="day"]');
           const serialNo = String(serialInput && "value" in serialInput ? serialInput.value : "").trim();
           const makerCode = String(makerInput && "value" in makerInput ? makerInput.value : "").trim();
-          const nextDate = parseDateToIso(String(dateInput && "value" in dateInput ? dateInput.value : ""));
+          const y = String(yearInput && "value" in yearInput ? yearInput.value : "").replace(/[^\d]/g, "").slice(0, 4);
+          const m = String(monthInput && "value" in monthInput ? monthInput.value : "").replace(/[^\d]/g, "").slice(0, 2);
+          const d = String(dayInput && "value" in dayInput ? dayInput.value : "").replace(/[^\d]/g, "").slice(0, 2);
+          const nextDate = (y && m && d) ? `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}` : "";
           return { serialNo, makerCode, nextDate };
         }).filter((x) => x.serialNo || x.makerCode || x.nextDate);
         const valueText = rows.map((x) => [x.serialNo, x.makerCode, x.nextDate].join("\t")).join("\n");
@@ -357,7 +346,14 @@ export function createTargetFieldEventBindings(deps = {}) {
       }
       const value = readControlValue();
       if (isMultiMode && MULTI_EDIT_DISABLED_FIELD_KEYS.has(key)) return;
-      const isDateKey = ["receive_date", "calibration_date", "release_date"].includes(key);
+      const isDateKey = [
+        "manufacture_date",
+        "last_inspection_date",
+        "next_inspection_date",
+        "receive_date",
+        "calibration_date",
+        "release_date",
+      ].includes(key);
       const parseLooseDateParts = (dateText) => {
         const text = String(dateText || "").trim();
         if (!text) return { year: "", month: "", day: "" };
@@ -404,6 +400,24 @@ export function createTargetFieldEventBindings(deps = {}) {
         }
       });
       invalidateCurrentModeReports(editTargets);
+      if (key === "record_no" && state.taskContext && typeof state.taskContext === "object") {
+        const currentTemplateInfo = (state.taskContext.template_info && typeof state.taskContext.template_info === "object")
+          ? state.taskContext.template_info
+          : {};
+        currentTemplateInfo.record_no = String(value || "").trim();
+        state.taskContext.template_info = currentTemplateInfo;
+        if (event.type === "change" && typeof updateTaskTemplateInfoApi === "function" && String((state.taskContext && state.taskContext.id) || "").trim()) {
+          updateTaskTemplateInfoApi(state.taskContext.id, { record_no: currentTemplateInfo.record_no })
+            .then((task) => {
+              const payload = (task && task.template_info && typeof task.template_info === "object") ? task.template_info : {};
+              state.taskContext.template_info = {
+                ...state.taskContext.template_info,
+                ...payload,
+              };
+            })
+            .catch(() => {});
+        }
+      }
       if (isDateKey && target instanceof HTMLElement && target.hasAttribute("data-date-exact")) {
         target.removeAttribute("data-date-exact");
       }
@@ -425,6 +439,9 @@ export function createTargetFieldEventBindings(deps = {}) {
         };
         const active = getActiveItem();
         if (active && active.fields) {
+          syncDateFieldDom("manufacture_date", active.fields.manufacture_date);
+          syncDateFieldDom("last_inspection_date", active.fields.last_inspection_date);
+          syncDateFieldDom("next_inspection_date", active.fields.next_inspection_date);
           syncDateFieldDom("receive_date", active.fields.receive_date);
           syncDateFieldDom("calibration_date", active.fields.calibration_date);
           syncDateFieldDom("release_date", active.fields.release_date);
@@ -444,6 +461,10 @@ export function createTargetFieldEventBindings(deps = {}) {
     const handleTargetFieldKeydown = (event) => {
       if (!(event.target instanceof HTMLElement)) return;
       if (event.key !== "Tab" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+      if (typeof canAcceptSuggestionFromTarget === "function") {
+        const canAccept = canAcceptSuggestionFromTarget(event.target, $("targetFieldForm"));
+        if (!canAccept) return;
+      }
       if (typeof acceptSuggestionFromTarget !== "function") return;
       const accepted = acceptSuggestionFromTarget(event.target, $("targetFieldForm"));
       if (!accepted) return;

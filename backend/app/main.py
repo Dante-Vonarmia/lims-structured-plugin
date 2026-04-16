@@ -34,6 +34,29 @@ def validate_frontend_constants_structure() -> None:
         raise RuntimeError(f"constants structure lint failed: {detail}")
 
 
+def _cleanup_generated_cache() -> None:
+    for directory in (config.REPORT_OUTPUT_DIR, config.BATCH_OUTPUT_DIR):
+        if not directory.exists() or not directory.is_dir():
+            continue
+        for path in directory.iterdir():
+            if not path.is_file():
+                continue
+            try:
+                path.unlink()
+            except Exception:
+                continue
+
+
+@app.on_event("startup")
+def cleanup_generated_cache_on_startup() -> None:
+    _cleanup_generated_cache()
+
+
+@app.on_event("shutdown")
+def cleanup_generated_cache_on_shutdown() -> None:
+    _cleanup_generated_cache()
+
+
 @app.get("/")
 def index() -> RedirectResponse:
     return RedirectResponse(url="/tasks", status_code=307)

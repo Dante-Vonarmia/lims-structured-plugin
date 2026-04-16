@@ -1,3 +1,5 @@
+import { formatTargetDateText, parseTargetDateParts } from "./target-date-control.js";
+
 const FIELD_MEMORY_STORAGE_KEY = "lims.target-field-memory.v1";
 const FIELD_MEMORY_LIMIT = 8;
 
@@ -24,37 +26,6 @@ function normalizeStoredPayload(raw) {
   return normalized;
 }
 
-function parseDateText(value) {
-  const text = normalizeString(value);
-  if (!text) return null;
-  const iso = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
-  if (iso) {
-    return {
-      year: String(iso[1] || ""),
-      month: String(iso[2] || "").padStart(2, "0"),
-      day: String(iso[3] || "").padStart(2, "0"),
-    };
-  }
-  const zh = text.match(/(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
-  if (zh) {
-    return {
-      year: String(zh[1] || ""),
-      month: String(zh[2] || "").padStart(2, "0"),
-      day: String(zh[3] || "").padStart(2, "0"),
-    };
-  }
-  return null;
-}
-
-function formatDateText(parts) {
-  const year = normalizeString(parts && parts.year);
-  const month = normalizeString(parts && parts.month);
-  const day = normalizeString(parts && parts.day);
-  if (!year && !month && !day) return "";
-  if (!year || !month || !day) return "";
-  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-}
-
 function valuesMatch(currentValue, candidate) {
   return normalizeString(currentValue) === normalizeString(candidate);
 }
@@ -75,6 +46,19 @@ function findSuggestion(entries, currentValue) {
 
 export function createFieldMemoryFeature(deps = {}) {
   const { state } = deps;
+
+  function hasRenderableSuggestionHint(target) {
+    if (!(target instanceof HTMLElement) || typeof target.closest !== "function") return false;
+    const fieldItem = target.closest(".source-form-item");
+    if (!(fieldItem instanceof HTMLElement) || typeof fieldItem.querySelectorAll !== "function") return false;
+    const hints = fieldItem.querySelectorAll(".field-memory-hint, .field-memory-floating-hint");
+    if (!hints || typeof hints.length !== "number" || !hints.length) return false;
+    for (const hint of hints) {
+      const text = normalizeString(hint && "textContent" in hint ? hint.textContent : "");
+      if (text) return true;
+    }
+    return false;
+  }
 
   function ensureMemoryStore() {
     if (!state.fieldMemory || typeof state.fieldMemory !== "object") {
@@ -125,14 +109,15 @@ export function createFieldMemoryFeature(deps = {}) {
     if (hidden instanceof HTMLInputElement && normalizeString(hidden.value)) {
       return normalizeString(hidden.value);
     }
+    const mode = hidden instanceof HTMLInputElement ? normalizeString(hidden.getAttribute("data-date-mode")) || "full_date" : "full_date";
     const year = root.querySelector(`input[data-date-field="${fieldKey}"][data-date-part="year"]`);
     const month = root.querySelector(`input[data-date-field="${fieldKey}"][data-date-part="month"]`);
     const day = root.querySelector(`input[data-date-field="${fieldKey}"][data-date-part="day"]`);
-    return formatDateText({
+    return formatTargetDateText({
       year: year instanceof HTMLInputElement ? year.value : "",
       month: month instanceof HTMLInputElement ? month.value : "",
       day: day instanceof HTMLInputElement ? day.value : "",
-    });
+    }, mode);
   }
 
   function readValueFromTarget(target, formRoot) {
@@ -191,10 +176,11 @@ export function createFieldMemoryFeature(deps = {}) {
     if (!text) return false;
     const dateField = normalizeString(target.getAttribute("data-date-field"));
     if (dateField) {
-      const parts = parseDateText(text);
-      if (!parts) return false;
       const root = formRoot instanceof HTMLElement ? formRoot : document;
       const hidden = root.querySelector(`input[type="hidden"][data-field="${dateField}"]`);
+      const mode = hidden instanceof HTMLInputElement ? normalizeString(hidden.getAttribute("data-date-mode")) || "full_date" : "full_date";
+      const parts = parseTargetDateParts(text, mode);
+      if (!parts.year && !parts.month && !parts.day) return false;
       const year = root.querySelector(`input[data-date-field="${dateField}"][data-date-part="year"]`);
       const month = root.querySelector(`input[data-date-field="${dateField}"][data-date-part="month"]`);
       const day = root.querySelector(`input[data-date-field="${dateField}"][data-date-part="day"]`);
@@ -202,7 +188,7 @@ export function createFieldMemoryFeature(deps = {}) {
       if (month instanceof HTMLInputElement) month.value = parts.month;
       if (day instanceof HTMLInputElement) day.value = parts.day;
       if (hidden instanceof HTMLInputElement) {
-        hidden.value = formatDateText(parts);
+        hidden.value = formatTargetDateText(parts, mode);
         hidden.dispatchEvent(new Event("input", { bubbles: true }));
         hidden.dispatchEvent(new Event("change", { bubbles: true }));
       }
@@ -242,6 +228,15 @@ export function createFieldMemoryFeature(deps = {}) {
     return applySuggestionToTarget(target, suggestion, formRoot);
   }
 
+  function canAcceptSuggestionFromTarget(target, formRoot) {
+    if (!hasRenderableSuggestionHint(target)) return false;
+    const memoryKey = buildMemoryKeyFromTarget(target);
+    const currentValue = readValueFromTarget(target, formRoot);
+    if (!currentValue) return false;
+    const suggestion = getFieldSuggestion(memoryKey, currentValue);
+    return !!String(suggestion || "").trim();
+  }
+
   return {
     loadFieldMemory,
     rememberFieldValue,
@@ -249,5 +244,6 @@ export function createFieldMemoryFeature(deps = {}) {
     getFieldSuggestion,
     formatSuggestionLabel,
     acceptSuggestionFromTarget,
+    canAcceptSuggestionFromTarget,
   };
 }

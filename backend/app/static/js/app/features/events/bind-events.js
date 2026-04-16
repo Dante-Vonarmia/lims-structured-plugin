@@ -62,6 +62,7 @@ export function createBindEventsFeature(deps = {}) {
     saveWorkspaceDraft,
     rememberFieldValueFromTarget,
     acceptSuggestionFromTarget,
+    canAcceptSuggestionFromTarget,
     syncGenerateModeUiText,
     shiftDateText,
     triggerDownload,
@@ -197,6 +198,7 @@ export function createBindEventsFeature(deps = {}) {
       handleTargetDateInput,
       rememberFieldValueFromTarget,
       acceptSuggestionFromTarget,
+      canAcceptSuggestionFromTarget,
     });
 
     const { bindEvents } = createWorkbenchInitBindings({

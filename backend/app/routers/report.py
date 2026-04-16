@@ -13,10 +13,12 @@ import zipfile
 from uuid import uuid4
 
 from ..config import (
+    BATCH_OUTPUT_DIR,
     DEFAULT_TEMPLATE_NAME,
     LOCAL_DOCUMENT_LIBRARY_FILE,
     MODIFY_CERTIFICATE_BLUEPRINT_TEMPLATE_NAME,
     OUTPUT_DIR,
+    REPORT_OUTPUT_DIR,
     TEMPLATE_DIR,
     UPLOAD_DIR,
 )
@@ -94,10 +96,9 @@ def create_report(request: ReportRequest) -> ReportResponse:
     source_file_path = _find_uploaded_file(request.source_file_id) if request.source_file_id else None
     source_file_as_template = bool(request.source_file_as_template)
     if source_file_as_template:
-        blueprint_name = str(MODIFY_CERTIFICATE_BLUEPRINT_TEMPLATE_NAME or "").strip()
-        blueprint_path = TEMPLATE_DIR / blueprint_name
-        if not blueprint_name or not blueprint_path.exists() or not blueprint_path.is_file():
-            raise HTTPException(status_code=422, detail=f"修改证书蓝本不存在：{blueprint_name or '未配置'}")
+        blueprint_name = normalize_legacy_template_name(str(MODIFY_CERTIFICATE_BLUEPRINT_TEMPLATE_NAME or "").strip())
+        if not blueprint_name:
+            raise HTTPException(status_code=422, detail="修改证书蓝本未配置")
         template_name = blueprint_name
         source_file_as_template = False
     try:
@@ -119,6 +120,7 @@ def create_report(request: ReportRequest) -> ReportResponse:
         download_url=f"/api/report/{report_id}/download",
         preview_url=preview_url,
         output_format=output_format,
+        report_no=str(context.get("report_no") or context.get("report_number") or ""),
         validation=_build_report_validation(output_path),
     )
 
@@ -140,7 +142,7 @@ def create_report_batch_from_excel(request: ExcelBatchRequest) -> ExcelBatchResp
         raise HTTPException(status_code=422, detail="Excel has no valid rows for generation")
 
     batch_id = uuid4().hex
-    zip_path = OUTPUT_DIR / f"{batch_id}__excel_batch.zip"
+    zip_path = BATCH_OUTPUT_DIR / f"{batch_id}__excel_batch.zip"
     total_rows = len(rows) + len(errors)
     generated_count = 0
     skipped_count = len(errors)
@@ -266,7 +268,10 @@ def view_report(report_id: str) -> FileResponse:
 
 @router.get("/templates")
 def list_templates() -> dict[str, list[str]]:
-    return {"templates": list_available_templates()}
+    try:
+        return {"templates": list_available_templates()}
+    except Exception:
+        return {"templates": ["bundle:output.modify-certificate.v1"]}
 
 
 @router.get("/templates/download")
@@ -475,7 +480,11 @@ def inspect_docx_embedded_objects(file_id: str) -> dict[str, object]:
 
 
 def _find_report_file(report_id: str):
-    matches = sorted(OUTPUT_DIR.glob(f"{report_id}__*"))
+    matches = sorted(REPORT_OUTPUT_DIR.glob(f"{report_id}__*"))
+    if not matches:
+        matches = sorted(REPORT_OUTPUT_DIR.glob(f"{report_id}.*"))
+    if not matches:
+        matches = sorted(OUTPUT_DIR.glob(f"{report_id}__*"))
     if not matches:
         matches = sorted(OUTPUT_DIR.glob(f"{report_id}.*"))
     if not matches:
@@ -500,7 +509,9 @@ def _find_uploaded_file(file_id: str | None) -> Path | None:
 
 
 def _find_report_batch_zip(batch_id: str) -> Path | None:
-    matches = sorted(OUTPUT_DIR.glob(f"{batch_id}__excel_batch.zip"))
+    matches = sorted(BATCH_OUTPUT_DIR.glob(f"{batch_id}__excel_batch.zip"))
+    if not matches:
+        matches = sorted(OUTPUT_DIR.glob(f"{batch_id}__excel_batch.zip"))
     return matches[0] if matches else None
 
 

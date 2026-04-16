@@ -10,7 +10,7 @@
       "label": "保存期限"
     },
     {
-      "key": "report_owner_name",
+      "key": "ownership_code",
       "label": "报告抬头公司",
       "wide": true
     },
@@ -24,74 +24,44 @@
       ]
     },
     {
-      "key": "gas_type",
+      "key": "filling_medium",
       "label": "充装介质"
     },
     {
-      "key": "cylinder_total_count",
+      "key": "selected_rows",
       "label": "送检总数（只）"
     },
     {
-      "key": "qualified_count",
-      "label": "合格数量（只）"
-    },
-    {
-      "key": "valve_replaced_count",
-      "label": "换阀数量（只）"
-    },
-    {
-      "key": "valve_vendor_name",
-      "label": "阀门生产单位",
-      "wide": true
-    },
-    {
-      "key": "scrap_count",
-      "label": "报废数量（只）"
-    },
-    {
-      "key": "report_date",
-      "label": "报告日期"
-    },
-    {
-      "key": "submit_org_name",
-      "label": "送检单位",
-      "wide": true
-    },
-    {
-      "key": "inspector_sign_image",
-      "label": "检验员签字图片",
-      "wide": true
-    },
-    {
       "key": "inspector_sign_date",
-      "label": "检验员日期"
-    },
-    {
-      "key": "reviewer_sign_image",
-      "label": "审核签字图片",
-      "wide": true
+      "label": "检验员日期",
+      "defaultValuePolicy": {
+        "type": "today",
+        "when": "empty"
+      }
     },
     {
       "key": "reviewer_sign_date",
-      "label": "审核日期"
-    },
-    {
-      "key": "approver_sign_image",
-      "label": "批准签字图片",
-      "wide": true
+      "label": "审核日期",
+      "defaultValuePolicy": {
+        "type": "today",
+        "when": "empty"
+      }
     },
     {
       "key": "approver_sign_date",
-      "label": "批准日期"
-    },
-    {
-      "key": "company_name",
-      "label": "落款公司",
-      "wide": true
+      "label": "批准日期",
+      "defaultValuePolicy": {
+        "type": "today",
+        "when": "empty"
+      }
     },
     {
       "key": "company_sign_date",
-      "label": "落款日期"
+      "label": "落款日期",
+      "defaultValuePolicy": {
+        "type": "today",
+        "when": "empty"
+      }
     },
     {
       "key": "appendix1_rows_text",

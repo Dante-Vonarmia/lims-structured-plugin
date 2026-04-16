@@ -71,6 +71,7 @@ class ReportResponse(BaseModel):
     download_url: str
     preview_url: Optional[str] = None
     output_format: str = "docx"
+    report_no: str = ""
     validation: Optional[ReportValidation] = None
 
 

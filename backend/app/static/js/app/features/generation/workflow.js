@@ -8,6 +8,7 @@ export function createGenerationWorkflowFeature(deps = {}) {
     processItem,
     ensureSourceFileId,
     renderQueue,
+    getSelectedNormalItems,
     validateItemForGeneration,
     buildCategoryMessage,
     fetchJson,
@@ -53,12 +54,67 @@ export function createGenerationWorkflowFeature(deps = {}) {
     const fieldsForGenerate = {
       ...(item.fields || {}),
     };
+    const selectedNormalItems = typeof getSelectedNormalItems === "function" ? getSelectedNormalItems() : [];
+    const scopeItems = selectedNormalItems.length > 1 ? selectedNormalItems : [item];
+    const normalizeToIsoDate = (raw) => {
+      const text = String(raw || "").trim();
+      if (!text) return "";
+      let m = text.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+      if (m) return `${m[1]}-${String(Number(m[2] || 0)).padStart(2, "0")}-${String(Number(m[3] || 0)).padStart(2, "0")}`;
+      m = text.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日?$/);
+      if (m) return `${m[1]}-${String(Number(m[2] || 0)).padStart(2, "0")}-${String(Number(m[3] || 0)).padStart(2, "0")}`;
+      return "";
+    };
+    const pickNonEmpty = (rowFields, keys) => {
+      const src = (rowFields && typeof rowFields === "object") ? rowFields : {};
+      for (const key of keys) {
+        const val = String(src[key] || "").trim();
+        if (val) return val;
+      }
+      return "";
+    };
     const taskTemplateInfo = (state.taskContext && state.taskContext.template_info && typeof state.taskContext.template_info === "object")
       ? state.taskContext.template_info
       : {};
     const schemaRules = (state.taskContext && state.taskContext.import_template_schema && state.taskContext.import_template_schema.rules && typeof state.taskContext.import_template_schema.rules === "object")
       ? state.taskContext.import_template_schema.rules
       : {};
+    const schemaColumns = (state.taskContext && state.taskContext.import_template_schema && Array.isArray(state.taskContext.import_template_schema.columns))
+      ? state.taskContext.import_template_schema.columns
+      : [];
+    const findSchemaKeyByLabel = (patterns = []) => {
+      for (const col of schemaColumns) {
+        const key = String((col && col.key) || "").trim();
+        const label = String((col && col.label) || "").trim();
+        if (!key || !label) continue;
+        if (patterns.some((p) => label.includes(p))) return key;
+      }
+      return "";
+    };
+    const serialFromLabelKey = findSchemaKeyByLabel(["气瓶编号", "出厂编号", "瓶号"]);
+    const makerFromLabelKey = findSchemaKeyByLabel(["制造单位代码", "制造单位代号", "制造单位", "制造代码"]);
+    const nextFromLabelKey = findSchemaKeyByLabel(["下次检验日期", "下次检验", "下检日期"]);
+    const serialCandidates = [serialFromLabelKey, "factory_serial_no", "serial_no", "device_code", "col_05"].filter(Boolean);
+    const makerCandidates = [makerFromLabelKey, "manufacturer_code", "maker_code", "manufacturer", "col_04"].filter(Boolean);
+    const nextCandidates = [nextFromLabelKey, "next_inspection_date", "next_check_date", "col_33"].filter(Boolean);
+    const appendixRows = scopeItems.map((row, idx) => {
+      const rowFields = (row && row.fields && typeof row.fields === "object") ? row.fields : {};
+      const rowNo = Number(row && row.rowNumber) || idx + 1;
+      return {
+        rowNo,
+        serialNo: pickNonEmpty(rowFields, serialCandidates),
+        makerCode: pickNonEmpty(rowFields, makerCandidates),
+        nextDate: normalizeToIsoDate(pickNonEmpty(rowFields, nextCandidates)),
+      };
+    }).filter((x) => x.serialNo || x.makerCode || x.nextDate);
+    if (appendixRows.length) {
+      fieldsForGenerate.appendix1_rows_text = appendixRows.map((x) => [x.serialNo, x.makerCode, x.nextDate].join("\t")).join("\n");
+    }
+    if (scopeItems.length > 1) {
+      const selectedCount = String(scopeItems.length);
+      fieldsForGenerate.selected_rows = selectedCount;
+      fieldsForGenerate.cylinder_total_count = selectedCount;
+    }
     const outputBundleId = String((state.taskContext && state.taskContext.output_bundle_id) || "").trim();
     const defaultBundleTemplateName = outputBundleId ? `bundle:${outputBundleId}` : "";
     const effectiveTemplateName = String(item.templateName || "").trim() || defaultBundleTemplateName;
@@ -83,6 +139,10 @@ export function createGenerationWorkflowFeature(deps = {}) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+    if (!item.fields || typeof item.fields !== "object") item.fields = {};
+    if (String((data && data.report_no) || "").trim() && !String(item.fields.report_no || "").trim()) {
+      item.fields.report_no = String(data.report_no || "").trim();
+    }
     item.reportId = data.report_id;
     item.reportDownloadUrl = data.download_url;
     item.reportFileName = buildReportFileName(item, data.output_format);

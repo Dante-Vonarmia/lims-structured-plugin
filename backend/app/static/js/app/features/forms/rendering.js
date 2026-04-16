@@ -1,6 +1,8 @@
 import { createSourceFieldComponents } from "../components/source-field/index.js";
 import { createBooleanFieldControlRenderer } from "../components/target-field/renderers/boolean-field-control.js";
-import { normalizeDisplayText, resolveFieldFallbackValue } from "../shared/field-display-utils.js";
+import { createDateFieldControlRenderer } from "../components/target-field/renderers/date-field-control.js";
+import { resolveFieldDefaultValue } from "../shared/field-default-value-policy.js";
+import { normalizeDisplayText } from "../shared/field-display-utils.js";
 import { getSignatureImageUrlByValue, getSignatureRoleForField, listSignatureNamesByRole } from "../shared/signature-field-utils.js";
 import { getTemplateInfoValue } from "../shared/template-info-utils.js";
 import { resolveSchemaFieldLabel } from "../shared/schema-field-meta-utils.js";
@@ -49,6 +51,12 @@ export function createFormRenderingFeature(deps = {}) {
     escapeAttr,
     escapeHtml,
   });
+  const { renderDateFieldControl } = createDateFieldControlRenderer({
+    escapeAttr,
+    escapeHtml,
+    parseDateParts,
+    mixedPlaceholder: MULTI_EDIT_MIXED_PLACEHOLDER,
+  });
 
   function renderSourceFieldList(item) {
     const el = $("sourceFieldList");
@@ -70,6 +78,16 @@ export function createFormRenderingFeature(deps = {}) {
     const taskTemplateInfo = (state.taskContext && state.taskContext.template_info && typeof state.taskContext.template_info === "object")
       ? state.taskContext.template_info
       : {};
+    const sourceFields = (item && item.fields && typeof item.fields === "object") ? item.fields : {};
+    if (!String(sourceFields.record_no || "").trim() && String(taskTemplateInfo.record_no || "").trim()) {
+      sourceFields.record_no = String(taskTemplateInfo.record_no || "").trim();
+    }
+    if (!String(taskTemplateInfo.record_no || "").trim() && String(sourceFields.record_no || "").trim()) {
+      taskTemplateInfo.record_no = String(sourceFields.record_no || "").trim();
+      if (state.taskContext && typeof state.taskContext === "object") {
+        state.taskContext.template_info = taskTemplateInfo;
+      }
+    }
     const schemaRules = (taskSchema && taskSchema.rules && typeof taskSchema.rules === "object") ? taskSchema.rules : {};
     const infoFields = resolveInfoFields(schemaRules);
 
@@ -133,7 +151,6 @@ export function createFormRenderingFeature(deps = {}) {
 
     const sourceName = String(item.sourceFileName || item.fileName || "").trim();
     const rowText = item.isRecordRow ? `行 ${Number(item.rowNumber || 0) || 1}` : "待拆行";
-    const ocrDebug = (item && item.ocrDebug && typeof item.ocrDebug === "object") ? item.ocrDebug : null;
     const sourceGroupScope = `source:${item.id || item.fileName || ""}`;
     const infoGroupHtml = infoFields.length
       ? (() => {
@@ -166,52 +183,6 @@ export function createFormRenderingFeature(deps = {}) {
         `;
       })()
       : "";
-    const debugGroupHtml = (() => {
-      if (!ocrDebug) return "";
-      const debugTitle = "列调试（临时）";
-      const debugGroupKey = `${sourceGroupScope}:debug:${debugTitle}`;
-      const debugCollapsed = !!state.sourceFieldGroupCollapsed[debugGroupKey];
-      const debugToggleHtml = `<button type="button" class="source-recog-group-toggle" data-group-toggle="1" data-group-key="${escapeAttr(debugGroupKey)}" aria-expanded="${debugCollapsed ? "false" : "true"}" title="${debugCollapsed ? "展开" : "收起"}">${debugCollapsed ? "▶" : "▼"}</button>`;
-      const summaryParts = [];
-      if (ocrDebug.engine) summaryParts.push(`engine=${String(ocrDebug.engine)}`);
-      if (typeof ocrDebug.structuredRowsCount === "number") summaryParts.push(`structuredRows=${ocrDebug.structuredRowsCount}`);
-      if (typeof ocrDebug.tableCellsCount === "number") summaryParts.push(`tableCells=${ocrDebug.tableCellsCount}`);
-      if (typeof ocrDebug.reviewQueueCount === "number") summaryParts.push(`reviewQueue=${ocrDebug.reviewQueueCount}`);
-      if (ocrDebug.reason) summaryParts.push(`reason=${String(ocrDebug.reason)}`);
-      const traceRows = Array.isArray(ocrDebug.trace) ? ocrDebug.trace : [];
-      const resolveTraceColumnLabel = (traceItem) => resolveSchemaFieldLabel({
-        key: String((traceItem && traceItem.columnKey) || "").trim(),
-        label: String((traceItem && traceItem.columnLabel) || "").trim(),
-        schemaRules,
-      });
-      const traceTableHtml = traceRows.length
-        ? `
-          <table class="source-recog-block-table source-field-table">
-            <thead><tr><th>列</th><th>token</th><th>映射值</th><th>状态</th></tr></thead>
-            <tbody>
-              ${traceRows.map((x) => `
-                <tr>
-                  <td>${escapeHtml(resolveTraceColumnLabel(x))}</td>
-                  <td>${escapeHtml(String(x.token || ""))}</td>
-                  <td>${escapeHtml(String(x.mappedValue || ""))}</td>
-                  <td>${x.reservedBlank ? '<span class="source-recog-empty">保留空槽</span>' : '已映射'}</td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
-        `
-        : '<div class="source-recog-empty">无列 trace</div>';
-      return `
-        <div class="source-recog-group ${debugCollapsed ? "is-collapsed" : ""}">
-          <div class="source-recog-group-title">
-            ${debugToggleHtml}
-            <span class="source-recog-group-title-text">${escapeHtml(debugTitle)}</span>
-            ${summaryParts.length ? `<span class="source-group-summary">${escapeHtml(summaryParts.join(" / "))}</span>` : ""}
-          </div>
-          ${debugCollapsed ? "" : `<div class="source-recog-block source-recog-block-formatted">${traceTableHtml}</div>`}
-        </div>
-      `;
-    })();
     el.innerHTML = `
       <div class="source-recog-group">
         <div class="source-recog-group-title">
@@ -219,7 +190,6 @@ export function createFormRenderingFeature(deps = {}) {
           <span class="source-group-summary">${escapeHtml(sourceName)} / ${escapeHtml(rowText)}</span>
         </div>
       </div>
-      ${debugGroupHtml}
       ${infoGroupHtml}
       ${groupHtml || '<div class="source-recog-block">模板分组未定义</div>'}
     `;
@@ -235,6 +205,37 @@ export function createFormRenderingFeature(deps = {}) {
     const multiItems = isMultiMode ? selectedNormalItems : [item];
     if (!item.fields) item.fields = createEmptyFields();
     const f = item.fields || {};
+    const signDateKeys = [
+      "inspector_sign_date",
+      "reviewer_sign_date",
+      "approver_sign_date",
+      "company_sign_date",
+    ];
+    const formatTodayCnDate = () => {
+      const now = new Date();
+      if (Number.isNaN(now.getTime())) return "";
+      const y = String(now.getFullYear()).padStart(4, "0");
+      const m = String(now.getMonth() + 1).padStart(2, "0");
+      const d = String(now.getDate()).padStart(2, "0");
+      return `${y}年${m}月${d}日`;
+    };
+    const ensureDefaultSignDates = (fieldsObj) => {
+      if (!fieldsObj || typeof fieldsObj !== "object") return;
+      const todayText = formatTodayCnDate();
+      if (!todayText) return;
+      signDateKeys.forEach((key) => {
+        if (String(fieldsObj[key] || "").trim()) return;
+        fieldsObj[key] = todayText;
+      });
+    };
+    ensureDefaultSignDates(f);
+    if (isMultiMode) {
+      multiItems.forEach((row) => {
+        if (!row || typeof row !== "object") return;
+        if (!row.fields || typeof row.fields !== "object") row.fields = createEmptyFields();
+        ensureDefaultSignDates(row.fields);
+      });
+    }
     if (!isMultiMode) {
       const rawForDate = String(f.raw_record || item.rawText || "");
       const dateInfo = extractCalibrationInfoFields(rawForDate, f);
@@ -277,53 +278,24 @@ export function createFormRenderingFeature(deps = {}) {
       : {};
     const infoFields = resolveInfoFields(taskSchemaRules);
     const schemaColumns = Array.isArray(taskSchema.columns) ? taskSchema.columns : [];
-    const multiCollectionColumns = schemaColumns.length
-      ? schemaColumns.map((col) => ({
-        key: String((col && col.key) || "").trim(),
-        label: resolveSchemaFieldLabel({
-          key: String((col && col.key) || "").trim(),
-          label: String((col && col.label) || "").trim(),
-          schemaRules: taskSchemaRules,
-        }),
-      })).filter((x) => x.key)
-      : [
-        { key: "device_code", label: "器具编号" },
-        { key: "manufacturer", label: "制造厂/商" },
-        { key: "device_model", label: "型号/规格" },
-      ];
-    const renderMultiCollectionTable = () => {
-      if (!isMultiMode || !multiItems.length) return "";
-      const thead = `
-        <tr>
-          <th style="width:52px;">#</th>
-          ${multiCollectionColumns.map((col) => `<th>${escapeHtml(col.label || col.key)}</th>`).join("")}
-        </tr>
-      `;
-      const renderedRows = multiItems.map((row, idx) => {
-        const rowFields = (row && row.fields && typeof row.fields === "object") ? row.fields : {};
-        const rowNo = Number(row && row.rowNumber) || idx + 1;
-        let hasAnyValue = false;
-        const cells = multiCollectionColumns.map((col) => {
-          const val = String(rowFields[col.key] || "");
-          if (String(val || "").trim()) hasAnyValue = true;
-          return `<td title="${escapeAttr(val)}">${escapeHtml(val)}</td>`;
-        }).join("");
-        return hasAnyValue ? `<tr><td>${rowNo}</td>${cells}</tr>` : "";
-      }).filter(Boolean);
-      const tbody = renderedRows.join("");
-      return `
-        <div class="source-recog-group">
-          <div class="source-recog-group-title"><span class="source-recog-group-title-text">多选合集表（当前筛选/选中记录）</span></div>
-          <div class="source-recog-block source-recog-block-formatted">
-            <table class="source-recog-block-table schema-record-table">
-              <thead>${thead}</thead>
-              <tbody>${tbody}</tbody>
-            </table>
-          </div>
-        </div>
-      `;
-    };
-    const multiCollectionTableHtml = renderMultiCollectionTable();
+    const parseAppendixRowsText = (valueText) => String(valueText || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .split("\n")
+      .map((line) => String(line || "").trim())
+      .filter(Boolean)
+      .map((line, idx) => {
+        const parts = line.includes("\t")
+          ? line.split("\t")
+          : line.split(",").map((x) => String(x || "").trim());
+        return {
+          rowNo: idx + 1,
+          serialNo: String(parts[0] || "").trim(),
+          makerCode: String(parts[1] || "").trim(),
+          nextDate: String(parts[2] || "").trim(),
+        };
+      })
+      .filter((x) => x.serialNo || x.makerCode || x.nextDate);
     const getFieldView = (fieldKey) => {
       if (isMultiMode) {
         const merged = getSharedFieldValue(multiItems, fieldKey);
@@ -332,7 +304,7 @@ export function createFormRenderingFeature(deps = {}) {
       }
       const currentValue = normalizeDisplayText(f[fieldKey]);
       if (currentValue && !/undefined/i.test(currentValue)) return { value: currentValue, mixed: false };
-      return { value: resolveFieldFallbackValue(fieldKey, f), mixed: false };
+      return { value: "", mixed: false };
     };
     const renderFloatingMemoryHint = (label) => label
       ? `<span class="field-memory-floating-hint" aria-hidden="true">Tab 使用上次：${escapeHtml(label)}</span>`
@@ -349,8 +321,16 @@ export function createFormRenderingFeature(deps = {}) {
         `;
     const renderFieldControl = (field) => {
       const fieldView = getFieldView(field.key);
-      const value = normalizeDisplayText(fieldView.value);
+      let value = normalizeDisplayText(fieldView.value);
       const isMixed = !!fieldView.mixed;
+      const fieldKey = String(field.key || "").trim();
+      const fieldLabel = String(field.label || "").trim();
+      const defaultValue = resolveFieldDefaultValue({ field, value, isMixed });
+      if (defaultValue) {
+        value = defaultValue;
+        if (!item.fields || typeof item.fields !== "object") item.fields = createEmptyFields();
+        item.fields[fieldKey] = defaultValue;
+      }
       const isProblem = problemKeys.has(field.key);
       const fieldSuggestion = isMultiMode ? "" : getFieldSuggestion(field.key, value);
       const fieldSuggestionLabel = shouldShowSuggestion(value, isMixed) ? formatSuggestionLabel(fieldSuggestion) : "";
@@ -509,10 +489,14 @@ export function createFormRenderingFeature(deps = {}) {
           return "";
         };
         const findSchemaKeyByLabel = (patterns = []) => {
-          const cols = Array.isArray(multiCollectionColumns) ? multiCollectionColumns : [];
+          const cols = Array.isArray(schemaColumns) ? schemaColumns : [];
           for (const col of cols) {
             const key = String((col && col.key) || "").trim();
-            const label = String((col && col.label) || "").trim();
+            const label = resolveSchemaFieldLabel({
+              key,
+              label: String((col && col.label) || "").trim(),
+              schemaRules: taskSchemaRules,
+            });
             if (!key || !label) continue;
             if (patterns.some((p) => label.includes(p))) return key;
           }
@@ -524,7 +508,7 @@ export function createFormRenderingFeature(deps = {}) {
         const serialCandidates = [serialFromLabelKey, "factory_serial_no", "serial_no", "device_code", "col_05"].filter(Boolean);
         const makerCandidates = [makerFromLabelKey, "manufacturer_code", "maker_code", "manufacturer", "col_04"].filter(Boolean);
         const nextCandidates = [nextFromLabelKey, "next_inspection_date", "next_check_date", "col_33"].filter(Boolean);
-        const appendixRows = multiItems.map((row, idx) => {
+        const derivedRows = multiItems.map((row, idx) => {
           const rowFields = (row && row.fields && typeof row.fields === "object") ? row.fields : {};
           const rowNo = Number(row && row.rowNumber) || idx + 1;
           const serialNo = pickNonEmpty(rowFields, serialCandidates);
@@ -532,6 +516,13 @@ export function createFormRenderingFeature(deps = {}) {
           const nextDate = normalizeToIsoDate(pickNonEmpty(rowFields, nextCandidates));
           return { rowNo, serialNo, makerCode, nextDate };
         }).filter((x) => x.serialNo || x.makerCode || x.nextDate);
+        const existingRows = parseAppendixRowsText(fieldView.value).map((x, idx) => ({
+          rowNo: idx + 1,
+          serialNo: String(x.serialNo || "").trim(),
+          makerCode: String(x.makerCode || "").trim(),
+          nextDate: normalizeToIsoDate(x.nextDate),
+        }));
+        const appendixRows = derivedRows.length ? derivedRows : existingRows;
         const appendixValue = appendixRows.map((x) => [x.serialNo, x.makerCode, x.nextDate].join("\t")).join("\n");
         if (!item.fields || typeof item.fields !== "object") item.fields = createEmptyFields();
         item.fields.appendix1_rows_text = appendixValue;
@@ -555,7 +546,16 @@ export function createFormRenderingFeature(deps = {}) {
             <td>${x.rowNo}</td>
             <td><input type="text" data-field="appendix1_cell" data-col="serial_no" value="${escapeAttr(x.serialNo)}" placeholder="气瓶编号" /></td>
             <td><input type="text" data-field="appendix1_cell" data-col="maker_code" value="${escapeAttr(x.makerCode)}" placeholder="制造单位代码" /></td>
-            <td><input type="date" data-field="appendix1_cell" data-col="next_date" value="${escapeAttr(x.nextDate)}" /></td>
+            <td>
+              <span class="target-date-grid">
+                <input type="text" class="target-date-input target-date-year" data-field="appendix1_cell_date_part" data-col="next_date" data-part="year" value="${escapeAttr((parseDateParts(x.nextDate) || {}).year || "")}" maxlength="4" placeholder="YYYY" />
+                <span class="target-date-unit">年</span>
+                <input type="text" class="target-date-input target-date-month" data-field="appendix1_cell_date_part" data-col="next_date" data-part="month" value="${escapeAttr((parseDateParts(x.nextDate) || {}).month || "")}" maxlength="2" placeholder="MM" />
+                <span class="target-date-unit">月</span>
+                <input type="text" class="target-date-input target-date-day" data-field="appendix1_cell_date_part" data-col="next_date" data-part="day" value="${escapeAttr((parseDateParts(x.nextDate) || {}).day || "")}" maxlength="2" placeholder="DD" />
+                <span class="target-date-unit">日</span>
+              </span>
+            </td>
           </tr>
         `).join("");
         return `
@@ -571,45 +571,52 @@ export function createFormRenderingFeature(deps = {}) {
           </label>
         `;
       }
-      const fieldKey = String(field.key || "").trim();
-      const fieldLabel = String(field.label || "").trim();
-      const isDateField = ["receive_date", "calibration_date", "release_date"].includes(fieldKey)
-        || ["收样日期", "校准日期", "发布日期"].includes(fieldLabel);
-      if (isDateField) {
-        const parsed = parseDateParts(value);
-        const parseLooseDateParts = (dateText) => {
-          const text = String(dateText || "").trim();
-          if (!text) return { year: "", month: "", day: "" };
-          const y = text.match(/(\d{1,4})\s*年/);
-          const m = text.match(/(\d{1,2})\s*月/);
-          const d = text.match(/(\d{1,2})\s*日/);
-          return {
-            year: y ? String(y[1] || "") : "",
-            month: m ? String(m[1] || "") : "",
-            day: d ? String(d[1] || "") : "",
-          };
-        };
-        const normalizedDateParts = parsed || parseLooseDateParts(value);
-        const year = String((normalizedDateParts && normalizedDateParts.year) || "");
-        const month = String((normalizedDateParts && normalizedDateParts.month) || "");
-        const day = String((normalizedDateParts && normalizedDateParts.day) || "");
-        const dateSuggestion = shouldShowSuggestion(value, isMixed) && !isMultiMode ? getFieldSuggestion(fieldKey, value) : "";
-        const dateSuggestionParts = parseDateParts(dateSuggestion) || parseLooseDateParts(dateSuggestion);
+      if (fieldKey === "selected_rows" || fieldKey === "cylinder_total_count") {
+        const selectedCount = Math.max(1, (isMultiMode ? multiItems.length : 1));
+        const autoValue = String(selectedCount);
+        if (!item.fields || typeof item.fields !== "object") item.fields = createEmptyFields();
+        item.fields[fieldKey] = autoValue;
+        if (fieldKey !== "selected_rows") item.fields.selected_rows = autoValue;
+        if (fieldKey !== "cylinder_total_count") item.fields.cylinder_total_count = autoValue;
+        if (isMultiMode) {
+          multiItems.forEach((row) => {
+            if (!row || typeof row !== "object") return;
+            if (!row.fields || typeof row.fields !== "object") row.fields = createEmptyFields();
+            row.fields[fieldKey] = autoValue;
+            if (fieldKey !== "selected_rows") row.fields.selected_rows = autoValue;
+            if (fieldKey !== "cylinder_total_count") row.fields.cylinder_total_count = autoValue;
+          });
+        }
         return `
-            <label class="source-form-item slot-field ${isProblem ? "is-problem" : ""}">
-              <span>${escapeHtml(field.label)}</span>
-              <input type="hidden" data-field="${escapeAttr(fieldKey)}" value="${escapeAttr(value)}" />
-              <span class="target-date-grid">
-                <input type="text" class="target-date-input target-date-year ${isProblem ? "is-problem" : ""}" data-date-field="${escapeAttr(fieldKey)}" data-date-part="year" value="${escapeAttr(year)}" maxlength="4" placeholder="${escapeAttr(isMixed ? MULTI_EDIT_MIXED_PLACEHOLDER : String((dateSuggestionParts && dateSuggestionParts.year) || ""))}" />
-                <span class="target-date-unit">年</span>
-                <input type="text" class="target-date-input target-date-month ${isProblem ? "is-problem" : ""}" data-date-field="${escapeAttr(fieldKey)}" data-date-part="month" value="${escapeAttr(month)}" maxlength="2" placeholder="${escapeAttr(String((dateSuggestionParts && dateSuggestionParts.month) || ""))}" />
-                <span class="target-date-unit">月</span>
-                <input type="text" class="target-date-input target-date-day ${isProblem ? "is-problem" : ""}" data-date-field="${escapeAttr(fieldKey)}" data-date-part="day" value="${escapeAttr(day)}" maxlength="2" placeholder="${escapeAttr(String((dateSuggestionParts && dateSuggestionParts.day) || ""))}" />
-                <span class="target-date-unit">日</span>
-              </span>
-              ${dateSuggestion ? `<div class="field-memory-hint">Tab 使用上次：${escapeHtml(dateSuggestion)}</div>` : ""}
-            </label>
-          `;
+          <label class="source-form-item slot-field ${isProblem ? "is-problem" : ""}">
+            <span>${escapeHtml(field.label)}</span>
+            <input type="text" data-field="${escapeAttr(fieldKey)}" value="${escapeAttr(autoValue)}" readonly />
+          </label>
+        `;
+      }
+      const isDateField = [
+        "manufacture_date",
+        "last_inspection_date",
+        "next_inspection_date",
+        "receive_date",
+        "calibration_date",
+        "release_date",
+        "inspector_sign_date",
+        "reviewer_sign_date",
+        "approver_sign_date",
+        "company_sign_date",
+      ].includes(fieldKey)
+        || ["制造年月", "上次检验日期", "下次检验日期", "收样日期", "校准日期", "发布日期"].includes(fieldLabel);
+      if (isDateField) {
+        const dateSuggestion = shouldShowSuggestion(value, isMixed) && !isMultiMode ? getFieldSuggestion(fieldKey, value) : "";
+        return renderDateFieldControl({
+          fieldKey,
+          fieldLabel,
+          value,
+          isProblem,
+          isMixed,
+          suggestion: dateSuggestion,
+        });
       }
       if (field.multiline) {
         const rows = Number(field.rows || 3);
@@ -691,8 +698,32 @@ export function createFormRenderingFeature(deps = {}) {
         `;
       }).join("");
     const appendixFieldKeySet = new Set(["appendix1_rows_text"]);
-    const reportBodyFields = templateFields.filter((field) => !appendixFieldKeySet.has(String((field && field.key) || "").trim()));
+    const reportBodyPreferredKeys = new Set([
+      "report_owner_name",
+      "ownership_code",
+      "inspect_standard",
+      "gas_type",
+      "filling_medium",
+      "selected_rows",
+      "cylinder_total_count",
+      "qualified_count",
+      "valve_replaced_count",
+      "valve_vendor_name",
+      "scrap_count",
+      "report_date",
+      "submit_org_name",
+    ]);
     const appendixFields = templateFields.filter((field) => appendixFieldKeySet.has(String((field && field.key) || "").trim()));
+    const reportBodyFields = templateFields.filter((field) => {
+      const key = String((field && field.key) || "").trim();
+      if (!key || appendixFieldKeySet.has(key)) return false;
+      return reportBodyPreferredKeys.has(key);
+    });
+    const signoffFields = templateFields.filter((field) => {
+      const key = String((field && field.key) || "").trim();
+      if (!key || appendixFieldKeySet.has(key)) return false;
+      return !reportBodyPreferredKeys.has(key);
+    });
     const renderFieldGroup = (groupTitle, fields, groupIndex, extraHtml = "") => {
       const controlsHtml = fields.map((field) => renderFieldControl(field)).join("");
       if (!controlsHtml && !extraHtml) return "";
@@ -710,11 +741,11 @@ export function createFormRenderingFeature(deps = {}) {
         </div>
       `;
     };
-    const appendixExtraHtml = multiCollectionTableHtml ? `<div class="appendix-multi-collection-wrap">${multiCollectionTableHtml}</div>` : "";
     const groupedHtml = [
       renderFieldGroup("基础信息", [], -1, templateInfoControlsHtml ? `<div class="source-form-grid">${templateInfoControlsHtml}</div>` : ""),
-      renderFieldGroup("报告正文字段", reportBodyFields, 0, appendixFields.length ? "" : appendixExtraHtml),
-      renderFieldGroup("附件一字段", appendixFields, 1, appendixExtraHtml),
+      renderFieldGroup("报告正文字段", reportBodyFields, 0, ""),
+      renderFieldGroup("签字与落款字段", signoffFields, 1, ""),
+      renderFieldGroup("附件一字段", appendixFields, 2, ""),
     ].filter(Boolean).join("");
 
     const noteParts = [];
@@ -724,9 +755,7 @@ export function createFormRenderingFeature(deps = {}) {
     const noteText = noteParts.join(" ");
     if (!templateFields.length) {
       const emptyMessage = loading ? "模板字段加载中..." : (note || "模板字段未加载");
-      $("targetFieldForm").innerHTML = multiCollectionTableHtml
-        ? `<div class="source-form">${multiCollectionTableHtml}<div class="placeholder">${escapeHtml(emptyMessage)}</div></div>`
-        : `<div class="placeholder">${escapeHtml(emptyMessage)}</div>`;
+      $("targetFieldForm").innerHTML = `<div class="placeholder">${escapeHtml(emptyMessage)}</div>`;
       return;
     }
 

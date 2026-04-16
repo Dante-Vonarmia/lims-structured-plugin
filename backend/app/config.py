@@ -12,6 +12,8 @@ def _env_bool(name: str, default: bool = False) -> bool:
 BASE_DIR = Path(__file__).resolve().parents[1]
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", BASE_DIR / "uploads"))
 OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", BASE_DIR / "outputs"))
+REPORT_OUTPUT_DIR = Path(os.getenv("REPORT_OUTPUT_DIR", OUTPUT_DIR / "reports"))
+BATCH_OUTPUT_DIR = Path(os.getenv("BATCH_OUTPUT_DIR", OUTPUT_DIR / "batches"))
 TEMPLATE_DIR = Path(os.getenv("TEMPLATE_DIR", BASE_DIR / "templates"))
 TEMPLATE_BUNDLE_ROOT = Path(os.getenv("TEMPLATE_BUNDLE_ROOT", BASE_DIR / "template-bundles"))
 RAW_RECORD_DIR = Path(os.getenv("RAW_RECORD_DIR", BASE_DIR / "raw-records"))
@@ -23,7 +25,7 @@ LOCAL_DOCUMENT_LIBRARY_FILE = Path(os.getenv("LOCAL_DOCUMENT_LIBRARY_FILE", OUTP
 DEFAULT_TEMPLATE_NAME = os.getenv("DEFAULT_TEMPLATE_NAME", "report_template.docx")
 MODIFY_CERTIFICATE_BLUEPRINT_TEMPLATE_NAME = os.getenv(
     "MODIFY_CERTIFICATE_BLUEPRINT_TEMPLATE_NAME",
-    "modify-certificate-blueprint.docx",
+    "bundle:output.modify-certificate.v1",
 )
 OFFLINE_MODE = _env_bool("OFFLINE_MODE", False)
 INSTRUMENT_CATALOG_AUTO_ENABLED = _env_bool("INSTRUMENT_CATALOG_AUTO_ENABLED", True)
@@ -31,6 +33,8 @@ INSTRUMENT_CATALOG_AUTO_ENABLED = _env_bool("INSTRUMENT_CATALOG_AUTO_ENABLED", T
 for _directory in (
     UPLOAD_DIR,
     OUTPUT_DIR,
+    REPORT_OUTPUT_DIR,
+    BATCH_OUTPUT_DIR,
     TEMPLATE_DIR,
     RAW_RECORD_DIR,
     INSTRUMENT_CATALOG_AUTO_DIR,

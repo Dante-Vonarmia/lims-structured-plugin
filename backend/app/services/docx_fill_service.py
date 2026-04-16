@@ -3022,6 +3022,14 @@ def _fill_appendix1_table_rows_from_context(root: ET.Element, context: dict[str,
         return False
 
     changed = False
+    if len(data_rows) < len(rows_data):
+        template_row = data_rows[0]
+        for _ in range(len(rows_data) - len(data_rows)):
+            target_table.append(deepcopy(template_row))
+        rows = target_table.findall("./w:tr", NS)
+        data_rows = rows[header_idx + 1:]
+        changed = True
+
     effective_rows = data_rows[:len(rows_data)]
     for row_index, row in enumerate(effective_rows):
         cells = row.findall("./w:tc", NS)

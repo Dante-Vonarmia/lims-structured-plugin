@@ -1,3 +1,5 @@
+import { formatTargetDateText, isTargetDateComplete } from "./target-date-control.js";
+
 export function createTargetDateInputHandler(deps = {}) {
   const {
     $,
@@ -14,18 +16,15 @@ export function createTargetDateInputHandler(deps = {}) {
     const monthInputEl = formRoot.querySelector(`input[data-date-field="${fieldName}"][data-date-part="month"]`);
     const dayInputEl = formRoot.querySelector(`input[data-date-field="${fieldName}"][data-date-part="day"]`);
     const hiddenInputEl = formRoot.querySelector(`input[type="hidden"][data-field="${fieldName}"]`);
-    if (
-      !(yearInputEl instanceof HTMLInputElement)
-      || !(monthInputEl instanceof HTMLInputElement)
-      || !(dayInputEl instanceof HTMLInputElement)
-      || !(hiddenInputEl instanceof HTMLInputElement)
-    ) return null;
+    if (!(hiddenInputEl instanceof HTMLInputElement)) return null;
+    const mode = String(hiddenInputEl.getAttribute("data-date-mode") || "full_date").trim() || "full_date";
     return {
-      year: String(yearInputEl.value || ""),
-      month: String(monthInputEl.value || ""),
-      day: String(dayInputEl.value || ""),
+      year: yearInputEl instanceof HTMLInputElement ? String(yearInputEl.value || "") : "",
+      month: monthInputEl instanceof HTMLInputElement ? String(monthInputEl.value || "") : "",
+      day: dayInputEl instanceof HTMLInputElement ? String(dayInputEl.value || "") : "",
       value: String(hiddenInputEl.value || ""),
       exact: hiddenInputEl.getAttribute("data-date-exact") === "1",
+      mode,
     };
   }
 
@@ -35,19 +34,14 @@ export function createTargetDateInputHandler(deps = {}) {
     const monthInputEl = formRoot.querySelector(`input[data-date-field="${fieldName}"][data-date-part="month"]`);
     const dayInputEl = formRoot.querySelector(`input[data-date-field="${fieldName}"][data-date-part="day"]`);
     const hiddenInputEl = formRoot.querySelector(`input[type="hidden"][data-field="${fieldName}"]`);
-    if (
-      !(yearInputEl instanceof HTMLInputElement)
-      || !(monthInputEl instanceof HTMLInputElement)
-      || !(dayInputEl instanceof HTMLInputElement)
-      || !(hiddenInputEl instanceof HTMLInputElement)
-    ) return;
+    if (!(hiddenInputEl instanceof HTMLInputElement)) return;
     const nextYear = String(nextField.year || "");
     const nextMonth = String(nextField.month || "");
     const nextDay = String(nextField.day || "");
     const nextValue = String(nextField.value || "");
-    if (yearInputEl.value !== nextYear) yearInputEl.value = nextYear;
-    if (monthInputEl.value !== nextMonth) monthInputEl.value = nextMonth;
-    if (dayInputEl.value !== nextDay) dayInputEl.value = nextDay;
+    if (yearInputEl instanceof HTMLInputElement && yearInputEl.value !== nextYear) yearInputEl.value = nextYear;
+    if (monthInputEl instanceof HTMLInputElement && monthInputEl.value !== nextMonth) monthInputEl.value = nextMonth;
+    if (dayInputEl instanceof HTMLInputElement && dayInputEl.value !== nextDay) dayInputEl.value = nextDay;
     if (hiddenInputEl.value !== nextValue) {
       hiddenInputEl.value = nextValue;
       if (nextField.exact) hiddenInputEl.setAttribute("data-date-exact", "1");
@@ -68,19 +62,16 @@ export function createTargetDateInputHandler(deps = {}) {
     const monthInput = grid.querySelector('input[data-date-field][data-date-part="month"]');
     const dayInput = grid.querySelector('input[data-date-field][data-date-part="day"]');
     const hiddenInput = grid.parentElement ? grid.parentElement.querySelector(`input[type="hidden"][data-field="${dateField}"]`) : null;
-    if (!(yearInput instanceof HTMLInputElement) || !(monthInput instanceof HTMLInputElement) || !(dayInput instanceof HTMLInputElement)) return false;
     if (!(hiddenInput instanceof HTMLInputElement)) return false;
-    const year = normalizeDigits(yearInput.value, 4);
-    const month = normalizeDigits(monthInput.value, 2);
-    const day = normalizeDigits(dayInput.value, 2);
-    if (yearInput.value !== year) yearInput.value = year;
-    if (monthInput.value !== month) monthInput.value = month;
-    if (dayInput.value !== day) dayInput.value = day;
-    const isDateComplete = !!(year && month && day);
-    let composed = "";
-    if (year || month || day) {
-      composed = `${year}${year ? "年" : ""}${month ? `${month}月` : ""}${day ? `${day}日` : ""}`;
-    }
+    const mode = String(hiddenInput.getAttribute("data-date-mode") || grid.getAttribute("data-date-mode") || "full_date").trim() || "full_date";
+    const year = yearInput instanceof HTMLInputElement ? normalizeDigits(yearInput.value, 4) : "";
+    const month = monthInput instanceof HTMLInputElement ? normalizeDigits(monthInput.value, 2) : "";
+    const day = dayInput instanceof HTMLInputElement ? normalizeDigits(dayInput.value, 2) : "";
+    if (yearInput instanceof HTMLInputElement && yearInput.value !== year) yearInput.value = year;
+    if (monthInput instanceof HTMLInputElement && monthInput.value !== month) monthInput.value = month;
+    if (dayInput instanceof HTMLInputElement && dayInput.value !== day) dayInput.value = day;
+    const composed = formatTargetDateText({ year, month, day }, mode);
+    const isDateComplete = isTargetDateComplete({ year, month, day }, mode);
     if (hiddenInput.value !== composed) hiddenInput.value = composed;
     if (isDateComplete) hiddenInput.setAttribute("data-date-exact", "1");
     else hiddenInput.removeAttribute("data-date-exact");

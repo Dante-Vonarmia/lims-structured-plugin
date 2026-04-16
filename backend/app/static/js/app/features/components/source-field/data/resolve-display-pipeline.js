@@ -1,3 +1,4 @@
+import { buildDisplayRawMapped } from "../../../shared/draft-hydration.js";
 import { processSchemaRowInGroups } from "../../../recognition/pipeline/group-pipeline.js";
 
 function hasRenderableFieldPipeline(fieldPipeline = {}) {
@@ -37,6 +38,7 @@ export function resolveDisplayFieldState({
   const itemTypedFields = (currentItem.typedFields && typeof currentItem.typedFields === "object") ? currentItem.typedFields : {};
   const fieldPipeline = (currentItem.fieldPipeline && typeof currentItem.fieldPipeline === "object") ? currentItem.fieldPipeline : {};
   const groupPipeline = (currentItem.groupPipeline && typeof currentItem.groupPipeline === "object") ? currentItem.groupPipeline : {};
+  const mergedRawMapped = buildDisplayRawMapped(currentItem);
 
   if (hasRenderableFieldPipeline(fieldPipeline) || hasRenderableGroupPipeline(groupPipeline)) {
     return {
@@ -47,10 +49,9 @@ export function resolveDisplayFieldState({
     };
   }
 
-  const rawMapped = Object.keys(itemRecognizedFields).length ? itemRecognizedFields : itemFields;
   const rebuilt = processSchemaRowInGroups({
     rowFields: {},
-    rawMapped,
+    rawMapped: mergedRawMapped,
     schemaColumns,
     schemaGroups,
     schemaRules,

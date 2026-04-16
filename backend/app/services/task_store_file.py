@@ -8,8 +8,6 @@ from typing import Any
 from uuid import uuid4
 
 from ..config import OUTPUT_DIR
-from .import_template_schema_service import load_import_template_schema
-
 _TASKS_FILE = OUTPUT_DIR / "tasks.json"
 _TASKS_DIR = OUTPUT_DIR / "tasks"
 _LOCK = threading.Lock()
@@ -26,7 +24,7 @@ def _ensure_file() -> None:
     _TASKS_FILE.parent.mkdir(parents=True, exist_ok=True)
     _TASKS_DIR.mkdir(parents=True, exist_ok=True)
     if not _TASKS_FILE.exists():
-        _write_tasks_unlocked([])
+        _TASKS_FILE.write_text("[]", encoding="utf-8")
 
 
 def _task_file_path(task_id: str) -> Path:
@@ -90,53 +88,169 @@ def _load_tasks_from_index_unlocked(index_rows: list[dict[str, Any]]) -> list[di
     return tasks
 
 
-def _extract_semantic_fields(raw_fields: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
+def _has_explicit_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, dict, tuple, set)):
+        return len(value) > 0
+    return True
+
+
+def _sanitize_fields_map(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        return {}
     output: dict[str, Any] = {}
-    columns = schema.get("columns")
-    if not isinstance(columns, list):
-        return output
-    for col in columns:
-        if not isinstance(col, dict):
+    for key, value in raw.items():
+        clean_key = str(key or "").strip()
+        if not clean_key or not _has_explicit_value(value):
             continue
-        label = str(col.get("label", "") or "").strip()
-        key = str(col.get("key", "") or "").strip()
-        if not label or not key:
-            continue
-        value = raw_fields.get(key, "")
-        if value in (None, ""):
-            index = int(col.get("index", -1) or -1)
-            fallback_key = f"col_{index + 1:02d}" if index >= 0 else ""
-            if fallback_key:
-                value = raw_fields.get(fallback_key, "")
-        output[label] = value
+        output[clean_key] = list(value) if isinstance(value, list) else value
     return output
 
 
-def _normalize_workspace_semantics(task: dict[str, Any]) -> bool:
-    draft = task.get("workspace_draft")
-    if not isinstance(draft, dict):
-        return False
-    queue = draft.get("queue")
-    if not isinstance(queue, list) or not queue:
-        return False
-    schema = load_import_template_schema(str(task.get("import_template_type", "") or "").strip())
-    changed = False
-    for item in queue:
-        if not isinstance(item, dict):
+def _sanitize_recognized_fields(fields: dict[str, Any], recognized: Any) -> dict[str, Any]:
+    clean_recognized = _sanitize_fields_map(recognized)
+    output: dict[str, Any] = {}
+    for key, value in clean_recognized.items():
+        if key in fields and fields.get(key) == value:
             continue
-        fields = item.get("fields")
-        if isinstance(fields, dict):
-            semantic = _extract_semantic_fields(fields, schema)
-            if item.get("semantic_fields") != semantic:
-                item["semantic_fields"] = semantic
-                changed = True
-        recognized = item.get("recognizedFields")
-        if isinstance(recognized, dict):
-            semantic = _extract_semantic_fields(recognized, schema)
-            if item.get("recognized_semantic_fields") != semantic:
-                item["recognized_semantic_fields"] = semantic
-                changed = True
-    return changed
+        output[key] = value
+    return output
+
+
+def _sanitize_queue_item(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    item_id = str(raw.get("id", "") or "").strip()
+    if not item_id:
+        return None
+
+    fields = _sanitize_fields_map(raw.get("fields"))
+    recognized_fields = _sanitize_recognized_fields(fields, raw.get("recognizedFields"))
+
+    item: dict[str, Any] = {"id": item_id, "fields": fields}
+
+    string_keys = (
+        "fileName",
+        "sourceFileName",
+        "recordName",
+        "sheetName",
+        "sourceType",
+        "recognitionOverride",
+        "fileId",
+        "rawText",
+        "sourceCode",
+        "category",
+        "templateName",
+        "matchedBy",
+        "status",
+        "message",
+        "reportId",
+        "reportDownloadUrl",
+        "reportFileName",
+        "reportGenerateMode",
+    )
+    for key in string_keys:
+        value = str(raw.get(key, "") or "").strip()
+        if value:
+            item[key] = value
+
+    if recognized_fields:
+        item["recognizedFields"] = recognized_fields
+
+    row_number = raw.get("rowNumber")
+    if isinstance(row_number, (int, float)) and int(row_number) > 0:
+        item["rowNumber"] = int(row_number)
+
+    record_count = raw.get("recordCount")
+    if isinstance(record_count, (int, float)) and int(record_count) > 0:
+        item["recordCount"] = int(record_count)
+
+    if bool(raw.get("isRecordRow")):
+        item["isRecordRow"] = True
+    if bool(raw.get("templateUserSelected")):
+        item["templateUserSelected"] = True
+
+    return item
+
+
+def _sanitize_list_filter(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        return {}
+    output: dict[str, Any] = {}
+    keyword = str(raw.get("keyword", "") or "").strip()
+    status = str(raw.get("status", "") or "").strip()
+    sort_key = str(raw.get("sortKey", "") or "").strip()
+    sort_dir = str(raw.get("sortDir", "") or "").strip()
+    active_filter_key = str(raw.get("activeFilterKey", "") or "").strip()
+    column_filters = raw.get("columnFilters")
+    if keyword:
+        output["keyword"] = keyword
+    if status:
+        output["status"] = status
+    if sort_key:
+        output["sortKey"] = sort_key
+    if sort_dir in {"asc", "desc"} and sort_dir != "asc":
+        output["sortDir"] = sort_dir
+    if isinstance(column_filters, dict) and column_filters:
+        output["columnFilters"] = column_filters
+    if active_filter_key:
+        output["activeFilterKey"] = active_filter_key
+    return output
+
+
+def _sanitize_workspace_draft(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        return {}
+    raw_queue = raw.get("queue")
+    queue: list[dict[str, Any]] = []
+    if isinstance(raw_queue, list):
+        for item in raw_queue:
+            clean_item = _sanitize_queue_item(item)
+            if clean_item:
+                queue.append(clean_item)
+
+    valid_ids = {str(item.get("id", "") or "") for item in queue}
+    active_id = str(raw.get("active_id", "") or "").strip()
+    selected_ids_raw = raw.get("selected_ids")
+    selected_ids: list[str] = []
+    if isinstance(selected_ids_raw, list):
+        for value in selected_ids_raw:
+            item_id = str(value or "").strip()
+            if item_id and item_id in valid_ids and item_id not in selected_ids:
+                selected_ids.append(item_id)
+
+    output: dict[str, Any] = {"queue": queue}
+    if active_id and active_id in valid_ids:
+        output["active_id"] = active_id
+    if selected_ids:
+        output["selected_ids"] = selected_ids
+
+    list_filter = _sanitize_list_filter(raw.get("list_filter"))
+    if list_filter:
+        output["list_filter"] = list_filter
+
+    source_view_mode = str(raw.get("source_view_mode", "") or "").strip()
+    if source_view_mode == "fields":
+        output["source_view_mode"] = source_view_mode
+
+    right_view_mode = str(raw.get("right_view_mode", "") or "").strip()
+    if right_view_mode == "field":
+        output["right_view_mode"] = right_view_mode
+
+    return output
+
+
+def _sanitize_task_for_storage(task: dict[str, Any]) -> dict[str, Any]:
+    clean_task = deepcopy(task)
+    clean_task["workspace_draft"] = _sanitize_workspace_draft(clean_task.get("workspace_draft"))
+    for legacy_key in ("info_title", "file_no", "inspect_standard", "record_no", "submit_org"):
+        clean_task.pop(legacy_key, None)
+    if not str(clean_task.get("remark", "") or "").strip():
+        clean_task.pop("remark", None)
+    return clean_task
 
 
 def _read_tasks_unlocked() -> list[dict[str, Any]]:
@@ -155,10 +269,13 @@ def _write_tasks_unlocked(tasks: list[dict[str, Any]]) -> None:
     normalized_tasks = [deepcopy(task) for task in tasks if isinstance(task, dict)]
     index_rows: list[dict[str, str]] = []
     for task in normalized_tasks:
-        if _normalize_workspace_semantics(task):
+        if _normalize_bundle_refs(task):
             task["updated_at"] = _now_text()
-        _write_task_file(task)
-        index_rows.append(_build_task_index_entry(task))
+        if _normalize_template_info(task):
+            task["updated_at"] = _now_text()
+        sanitized_task = _sanitize_task_for_storage(task)
+        _write_task_file(sanitized_task)
+        index_rows.append(_build_task_index_entry(sanitized_task))
     tmp_path = Path(f"{_TASKS_FILE}.tmp")
     tmp_path.write_text(
         json.dumps(index_rows, ensure_ascii=False, indent=2),
@@ -416,19 +533,14 @@ def update_task_template_info(
             template_info = task["template_info"]
             if info_title is not None:
                 template_info["info_title"] = info_title
-                task["info_title"] = info_title
             if file_no is not None:
                 template_info["file_no"] = file_no
-                task["file_no"] = file_no
             if inspect_standard is not None:
                 template_info["inspect_standard"] = inspect_standard
-                task["inspect_standard"] = inspect_standard
             if record_no is not None:
                 template_info["record_no"] = record_no
-                task["record_no"] = record_no
             if submit_org is not None:
                 template_info["submit_org"] = submit_org
-                task["submit_org"] = submit_org
             task["updated_at"] = _now_text()
             _write_tasks_unlocked(tasks)
             return task
