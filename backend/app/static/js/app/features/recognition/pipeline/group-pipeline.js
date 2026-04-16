@@ -94,6 +94,20 @@ export function processSchemaRowInGroups({
       fieldPipeline[key].displayValue = typedValue
         ? String((typedValue.display || typedValue.isoDate || normalizedValue || fieldPipeline[key].rawValue || "")).trim()
         : normalizedValue;
+      if (String(col.label || "").trim() === "制造年月") {
+        const rawTrimmed = String(fieldPipeline[key].rawValue || "").trim();
+        if (rawTrimmed && normalizedValue && rawTrimmed !== normalizedValue) {
+          fieldPipeline[key].warnings = Array.isArray(fieldPipeline[key].warnings) ? fieldPipeline[key].warnings : [];
+          fieldPipeline[key].warnings.push(`制造年月从 ${rawTrimmed} 自动校正为 ${normalizedValue}`);
+        }
+      }
+      if (typedValue && Array.isArray(typedValue.warnings) && typedValue.warnings.length) {
+        fieldPipeline[key].warnings = Array.isArray(fieldPipeline[key].warnings) ? fieldPipeline[key].warnings : [];
+        typedValue.warnings.forEach((warning) => {
+          const text = String(warning || "").trim();
+          if (text) fieldPipeline[key].warnings.push(text);
+        });
+      }
       if (warningText) {
         fieldPipeline[key].rawValue = "";
         fieldPipeline[key].normalizedValue = "";

@@ -1,3 +1,5 @@
+import { getTemplateInfoValue } from "../shared/template-info-utils.js";
+
 export function createRuntimeListUiFeature(deps = {}) {
   const {
     $,
@@ -106,10 +108,17 @@ export function createRuntimeListUiFeature(deps = {}) {
     const taskTemplateInfo = (state.taskContext && state.taskContext.template_info && typeof state.taskContext.template_info === "object")
       ? state.taskContext.template_info
       : {};
+    const schemaRules = (state.taskContext && state.taskContext.import_template_schema && state.taskContext.import_template_schema.rules
+      && typeof state.taskContext.import_template_schema.rules === "object")
+      ? state.taskContext.import_template_schema.rules
+      : {};
     if (getSchemaColumns().some((field) => String((field && field.key) || "").trim() === key)) {
-      const itemValue = String(f[key] || "").trim();
-      if (itemValue) return itemValue;
-      return String(taskTemplateInfo[key] || "");
+      return getTemplateInfoValue({
+        item,
+        taskTemplateInfo,
+        key,
+        schemaRules,
+      });
     }
     if (key === "recordName") return String(item.recordName || "");
     if (key === "device_name") return String(f.device_name || "");

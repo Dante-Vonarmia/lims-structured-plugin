@@ -1,0 +1,23 @@
+{
+  "id": "task-09905dcb43b64d17b3f878e4d8a9b81f",
+  "task_name": "气瓶报告-20260414-001",
+  "import_file_name": "常用导入模板",
+  "import_template_type": "常用导入模板",
+  "export_template_id": "tpl-r801b",
+  "export_template_name": "R-801B 原始记录首页",
+  "status": "待处理",
+  "created_at": "2026/04/13 16:28:27",
+  "updated_at": "2026/04/14 07:12:11",
+  "remark": "",
+  "template_info": {
+    "info_title": "常用导入模板",
+    "file_no": "",
+    "inspect_standard": "",
+    "record_no": "",
+    "submit_org": ""
+  },
+  "archived": true,
+  "workspace_draft": {},
+  "input_bundle_id": "",
+  "output_bundle_id": ""
+}

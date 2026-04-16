@@ -7,13 +7,13 @@
   "description": "修改证书蓝本输出资料包",
   "entries": {
     "template": "template.docx",
+    "editor_schema": "editor-schema.json",
     "assets": []
   },
   "documentType": "certificate",
   "businessType": "modify_certificate",
   "tags": ["certificate", "docx"],
   "compatibility": {
-    "engine": "workbench",
-    "handlerKey": "modify_certificate_blueprint"
+    "engine": "workbench"
   }
 }

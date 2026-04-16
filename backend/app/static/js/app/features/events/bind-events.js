@@ -57,8 +57,11 @@ export function createBindEventsFeature(deps = {}) {
     setRightViewMode,
     setSourceViewMode,
     setStatus,
+    updateTaskTemplateInfoApi,
     updateTaskStatusApi,
     saveWorkspaceDraft,
+    rememberFieldValueFromTarget,
+    acceptSuggestionFromTarget,
     syncGenerateModeUiText,
     shiftDateText,
     triggerDownload,
@@ -185,10 +188,15 @@ export function createBindEventsFeature(deps = {}) {
       parseTableRowsFromBlock,
       refreshTargetFieldFormBySelection,
       renderQueue,
+      renderSourceFieldList,
       renderTargetFieldForm,
+      saveWorkspaceDraft,
       setStatus,
+      updateTaskTemplateInfoApi,
       validateItemForGeneration,
       handleTargetDateInput,
+      rememberFieldValueFromTarget,
+      acceptSuggestionFromTarget,
     });
 
     const { bindEvents } = createWorkbenchInitBindings({

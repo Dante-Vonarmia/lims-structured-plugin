@@ -269,9 +269,7 @@ def _infer_fixed_handler_key(template_name: str) -> str | None:
             handler_key = str((compatibility or {}).get("handlerKey") or "").strip()
             if handler_key:
                 return handler_key
-            business_type = str(bundle.get("businessType") or "").strip()
-            if business_type == "modify_certificate":
-                return "modify_certificate_blueprint"
+            return None
         except Exception:
             pass
     normalized = _normalize_for_match(template_name)

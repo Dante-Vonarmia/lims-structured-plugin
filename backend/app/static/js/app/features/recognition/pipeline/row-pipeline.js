@@ -1,4 +1,5 @@
 import { buildFieldRuleResolver, normalizeMonthDayToken } from "./schema-utils.js";
+import { parseManufactureYearMonthToken } from "./field-normalizers.js";
 
 const DATA_ROW_RE = /^\s*[zZ]?\d{1,2}(?:\s*[./-]\s*\d{1,2})?\b/;
 const CHUNK_GROUP_ORDER = [
@@ -52,13 +53,7 @@ export function splitTableDataLines(rawText, rules = {}) {
 function mapLineToSchemaFieldsInternal(line, columns, rules = {}) {
   const cols = Array.isArray(columns) ? columns : [];
   const rawLine = String(line || "").trim();
-  const fieldRules = (rules && typeof rules.field_rules === "object" && rules.field_rules) ? rules.field_rules : {};
-  const getFieldRule = (label, key) => {
-    const byLabel = fieldRules[String(label || "").trim()];
-    if (byLabel && typeof byLabel === "object") return byLabel;
-    const byKey = fieldRules[String(key || "").trim()];
-    return byKey && typeof byKey === "object" ? byKey : {};
-  };
+  const getFieldRule = buildFieldRuleResolver(rules);
   const detectValveSelection = (rule = {}) => {
     const escapeReg = (s) => String(s || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const hasTokenPattern = (tokens, markerPattern) => {
@@ -597,13 +592,7 @@ export function mapLineToSchemaFieldsWithTrace(line, columns, rules = {}) {
 export function applySchemaRulesToMappedFields(mappedInput, columns, rules = {}) {
   const cols = Array.isArray(columns) ? columns : [];
   const mapped = (mappedInput && typeof mappedInput === "object") ? mappedInput : {};
-  const fieldRules = (rules && typeof rules.field_rules === "object" && rules.field_rules) ? rules.field_rules : {};
-  const getFieldRule = (label, key) => {
-    const byLabel = fieldRules[String(label || "").trim()];
-    if (byLabel && typeof byLabel === "object") return byLabel;
-    const byKey = fieldRules[String(key || "").trim()];
-    return byKey && typeof byKey === "object" ? byKey : {};
-  };
+  const getFieldRule = buildFieldRuleResolver(rules);
   const result = {};
   const isCheckTrueToken = (raw) => {
     const t = String(raw || "").trim();
@@ -634,6 +623,11 @@ export function applySchemaRulesToMappedFields(mappedInput, columns, rules = {})
         .replace(/^\.+/, "")
         .replace(/\.+$/, "");
       result[key] = value;
+      continue;
+    }
+    if (label === "制造年月") {
+      const ymNormalized = parseManufactureYearMonthToken(value);
+      result[key] = ymNormalized ? ymNormalized.normalized : value;
       continue;
     }
     if (ruleType === "date" || ruleType === "date_or_dash") {
@@ -753,6 +747,21 @@ export function buildTypedFieldsFromMapped(mappedInput, columns, rules = {}) {
       };
       continue;
     }
+    if (label === "制造年月") {
+      const parsedYearMonth = parseManufactureYearMonthToken(value);
+      if (parsedYearMonth) {
+        typed[key] = {
+          type: "year_month",
+          raw: value,
+          value: parsedYearMonth.normalized,
+          year: parsedYearMonth.yearText,
+          month: parsedYearMonth.monthText,
+          display: parsedYearMonth.normalized,
+          warnings: parsedYearMonth.warning ? [parsedYearMonth.warning] : [],
+        };
+        continue;
+      }
+    }
     if (ruleType === "date" || ruleStdType === "date") {
       const typedDate = buildDateTypedValue(value, "date");
       if (typedDate) typed[key] = typedDate;
@@ -803,14 +812,12 @@ export function applyCarryForwardRows(rows, columns, rules = {}) {
   const list = Array.isArray(rows) ? rows : [];
   const cols = Array.isArray(columns) ? columns : [];
   if (!list.length || !cols.length) return list;
-  const fieldRules = (rules && typeof rules.field_rules === "object" && rules.field_rules) ? rules.field_rules : {};
+  const getFieldRule = buildFieldRuleResolver(rules);
   const carryKeys = cols
     .map((col) => {
       const key = String((col && col.key) || "").trim();
       const label = String((col && col.label) || "").trim();
-      const byLabel = fieldRules[label];
-      const byKey = fieldRules[key];
-      const rule = (byLabel && typeof byLabel === "object") ? byLabel : ((byKey && typeof byKey === "object") ? byKey : {});
+      const rule = getFieldRule(label, key);
       return String((rule && rule.empty_strategy) || "").trim().toLowerCase() === "carry_forward" ? key : "";
     })
     .filter(Boolean);

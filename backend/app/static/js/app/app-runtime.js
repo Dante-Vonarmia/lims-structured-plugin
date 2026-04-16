@@ -1,6 +1,7 @@
 import {
   fetchBlob,
   fetchJson,
+  updateTaskTemplateInfoApi,
   getTaskWorkspaceDraftApi,
   listSignaturesApi,
   listTemplatesApi,
@@ -56,6 +57,7 @@ import { createMatchingWorkflowFeature } from "./features/matching/workflow.js";
 import { createMatchingValidationFeature } from "./features/matching/validation.js";
 import { createQueueRenderingFeature } from "./features/queue/rendering.js";
 import { createSourceSplittingFeature } from "./features/source/splitting.js";
+import { createFieldMemoryFeature } from "./features/shared/field-memory.js";
 import { createRuntimeCommonFeature } from "./features/runtime/common.js";
 import { createRuntimeApisFeature } from "./features/runtime/apis.js";
 import { createRuntimeListUiFeature } from "./features/runtime/list-ui.js";
@@ -79,10 +81,23 @@ import {
   shiftDateText,
   toDateOnlyDisplay,
 } from "./features/shared/text-date-utils.js";
+import { normalizeTaskTemplateInfo } from "./features/shared/template-info-utils.js";
+import { normalizeImportTemplateSchemaPayload } from "./features/shared/schema-field-meta-utils.js";
 
     const state = createInitialState();
 
     const $ = (id) => document.getElementById(id);
+
+    const {
+      loadFieldMemory,
+      rememberFieldValue,
+      rememberFieldValueFromTarget,
+      getFieldSuggestion,
+      formatSuggestionLabel,
+      acceptSuggestionFromTarget,
+    } = createFieldMemoryFeature({
+      state,
+    });
 
     const {
       normalizeForCodeMatch,
@@ -341,6 +356,32 @@ import {
       return rows.find((row) => String((row && row.id) || "").trim() === normalizedTaskId) || null;
     }
 
+    function seedFieldMemoryFromTasks(tasks) {
+      const rows = Array.isArray(tasks) ? tasks : [];
+      rows.forEach((task) => {
+        const templateInfo = (task && task.template_info && typeof task.template_info === "object") ? task.template_info : {};
+        ["file_no", "inspect_standard", "record_no", "submit_org"].forEach((key) => {
+          rememberFieldValue(key, String(templateInfo[key] || ""));
+        });
+        const draft = (task && task.workspace_draft && typeof task.workspace_draft === "object") ? task.workspace_draft : {};
+        const queue = Array.isArray(draft.queue) ? draft.queue : [];
+        queue.forEach((row) => {
+          const fields = (row && row.fields && typeof row.fields === "object") ? row.fields : {};
+          Object.entries(fields).forEach(([key, value]) => {
+            const fieldKey = String(key || "").trim();
+            if (!fieldKey) return;
+            if (Array.isArray(value)) {
+              value.forEach((entry) => rememberFieldValue(fieldKey === "basis_standard_items" ? "basis_standard_item" : fieldKey, String(entry || "")));
+              return;
+            }
+            const text = String(value == null ? "" : value).trim();
+            if (!text) return;
+            rememberFieldValue(fieldKey, text);
+          });
+        });
+      });
+    }
+
     async function getTaskImportTemplateSchemaApi(taskId) {
       const normalizedTaskId = String(taskId || "").trim();
       if (!normalizedTaskId) return { schema: { template_name: "", columns: [], groups: [] } };
@@ -362,17 +403,6 @@ import {
       const path = String((window && window.location && window.location.pathname) || "").trim();
       const match = path.match(/^\/workspace\/([^/]+)$/);
       return match ? String(match[1] || "").trim() : "";
-    }
-
-    function normalizeTaskTemplateInfo(raw) {
-      const src = (raw && typeof raw === "object") ? raw : {};
-      return {
-        info_title: String(src.info_title || "").trim(),
-        file_no: String(src.file_no || "").trim(),
-        inspect_standard: String(src.inspect_standard || "").trim(),
-        record_no: String(src.record_no || "").trim(),
-        submit_org: String(src.submit_org || "").trim(),
-      };
     }
 
     function getTaskDefaultTemplateName() {
@@ -401,7 +431,10 @@ import {
       state.taskContext.template_info = normalizeTaskTemplateInfo({});
       if (!taskId) return;
       try {
-        const task = await getTaskDetailApi(taskId);
+        const data = await fetchJson("/api/tasks", { cache: "no-store" });
+        const tasks = Array.isArray(data && data.tasks) ? data.tasks : [];
+        seedFieldMemoryFromTasks(tasks);
+        const task = tasks.find((row) => String((row && row.id) || "").trim() === taskId) || null;
         if (!task) {
           appendLog("任务不存在或已删除");
           state.taskContext.id = "";
@@ -424,12 +457,7 @@ import {
         try {
           const schemaData = await getTaskImportTemplateSchemaApi(state.taskContext.id);
           const schema = (schemaData && schemaData.schema && typeof schemaData.schema === "object") ? schemaData.schema : {};
-          state.taskContext.import_template_schema = {
-            template_name: String(schema.template_name || "").trim(),
-            columns: Array.isArray(schema.columns) ? schema.columns : [],
-            groups: Array.isArray(schema.groups) ? schema.groups : [],
-            rules: (schema.rules && typeof schema.rules === "object") ? schema.rules : {},
-          };
+          state.taskContext.import_template_schema = normalizeImportTemplateSchemaPayload(schema);
         } catch (schemaError) {
           appendLog(`导入模板结构加载失败：${schemaError.message || "unknown"}`);
           state.taskContext.import_template_schema = { template_name: "", columns: [], groups: [], rules: {} };
@@ -441,6 +469,22 @@ import {
 
     function normalizeDraftItem(raw) {
       const src = (raw && typeof raw === "object") ? raw : {};
+      const normalizedRecognizedFields = {
+        ...createEmptyFields(),
+        ...((src.recognizedFields && typeof src.recognizedFields === "object") ? src.recognizedFields : {}),
+      };
+      const normalizedFields = {
+        ...createEmptyFields(),
+        ...((src.fields && typeof src.fields === "object") ? src.fields : {}),
+      };
+      Object.entries(normalizedRecognizedFields).forEach(([key, value]) => {
+        const current = normalizedFields[key];
+        const currentHasValue = Array.isArray(current) ? current.length > 0 : !!String(current == null ? "" : current).trim();
+        if (currentHasValue) return;
+        const nextHasValue = Array.isArray(value) ? value.length > 0 : !!String(value == null ? "" : value).trim();
+        if (!nextHasValue) return;
+        normalizedFields[key] = Array.isArray(value) ? [...value] : value;
+      });
       return {
         id: String(src.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`),
         file: null,
@@ -457,8 +501,8 @@ import {
         sourceCode: String(src.sourceCode || ""),
         recordCount: Number(src.recordCount) || 0,
         category: String(src.category || ""),
-        fields: { ...createEmptyFields(), ...((src.fields && typeof src.fields === "object") ? src.fields : {}) },
-        recognizedFields: { ...createEmptyFields(), ...((src.recognizedFields && typeof src.recognizedFields === "object") ? src.recognizedFields : {}) },
+        fields: normalizedFields,
+        recognizedFields: normalizedRecognizedFields,
         typedFields: (src.typedFields && typeof src.typedFields === "object") ? src.typedFields : {},
         fieldPipeline: (src.fieldPipeline && typeof src.fieldPipeline === "object") ? src.fieldPipeline : {},
         groupPipeline: (src.groupPipeline && typeof src.groupPipeline === "object") ? src.groupPipeline : {},
@@ -516,16 +560,34 @@ import {
     function applyTaskDefaultTemplateToQueueItems() {
       const defaultTemplateName = getTaskDefaultTemplateName();
       if (!defaultTemplateName) return;
+      const isBundleDefault = String(defaultTemplateName || "").trim().toLowerCase().startsWith("bundle:");
+      const looksLikeLegacyTemplateName = (value) => {
+        const raw = String(value || "").trim();
+        if (!raw) return false;
+        const base = (raw.split(/[\\/]/).pop() || raw).toLowerCase();
+        return (
+          base === "modify-certificate-blueprint.docx"
+          || base === "modify_certificate_blueprint.docx"
+          || base === "template.docx"
+          || base === "2026030604-大特.docx".toLowerCase()
+        );
+      };
       state.queue.forEach((item) => {
         if (!item || typeof item !== "object") return;
-        if (String(item.templateName || "").trim()) return;
-        item.templateName = defaultTemplateName;
-        item.matchedBy = item.matchedBy || "task:export_default";
-        item.templateUserSelected = false;
-        if (!item.message || String(item.message || "").includes("待匹配模板")) {
-          item.message = "模板已自动命中（task:export_default）";
+        const currentTemplateName = String(item.templateName || "").trim();
+        const shouldReplaceWithTaskDefault = !currentTemplateName
+          || (isBundleDefault && !currentTemplateName.toLowerCase().startsWith("bundle:"))
+          || looksLikeLegacyTemplateName(currentTemplateName);
+        if (!shouldReplaceWithTaskDefault) return;
+        if (currentTemplateName !== defaultTemplateName) {
+          item.templateName = defaultTemplateName;
+          item.matchedBy = "task:export_default";
+          item.templateUserSelected = false;
+          if (!item.message || String(item.message || "").includes("待匹配模板") || String(item.message || "").includes("模板已自动命中")) {
+            item.message = "模板已自动命中（task:export_default）";
+          }
         }
-      });
+      }); 
     }
 
     async function saveWorkspaceDraft() {
@@ -888,6 +950,8 @@ import {
       renderGeneralCheckWysiwygBlock,
       isTargetMultiEditMode,
       parseDateParts,
+      getFieldSuggestion,
+      formatSuggestionLabel,
       escapeHtml,
       escapeAttr,
     });
@@ -968,8 +1032,11 @@ import {
       setRightViewMode,
       setSourceViewMode,
       setStatus,
+      updateTaskTemplateInfoApi,
       updateTaskStatusApi,
       saveWorkspaceDraft,
+      rememberFieldValueFromTarget,
+      acceptSuggestionFromTarget,
       syncGenerateModeUiText,
       triggerDownload,
       authorizeDownloadWindow,
@@ -982,6 +1049,7 @@ import {
     (async function init() {
       setLoading(true, "初始化...");
       try {
+        loadFieldMemory();
         await loadRuntimeConfig();
         await loadTemplates();
         await loadSignatures();

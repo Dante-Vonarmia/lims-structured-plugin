@@ -171,6 +171,7 @@ def scan_template_bundles() -> dict[str, Any]:
                 resolved_entries["companion"] = companion_files
             else:
                 resolve_entry("template")
+                resolve_entry("editor_schema")
                 assets_raw = entries.get("assets", [])
                 assets_files: list[str] = []
                 if isinstance(assets_raw, list):

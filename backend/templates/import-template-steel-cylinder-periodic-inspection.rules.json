@@ -20,13 +20,17 @@
       "label": "送检单位"
     }
   ],
-  "field_rules": {
-    "检验日期": {
+  "fields": {
+    "inspect_date": {
+      "label": "检验日期",
+      "index": 0,
       "type": "date",
       "empty_strategy": "carry_forward",
       "std_type": "date"
     },
-    "产权代码编号": {
+    "ownership_code": {
+      "label": "产权代码编号",
+      "index": 1,
       "type": "code",
       "max_len": 12,
       "empty_strategy": "carry_forward",
@@ -36,7 +40,9 @@
       },
       "std_type": "string"
     },
-    "充装介质": {
+    "filling_medium": {
+      "label": "充装介质",
+      "index": 2,
       "type": "text",
       "normalize": {
         "trim": true,
@@ -58,7 +64,9 @@
       ],
       "std_type": "string"
     },
-    "制造单位代码": {
+    "manufacturer_code": {
+      "label": "制造单位代码",
+      "index": 3,
       "type": "code",
       "max_len": 12,
       "normalize": {
@@ -67,7 +75,9 @@
       },
       "std_type": "string"
     },
-    "出厂编号": {
+    "factory_serial_no": {
+      "label": "出厂编号",
+      "index": 4,
       "type": "code",
       "max_len": 24,
       "normalize": {
@@ -76,7 +86,9 @@
       },
       "std_type": "string"
     },
-    "水压试验压力MPa": {
+    "hydro_test_pressure_mpa": {
+      "label": "水压试验压力MPa",
+      "index": 5,
       "type": "number",
       "normalize": {
         "o_to_0": true,
@@ -84,7 +96,9 @@
       },
       "std_type": "number"
     },
-    "公称工作压力MPa": {
+    "nominal_work_pressure_mpa": {
+      "label": "公称工作压力MPa",
+      "index": 6,
       "type": "number",
       "normalize": {
         "o_to_0": true,
@@ -92,7 +106,9 @@
       },
       "std_type": "number"
     },
-    "公称瓶重kg": {
+    "nominal_weight_kg": {
+      "label": "公称瓶重kg",
+      "index": 7,
       "type": "number",
       "normalize": {
         "o_to_0": true,
@@ -100,7 +116,9 @@
       },
       "std_type": "number"
     },
-    "公称容积L": {
+    "nominal_volume_l": {
+      "label": "公称容积L",
+      "index": 8,
       "type": "number",
       "normalize": {
         "o_to_0": true,
@@ -108,7 +126,9 @@
       },
       "std_type": "number"
     },
-    "设计壁厚mm": {
+    "design_wall_thickness_mm": {
+      "label": "设计壁厚mm",
+      "index": 9,
       "type": "number",
       "normalize": {
         "o_to_0": true,
@@ -116,7 +136,9 @@
       },
       "std_type": "number"
     },
-    "制造年月": {
+    "manufacture_date": {
+      "label": "制造年月",
+      "index": 10,
       "type": "text",
       "normalize": {
         "trim": true,
@@ -124,7 +146,9 @@
       },
       "std_type": "date"
     },
-    "上次检验日期": {
+    "last_inspection_date": {
+      "label": "上次检验日期",
+      "index": 11,
       "type": "date_or_dash",
       "dash_tokens": [
         "/",
@@ -135,27 +159,39 @@
       "std_type": "date",
       "allow_dash": true
     },
-    "余气处理": {
+    "residual_gas_treatment": {
+      "label": "余气处理",
+      "index": 12,
       "type": "check",
       "std_type": "check"
     },
-    "外观清理检查": {
+    "appearance_cleaning_check": {
+      "label": "外观清理检查",
+      "index": 13,
       "type": "check",
       "std_type": "check"
     },
-    "音响检查": {
+    "acoustic_check": {
+      "label": "音响检查",
+      "index": 14,
       "type": "check",
       "std_type": "check"
     },
-    "内表面检查": {
+    "inner_surface_check": {
+      "label": "内表面检查",
+      "index": 15,
       "type": "check",
       "std_type": "check"
     },
-    "瓶口螺纹检查": {
+    "neck_thread_check": {
+      "label": "瓶口螺纹检查",
+      "index": 16,
       "type": "check",
       "std_type": "check"
     },
-    "实际重量kg": {
+    "actual_weight_kg": {
+      "label": "实际重量kg",
+      "index": 17,
       "type": "number",
       "normalize": {
         "o_to_0": true,
@@ -163,7 +199,9 @@
       },
       "std_type": "number"
     },
-    "重量损失率%": {
+    "weight_loss_ratio_pct": {
+      "label": "重量损失率%",
+      "index": 18,
       "type": "number",
       "normalize": {
         "o_to_0": true,
@@ -171,7 +209,9 @@
       },
       "std_type": "number"
     },
-    "实际容积L": {
+    "actual_volume_l": {
+      "label": "实际容积L",
+      "index": 19,
       "type": "number",
       "normalize": {
         "o_to_0": true,
@@ -179,7 +219,9 @@
       },
       "std_type": "number"
     },
-    "容积增大率%": {
+    "volume_increase_ratio_pct": {
+      "label": "容积增大率%",
+      "index": 20,
       "type": "number",
       "normalize": {
         "o_to_0": true,
@@ -187,7 +229,9 @@
       },
       "std_type": "number"
     },
-    "试验压力MPa": {
+    "hydro_holding_test_pressure_mpa": {
+      "label": "试验压力MPa",
+      "index": 21,
       "type": "number",
       "normalize": {
         "o_to_0": true,
@@ -195,7 +239,9 @@
       },
       "std_type": "number"
     },
-    "保压时间min": {
+    "hydro_holding_time_min": {
+      "label": "保压时间min",
+      "index": 22,
       "type": "number",
       "normalize": {
         "o_to_0": true,
@@ -203,7 +249,9 @@
       },
       "std_type": "number"
     },
-    "残余变形值mL": {
+    "residual_deformation_ml": {
+      "label": "残余变形值mL",
+      "index": 23,
       "type": "number",
       "normalize": {
         "o_to_0": true,
@@ -211,7 +259,9 @@
       },
       "std_type": "number"
     },
-    "容积全变形值mL": {
+    "total_deformation_ml": {
+      "label": "容积全变形值mL",
+      "index": 24,
       "type": "number",
       "normalize": {
         "o_to_0": true,
@@ -219,7 +269,9 @@
       },
       "std_type": "number"
     },
-    "残余变形率%": {
+    "residual_deformation_ratio_pct": {
+      "label": "残余变形率%",
+      "index": 25,
       "type": "number",
       "normalize": {
         "o_to_0": true,
@@ -227,15 +279,21 @@
       },
       "std_type": "number"
     },
-    "内部干燥": {
+    "internal_drying": {
+      "label": "内部干燥",
+      "index": 26,
       "type": "check",
       "std_type": "check"
     },
-    "试验结论": {
+    "hydro_test_conclusion": {
+      "label": "试验结论",
+      "index": 27,
       "type": "check",
       "std_type": "check"
     },
-    "瓶阀检验": {
+    "valve_inspection": {
+      "label": "瓶阀检验",
+      "index": 28,
       "type": "checkbox_choice",
       "multi_label": "校阀/换阀",
       "choices": [
@@ -268,11 +326,41 @@
       ],
       "std_type": "check"
     },
-    "评定结论": {
+    "air_tightness_test_pressure_mpa": {
+      "label": "试验压力MPa",
+      "index": 29,
+      "type": "number",
+      "normalize": {
+        "o_to_0": true,
+        "l_to_1": true
+      },
+      "std_type": "number"
+    },
+    "air_tightness_holding_time_min": {
+      "label": "保压时间min",
+      "index": 30,
+      "type": "number",
+      "normalize": {
+        "o_to_0": true,
+        "l_to_1": true
+      },
+      "std_type": "number"
+    },
+    "air_tightness_test_conclusion": {
+      "label": "试验结论",
+      "index": 31,
       "type": "check",
       "std_type": "check"
     },
-    "下次检验日期": {
+    "assessment_conclusion": {
+      "label": "评定结论",
+      "index": 32,
+      "type": "check",
+      "std_type": "check"
+    },
+    "next_inspection_date": {
+      "label": "下次检验日期",
+      "index": 33,
       "type": "date_or_dash",
       "dash_tokens": [
         "/",
@@ -283,15 +371,21 @@
       "std_type": "date",
       "allow_dash": true
     },
-    "检验员": {
+    "inspector": {
+      "label": "检验员",
+      "index": 34,
       "type": "optional_blank",
       "std_type": "signature"
     },
-    "审核员": {
+    "reviewer": {
+      "label": "审核员",
+      "index": 35,
       "type": "optional_blank",
       "std_type": "signature"
     },
-    "备注": {
+    "remark": {
+      "label": "备注",
+      "index": 36,
       "type": "optional_blank",
       "std_type": "string"
     }

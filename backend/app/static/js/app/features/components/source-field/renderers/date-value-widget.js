@@ -41,11 +41,18 @@ export function createDateValueWidgetRenderer(deps = {}) {
   function renderDateValueWidget(valueText) {
     const dateParts = parseLooseDatePartsNoInference(valueText);
     if (!dateParts) return "";
+    const year = String(dateParts.year || "").trim();
+    const month = String(dateParts.month || "").trim();
+    const day = String(dateParts.day || "").trim();
+    const isoText = year && month && day ? `${year.padStart(4, "0")}-${month.padStart(2, "0")}-${day.padStart(2, "0")}` : "";
+    if (isoText) {
+      return `<span class="source-field-value">${escapeHtml(isoText)}</span>`;
+    }
     return `
       <span class="calib-date-grid source-date-grid">
-        ${String(dateParts.year || "").trim() ? `<span class="calib-date-part">${escapeHtml(String(dateParts.year || ""))}</span><span class="calib-date-unit">年</span>` : ""}
-        ${String(dateParts.month || "").trim() ? `<span class="calib-date-part">${escapeHtml(String(dateParts.month || ""))}</span><span class="calib-date-unit">月</span>` : ""}
-        ${String(dateParts.day || "").trim() ? `<span class="calib-date-part">${escapeHtml(String(dateParts.day || ""))}</span><span class="calib-date-unit">日</span>` : ""}
+        ${year ? `<span class="calib-date-part">${escapeHtml(year)}</span><span class="calib-date-unit">年</span>` : ""}
+        ${month ? `<span class="calib-date-part">${escapeHtml(month)}</span><span class="calib-date-unit">月</span>` : ""}
+        ${day ? `<span class="calib-date-part">${escapeHtml(day)}</span><span class="calib-date-unit">日</span>` : ""}
       </span>
     `;
   }
@@ -54,4 +61,3 @@ export function createDateValueWidgetRenderer(deps = {}) {
     renderDateValueWidget,
   };
 }
-

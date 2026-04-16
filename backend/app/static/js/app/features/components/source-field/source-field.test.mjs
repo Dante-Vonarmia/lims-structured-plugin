@@ -149,7 +149,7 @@ test("source field row should render signature, check and checkbox choice widget
 
   assert.match(signatureHtml, /source-signature-thumb/);
   assert.match(signatureHtml, /\/signatures\/zhangsan\.jpg/);
-  assert.match(checkHtml, /source-check-chip is-checked/);
-  assert.match(choiceHtml, /source-choice-chip/);
+  assert.match(checkHtml, /<span class="source-field-value">✓<\/span>/);
+  assert.doesNotMatch(choiceHtml, /source-choice-chip/);
   assert.match(choiceHtml, /校阀/);
 });

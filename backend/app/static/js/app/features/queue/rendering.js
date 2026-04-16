@@ -1,4 +1,5 @@
 import { isBooleanTextValue, renderBooleanDisplayHtml } from "../shared/boolean-display.js";
+import { getTemplateInfoValue } from "../shared/template-info-utils.js";
 
 export function createQueueRenderingFeature(deps = {}) {
   const {
@@ -34,16 +35,6 @@ export function createQueueRenderingFeature(deps = {}) {
     return Array.isArray(schema.columns) ? schema.columns : [];
   }
 
-  function getTemplateInfoValue(item, key) {
-    const rowFields = (item && item.fields && typeof item.fields === "object") ? item.fields : {};
-    const taskTemplateInfo = (state.taskContext && state.taskContext.template_info && typeof state.taskContext.template_info === "object")
-      ? state.taskContext.template_info
-      : {};
-    const rowValue = String(rowFields[key] || "").trim();
-    if (rowValue) return rowValue;
-    return String(taskTemplateInfo[key] || "").trim();
-  }
-
   function renderStats() {
     const total = new Set(state.queue.map((x) => x.sourceFileName || x.fileName)).size;
     const records = state.queue.reduce((acc, x) => acc + (Number(x.recordCount || 0) || 0), 0);
@@ -59,6 +50,23 @@ export function createQueueRenderingFeature(deps = {}) {
   function renderQueue() {
     renderStats();
     const wrap = $("queueList");
+    const filterPopoverRootId = "queueFilterPopoverRoot";
+    const clearFilterPopover = () => {
+      const existing = document.getElementById(filterPopoverRootId);
+      if (existing) existing.remove();
+    };
+    const renderFilterPopover = (html, left, top) => {
+      let root = document.getElementById(filterPopoverRootId);
+      if (!(root instanceof HTMLElement)) {
+        root = document.createElement("div");
+        root.id = filterPopoverRootId;
+        document.body.appendChild(root);
+      }
+      root.className = "queue-filter-popover";
+      root.style.left = `${left}px`;
+      root.style.top = `${top}px`;
+      root.innerHTML = html;
+    };
     wrap.classList.remove("is-empty", "has-data");
     state.selectedIds = new Set(state.queue.filter((x) => state.selectedIds.has(x.id)).map((x) => x.id));
     const idSet = new Set(state.queue.map((x) => String((x && x.id) || "")));
@@ -69,6 +77,7 @@ export function createQueueRenderingFeature(deps = {}) {
       state.selectedIds.add(state.activeId);
     }
     if (!state.queue.length) {
+      clearFilterPopover();
       wrap.classList.add("is-empty");
       wrap.innerHTML = '<div class="queue-empty-placeholder">上传文件（也可拖拽文件/文件夹到此处）</div>';
       const activeFileText = $("activeFileText");
@@ -81,6 +90,7 @@ export function createQueueRenderingFeature(deps = {}) {
     }
     const visibleItems = getFilteredSortedQueue();
     if (!visibleItems.length) {
+      clearFilterPopover();
       wrap.classList.add("is-empty");
       wrap.innerHTML = '<div class="queue-empty-placeholder">当前筛选条件下无记录</div>';
       updateSelectedCountText([]);
@@ -95,6 +105,20 @@ export function createQueueRenderingFeature(deps = {}) {
       ? state.listFilter.columnFilters
       : {};
     const activeFilterKey = String(state.listFilter.activeFilterKey || "").trim();
+    const activeFilterAnchor = (state.listFilter.filterAnchor && typeof state.listFilter.filterAnchor === "object")
+      ? state.listFilter.filterAnchor
+      : null;
+    const buildFilterMenuHtml = (key) => {
+      const options = getColumnFilterOptionEntries(key, filterOptionItems);
+      const allTokens = Array.isArray(columnFilters[key]) ? columnFilters[key] : [];
+      const optionsHtml = options.length
+        ? options.map((opt) => {
+          const checked = allTokens.includes(opt.token);
+          return `<label class="th-filter-opt"><input type="checkbox" class="th-filter-option" data-filter-key="${escapeAttr(key)}" data-filter-token="${escapeAttr(opt.token)}" ${checked ? "checked" : ""} /><span class="th-filter-label" title="${escapeAttr(opt.label)}">${escapeHtml(opt.label)}</span><span class="th-filter-count">${opt.count}</span></label>`;
+        }).join("")
+        : '<div class="th-filter-count">无可筛选值</div>';
+      return `<div class="th-filter-menu"><div class="th-filter-actions"><button type="button" class="th-filter-act icon-only" data-filter-act="all" data-filter-key="${escapeAttr(key)}" title="全选" aria-label="全选"><i class="fa-solid fa-check-double" aria-hidden="true"></i></button><button type="button" class="th-filter-act icon-only" data-filter-act="clear" data-filter-key="${escapeAttr(key)}" title="清空" aria-label="清空"><i class="fa-solid fa-eraser" aria-hidden="true"></i></button></div><div class="th-filter-options">${optionsHtml}</div></div>`;
+    };
     const buildHeadCell = (label, key) => {
       if (!key) return `<th>${escapeHtml(label)}</th>`;
       const isSortActive = state.listFilter.sortKey === key;
@@ -103,17 +127,7 @@ export function createQueueRenderingFeature(deps = {}) {
       const selectedTokens = Array.isArray(columnFilters[key]) ? columnFilters[key] : [];
       const isFilterActive = selectedTokens.length > 0;
       const triggerTitle = isFilterActive ? `筛选（已选 ${selectedTokens.length}）` : "筛选";
-      const options = getColumnFilterOptionEntries(key, filterOptionItems);
-      const optionsHtml = options.length
-        ? options.map((opt) => {
-          const checked = selectedTokens.includes(opt.token);
-          return `<label class="th-filter-opt"><input type="checkbox" class="th-filter-option" data-filter-key="${escapeAttr(key)}" data-filter-token="${escapeAttr(opt.token)}" ${checked ? "checked" : ""} /><span class="th-filter-label" title="${escapeAttr(opt.label)}">${escapeHtml(opt.label)}</span><span class="th-filter-count">${opt.count}</span></label>`;
-        }).join("")
-        : '<div class="th-filter-count">无可筛选值</div>';
-      const menuHtml = activeFilterKey === key
-        ? `<div class="th-filter-menu"><div class="th-filter-actions"><button type="button" class="th-filter-act" data-filter-act="all" data-filter-key="${escapeAttr(key)}">全选</button><button type="button" class="th-filter-act" data-filter-act="clear" data-filter-key="${escapeAttr(key)}">清空</button><button type="button" class="th-filter-act" data-filter-act="only_blank" data-filter-key="${escapeAttr(key)}">仅空</button><button type="button" class="th-filter-act" data-filter-act="only_non_blank" data-filter-key="${escapeAttr(key)}">仅非空</button></div><div class="th-filter-options">${optionsHtml}</div></div>`
-        : "";
-      return `<th><span class="th-cell"><button type="button" class="th-sort-btn ${isSortActive ? "is-active" : ""}" data-sort-key="${escapeAttr(key)}"><span>${escapeHtml(label)}</span><span class="th-sort-icon">${sortIcon}</span></button><button type="button" class="th-filter-trigger ${isFilterActive ? "is-active" : ""}" data-filter-key="${escapeAttr(key)}" title="${escapeAttr(triggerTitle)}"><i class="fa-solid fa-filter" aria-hidden="true"></i></button>${menuHtml}</span></th>`;
+      return `<th><span class="th-cell"><button type="button" class="th-sort-btn ${isSortActive ? "is-active" : ""}" data-sort-key="${escapeAttr(key)}"><span>${escapeHtml(label)}</span><span class="th-sort-icon">${sortIcon}</span></button><button type="button" class="th-filter-trigger ${isFilterActive ? "is-active" : ""}" data-filter-key="${escapeAttr(key)}" title="${escapeAttr(triggerTitle)}"><i class="fa-solid fa-filter" aria-hidden="true"></i></button></span></th>`;
     };
     const rows = visibleItems.map((item, i) => `
         <tr data-id="${escapeAttr(item.id)}" class="${item.id === state.activeId ? "active" : ""} ${item.status === "generated" ? "row-generated" : ""}">
@@ -121,7 +135,12 @@ export function createQueueRenderingFeature(deps = {}) {
           <td>${i + 1}</td>
           ${getSchemaColumns().map((field) => {
     const key = String((field && field.key) || "").trim();
-    const value = getTemplateInfoValue(item, key);
+    const value = getTemplateInfoValue({
+      item,
+      taskTemplateInfo: state.taskContext && state.taskContext.template_info,
+      key,
+      schemaRules: state.taskContext && state.taskContext.import_template_schema && state.taskContext.import_template_schema.rules,
+    });
     const booleanHtml = isBooleanTextValue(value) ? renderBooleanDisplayHtml(value, "-") : "";
     return `<td title="${escapeAttr(value)}">${booleanHtml || escapeHtml(value || "-")}</td>`;
   }).join("")}
@@ -129,6 +148,17 @@ export function createQueueRenderingFeature(deps = {}) {
           <td title="${escapeAttr(item.message || "")}">${escapeHtml(item.message || "")}</td>
         </tr>
       `).join("");
+    const popoverHtml = (() => {
+      if (!activeFilterKey || !activeFilterAnchor) return "";
+      const menuWidth = 220;
+      const viewportWidth = typeof window !== "undefined" ? (window.innerWidth || 0) : 0;
+      const left = Math.max(8, Math.min(
+        Math.max(8, viewportWidth - menuWidth - 8),
+        Math.round((Number(activeFilterAnchor.right) || 0) - menuWidth),
+      ));
+      const top = Math.round((Number(activeFilterAnchor.bottom) || 0) + 6);
+      return { html: buildFilterMenuHtml(activeFilterKey), left, top };
+    })();
     wrap.innerHTML = `
         <table>
           <thead>
@@ -143,6 +173,8 @@ export function createQueueRenderingFeature(deps = {}) {
           <tbody>${rows}</tbody>
         </table>
       `;
+    if (popoverHtml && popoverHtml.html) renderFilterPopover(popoverHtml.html, popoverHtml.left, popoverHtml.top);
+    else clearFilterPopover();
     updateSelectedCountText(visibleItems);
     const active = getActiveItem();
     if (active) {
@@ -169,13 +201,13 @@ export function createQueueRenderingFeature(deps = {}) {
     const isModifyCertificate = generateMode === "source_file";
     const resolveModifyTemplateName = () => {
       const templates = Array.isArray(state.templates) ? state.templates.map((x) => String(x || "").trim()).filter(Boolean) : [];
-      if (!templates.length) return "";
-      const exists = (name) => !!name && templates.includes(name);
+      const exists = (name) => !!name && (!templates.length || templates.includes(name));
       const outputBundleId = String((state.taskContext && state.taskContext.output_bundle_id) || "").trim();
       if (outputBundleId) {
         const bundleRef = `bundle:${outputBundleId}`;
-        if (exists(bundleRef)) return bundleRef;
+        return bundleRef;
       }
+      if (!templates.length) return "";
       const taskDefaultRaw = String((state.taskContext && state.taskContext.export_template_name) || "").trim();
       const taskDefaultBase = taskDefaultRaw.split(/[\\/]/).pop() || taskDefaultRaw;
       const taskDefaultName = taskDefaultBase;

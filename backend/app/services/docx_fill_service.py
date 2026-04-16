@@ -4,6 +4,7 @@ import posixpath
 import re
 import zipfile
 from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
@@ -81,6 +82,7 @@ from .docx_data_extraction_utils import (
     extract_value_from_tables,
     read_docx_tables,
 )
+from .extract_service import extract_fields
 from .fixed_template_rule_engine import (
     fill_base_fields_in_cells_by_rules,
     fill_base_fields_in_paragraphs_by_rules,
@@ -141,6 +143,7 @@ CONTENT_TYPES_PATH = "[Content_Types].xml"
 MAX_INSTRUMENT_ROWS = 5
 _PLACEHOLDER_VALUES = {"", "-", "--", "—", "/", "／"}
 logger = logging.getLogger(__name__)
+_MODIFY_CERT_SIGNOFF_COMPANY = "成都金克星气体有限公司"
 
 
 def fill_r801b_docx(
@@ -475,6 +478,10 @@ def fill_generic_record_docx(
         payload=payload,
     )
     _fill_text_placeholders_in_root(root, placeholder_values)
+    _fill_jinja_placeholders_in_root(
+        root,
+        _build_jinja_placeholder_values(context=context, payload=payload),
+    )
     _fill_appendix1_table_rows_from_context(root, context)
     changed = _fill_generic_base_labels_in_paragraphs(root, payload) or changed
     changed = _strip_general_check_required_marker(root) or changed
@@ -512,6 +519,156 @@ def _strip_general_check_required_marker(root: ET.Element) -> bool:
         if updated != original:
             node.text = updated
             changed = True
+    return changed
+
+
+def _normalize_modify_certificate_standard_code(value: Any) -> str:
+    text = normalize_space(str(value or ""))
+    if not text:
+        return ""
+    code = _extract_standard_code(text)
+    if code:
+        return str(code).upper().replace(" ", "")
+    compact = text.upper().replace(" ", "")
+    if "13004" in compact:
+        return "GB/T13004-2016"
+    if "13077" in compact:
+        return "GB/T13077-2024"
+    return ""
+
+
+def _fill_modify_certificate_standard_checkboxes(
+    root: ET.Element,
+    payload: dict[str, Any],
+    context: dict[str, Any],
+) -> bool:
+    standard_value = normalize_space(
+        context.get("inspect_standard", ""),
+    ) or normalize_space(payload.get("inspect_standard", ""))
+    standard_code = _normalize_modify_certificate_standard_code(standard_value)
+    if not standard_code:
+        return False
+
+    changed = False
+    checked_char = "00FE"
+    unchecked_char = "00A8"
+    paragraph_rules = (
+        ("钢质无缝气瓶定期检验与评定", standard_code.startswith("GB/T13004")),
+        ("铝合金无缝气瓶定期检验与评定", standard_code.startswith("GB/T13077")),
+    )
+
+    for paragraph in root.findall(".//w:p", NS):
+        text = normalize_space("".join(str(node.text or "") for node in paragraph.findall(".//w:t", NS)))
+        if not text:
+            continue
+        for marker, should_check in paragraph_rules:
+            if marker not in text:
+                continue
+            symbols = paragraph.findall(".//w:sym", NS)
+            if not symbols:
+                break
+            target_char = checked_char if should_check else unchecked_char
+            current_char = str(symbols[0].attrib.get(f"{{{W_NS}}}char", "") or "").strip()
+            if current_char != target_char:
+                symbols[0].set(f"{{{W_NS}}}char", target_char)
+                changed = True
+            break
+    return changed
+
+
+def _resolve_modify_certificate_signoff_date(context: dict[str, Any], key: str) -> str:
+    direct_value = sanitize_context_date(str(context.get(key, "") or ""))
+    if direct_value:
+        return direct_value
+    for fallback_key in ("report_date", "release_date", "publish_date", "calibration_date", "receive_date"):
+        candidate = sanitize_context_date(str(context.get(fallback_key, "") or ""))
+        if candidate:
+            return candidate
+    return ""
+
+
+def _replace_modify_certificate_date_text(text: str, date_value: str) -> str:
+    if not date_value:
+        return text
+    return re.sub(
+        r"(日期\s*[:：]\s*)(?:\d{4}年\d{1,2}月\d{1,2}日|【[^】]+】|_{2,})",
+        lambda m: f"{m.group(1)}{date_value}",
+        str(text or ""),
+        count=1,
+    )
+
+
+def _replace_first_signoff_date_in_nodes(text_nodes: list[ET.Element], date_value: str) -> bool:
+    if not date_value:
+        return False
+    for node in text_nodes:
+        original = str(node.text or "")
+        if not original:
+            continue
+        updated = _replace_modify_certificate_date_text(original, date_value)
+        if updated != original:
+            node.text = updated
+            return True
+    return False
+
+
+def _replace_signoff_company_in_nodes(text_nodes: list[ET.Element], company_name: str) -> bool:
+    if not company_name:
+        return False
+    changed = False
+    for node in text_nodes:
+        original = str(node.text or "")
+        if not original or "有限公司" not in original:
+            continue
+        updated = re.sub(
+            r"[^\s：:]{1,120}有限公司",
+            company_name,
+            original,
+            count=1,
+        )
+        if updated != original:
+            node.text = updated
+            changed = True
+            break
+    return changed
+
+
+def _fill_modify_certificate_signoff_sections(root: ET.Element, context: dict[str, Any]) -> bool:
+    inspector_date = _resolve_modify_certificate_signoff_date(context, "inspector_sign_date")
+    reviewer_date = _resolve_modify_certificate_signoff_date(context, "reviewer_sign_date")
+    approver_date = _resolve_modify_certificate_signoff_date(context, "approver_sign_date")
+    company_sign_date = _resolve_modify_certificate_signoff_date(context, "company_sign_date")
+
+    changed = False
+    for paragraph in root.findall(".//w:p", NS):
+        text_nodes = paragraph.findall(".//w:t", NS)
+        if not text_nodes:
+            continue
+
+        paragraph_text = "".join(str(node.text or "") for node in text_nodes)
+        compact = normalize_space(paragraph_text)
+        if not compact:
+            continue
+
+        if "检验员（签字）" in compact and inspector_date:
+            if _replace_first_signoff_date_in_nodes(text_nodes, inspector_date):
+                changed = True
+            continue
+
+        if "审核（签字）" in compact:
+            if reviewer_date and _replace_first_signoff_date_in_nodes(text_nodes, reviewer_date):
+                changed = True
+            if approver_date and _replace_first_signoff_date_in_nodes(text_nodes, approver_date):
+                changed = True
+            continue
+
+        if "有限公司" in compact and "报告抬头公司" not in compact:
+            if _replace_signoff_company_in_nodes(text_nodes, _MODIFY_CERT_SIGNOFF_COMPANY):
+                changed = True
+            if company_sign_date and _replace_first_signoff_date_in_nodes(text_nodes, company_sign_date):
+                changed = True
+            continue
+
     return changed
 
 
@@ -560,6 +717,8 @@ def fill_modify_certificate_docx(
                 )
         changed = True
     _fill_page_number_placeholders_in_root(root)
+    changed = _fill_modify_certificate_standard_checkboxes(root, payload, context) or changed
+    changed = _fill_modify_certificate_signoff_sections(root, context) or changed
     changed = _fill_generic_base_labels_in_paragraphs(
         root,
         {"certificate_no": payload.get("certificate_no", "")},
@@ -1455,14 +1614,12 @@ def build_r825b_payload(
     source_file_path: Path | None,
 ) -> dict[str, Any]:
     payload = build_r803b_payload(context=context, source_file_path=source_file_path)
-    if not payload:
-        return {}
     receive_date = sanitize_context_date(context.get("receive_date", ""))
     calibration_date = sanitize_context_date(context.get("calibration_date", ""))
     publish_date = sanitize_context_date(context.get("publish_date", "")) or sanitize_context_date(
         context.get("release_date", ""),
     )
-    return {
+    result = {
         "device_name": normalize_space(payload.get("device_name", "")),
         "client_name": normalize_space(payload.get("client_name", "")),
         "address": normalize_space(payload.get("address", "")),
@@ -1479,8 +1636,36 @@ def build_r825b_payload(
         "calibration_date": calibration_date,
         "publish_date": publish_date,
     }
+    if any(result.values()):
+        return result
+    return _build_r825b_payload_from_raw_record_fallback(context)
 
 
+def _build_r825b_payload_from_raw_record_fallback(context: dict[str, str]) -> dict[str, Any]:
+    raw_text = str(context.get("raw_record", "") or "").strip()
+    if not raw_text:
+        return {}
+    extracted = extract_fields(raw_text)
+    payload = {
+        "device_name": normalize_space(extracted.get("device_name", "")),
+        "client_name": normalize_space(extracted.get("client_name", "")),
+        "address": normalize_space(extracted.get("address", "")),
+        "manufacturer": normalize_space(extracted.get("manufacturer", "")),
+        "device_model": normalize_space(extracted.get("device_model", "")),
+        "device_code": normalize_space(extracted.get("device_code", "")),
+        "certificate_no": normalize_space(extracted.get("certificate_no", "")),
+        "basis_standard": "",
+        "basis_mode": normalize_space(extracted.get("basis_mode", "")),
+        "location": normalize_space(extracted.get("location", "")),
+        "temperature": normalize_space(extracted.get("temperature", "")),
+        "humidity": normalize_space(extracted.get("humidity", "")),
+        "receive_date": sanitize_context_date(extracted.get("receive_date", "")),
+        "calibration_date": sanitize_context_date(extracted.get("calibration_date", "")),
+        "publish_date": sanitize_context_date(extracted.get("release_date", "")),
+    }
+    if any(payload.values()):
+        return payload
+    return {}
 def build_r802b_payload(
     context: dict[str, str],
     source_file_path: Path | None,
@@ -2618,6 +2803,126 @@ def _fill_text_placeholders_in_root(root: ET.Element, values: dict[str, str]) ->
     return changed
 
 
+def _resolve_yyyymmdd_serial_no(context: dict[str, Any], payload: dict[str, Any]) -> str:
+    context_data = context if isinstance(context, dict) else {}
+    payload_data = payload if isinstance(payload, dict) else {}
+    explicit = normalize_space(
+        str(
+            context_data.get("report_no")
+            or context_data.get("report_number")
+            or payload_data.get("report_no")
+            or payload_data.get("report_number")
+            or "",
+        ),
+    )
+    if explicit:
+        return explicit
+    record_no = normalize_space(str(context_data.get("record_no") or payload_data.get("record_no") or ""))
+    matched = re.match(r"^(\d{8})[-_]?(\d{1,4})$", record_no)
+    if matched:
+        return f"{matched.group(1)}{str(matched.group(2) or '').zfill(2)}"
+    return f"{datetime.now().strftime('%Y%m%d')}01"
+
+
+def _resolve_iso_date_text(context: dict[str, Any], payload: dict[str, Any]) -> str:
+    context_data = context if isinstance(context, dict) else {}
+    payload_data = payload if isinstance(payload, dict) else {}
+    for key in ("report_date", "company_sign_date", "release_date", "calibration_date", "receive_date"):
+        date_text = sanitize_context_date(str(context_data.get(key) or payload_data.get(key) or ""))
+        if not date_text:
+            continue
+        parts = split_date_parts(date_text)
+        if not parts:
+            continue
+        year, month, day = parts
+        return f"{year}-{month}-{day}"
+    return datetime.now().strftime("%Y-%m-%d")
+
+
+def _build_jinja_placeholder_values(context: dict[str, Any], payload: dict[str, Any]) -> dict[str, str]:
+    context_data = context if isinstance(context, dict) else {}
+    payload_data = payload if isinstance(payload, dict) else {}
+    merged: dict[str, str] = {}
+    for src in (payload_data, context_data):
+        for key, value in src.items():
+            k = str(key or "").strip()
+            if not k:
+                continue
+            merged[k] = normalize_space(str(value or ""))
+
+    merged["yyyymmdd##"] = _resolve_yyyymmdd_serial_no(context_data, payload_data)
+    merged["#"] = merged["yyyymmdd##"]
+    merged["yyyy-MM-dd"] = _resolve_iso_date_text(context_data, payload_data)
+    merged["selected_rows"] = normalize_space(
+        str(
+            context_data.get("selected_rows")
+            or context_data.get("cylinder_total_count")
+            or payload_data.get("selected_rows")
+            or payload_data.get("cylinder_total_count")
+            or "",
+        ),
+    )
+    merged["ownership_code"] = normalize_space(
+        str(
+            context_data.get("ownership_code")
+            or context_data.get("report_owner_name")
+            or context_data.get("owner_code")
+            or payload_data.get("ownership_code")
+            or payload_data.get("report_owner_name")
+            or payload_data.get("owner_code")
+            or "",
+        ),
+    )
+    merged["filling_medium"] = normalize_space(
+        str(
+            context_data.get("filling_medium")
+            or context_data.get("gas_type")
+            or context_data.get("medium")
+            or payload_data.get("filling_medium")
+            or payload_data.get("gas_type")
+            or payload_data.get("medium")
+            or "",
+        ),
+    )
+    return merged
+
+
+def _fill_jinja_placeholders_in_root(root: ET.Element, values: dict[str, str]) -> bool:
+    changed = False
+    valid_values = {str(k or "").strip(): str(v or "") for k, v in (values or {}).items() if str(k or "").strip()}
+    if not valid_values:
+        return False
+    token_pattern = re.compile(r"{{\s*([A-Za-z0-9_#-]+)\s*}}")
+    unresolved_pattern = re.compile(r"{{[^{}]{1,120}}}")
+    for node in root.findall(".//w:t", NS):
+        text = str(node.text or "")
+        if "{{" not in text or "}}" not in text:
+            continue
+        replaced = token_pattern.sub(lambda m: valid_values.get(str(m.group(1) or "").strip(), ""), text)
+        replaced = unresolved_pattern.sub("", replaced)
+        if replaced != text:
+            node.text = replaced
+            changed = True
+    for paragraph in root.findall(".//w:p", NS):
+        text_nodes = paragraph.findall(".//w:t", NS)
+        if not text_nodes:
+            continue
+        if paragraph.findall(".//w:br", NS):
+            continue
+        full_text = "".join(str(node.text or "") for node in text_nodes)
+        if "{{" not in full_text or "}}" not in full_text:
+            continue
+        replaced = token_pattern.sub(lambda m: valid_values.get(str(m.group(1) or "").strip(), ""), full_text)
+        replaced = unresolved_pattern.sub("", replaced)
+        if replaced == full_text:
+            continue
+        text_nodes[0].text = replaced
+        for node in text_nodes[1:]:
+            node.text = ""
+        changed = True
+    return changed
+
+
 def _build_placeholder_values_from_rules(
     template_name: str,
     context: dict[str, Any],
@@ -2717,23 +3022,26 @@ def _fill_appendix1_table_rows_from_context(root: ET.Element, context: dict[str,
         return False
 
     changed = False
-    for row_index, row in enumerate(data_rows):
+    effective_rows = data_rows[:len(rows_data)]
+    for row_index, row in enumerate(effective_rows):
         cells = row.findall("./w:tc", NS)
         if len(cells) < 4:
             continue
-        if row_index < len(rows_data):
-            cylinder_no, maker_code, next_date = rows_data[row_index]
-            set_cell_text(cells[0], str(row_index + 1))
-            set_cell_text(cells[1], cylinder_no)
-            set_cell_text(cells[2], maker_code)
-            set_cell_text(cells[3], next_date)
-            changed = True
-        else:
-            set_cell_text(cells[0], str(row_index + 1))
-            set_cell_text(cells[1], "")
-            set_cell_text(cells[2], "")
-            set_cell_text(cells[3], "")
-            changed = True
+        cylinder_no, maker_code, next_date = rows_data[row_index]
+        set_cell_text(cells[0], str(row_index + 1))
+        set_cell_text(cells[1], cylinder_no)
+        set_cell_text(cells[2], maker_code)
+        set_cell_text(cells[3], next_date)
+        changed = True
+
+    # Remove extra blank template rows to keep appendix aligned with sample format.
+    if len(data_rows) > len(rows_data):
+        for row in data_rows[len(rows_data):]:
+            try:
+                target_table.remove(row)
+                changed = True
+            except Exception:
+                continue
     return changed
 
 

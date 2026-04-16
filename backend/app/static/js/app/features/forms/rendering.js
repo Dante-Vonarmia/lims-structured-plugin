@@ -1,5 +1,9 @@
 import { createSourceFieldComponents } from "../components/source-field/index.js";
 import { createBooleanFieldControlRenderer } from "../components/target-field/renderers/boolean-field-control.js";
+import { normalizeDisplayText, resolveFieldFallbackValue } from "../shared/field-display-utils.js";
+import { getSignatureImageUrlByValue, getSignatureRoleForField, listSignatureNamesByRole } from "../shared/signature-field-utils.js";
+import { getTemplateInfoValue } from "../shared/template-info-utils.js";
+import { resolveSchemaFieldLabel } from "../shared/schema-field-meta-utils.js";
 
 export function createFormRenderingFeature(deps = {}) {
   const {
@@ -25,6 +29,8 @@ export function createFormRenderingFeature(deps = {}) {
     renderGeneralCheckWysiwygBlock,
     isTargetMultiEditMode,
     parseDateParts,
+    getFieldSuggestion,
+    formatSuggestionLabel,
     escapeHtml,
     escapeAttr,
   } = deps;
@@ -37,13 +43,7 @@ export function createFormRenderingFeature(deps = {}) {
     escapeHtml,
     escapeAttr,
     parseDateParts,
-    getSignatureImageUrl: (name) => {
-      const target = String(name || "").trim();
-      if (!target) return "";
-      const signatures = Array.isArray(state.signatures) ? state.signatures : [];
-      const matched = signatures.find((item) => String((item && item.name) || "").trim() === target);
-      return matched ? String((matched && matched.image_url) || "").trim() : "";
-    },
+    getSignatureImageUrl: (name) => getSignatureImageUrlByValue(state.signatures, name),
   });
   const { renderBooleanFieldControl } = createBooleanFieldControlRenderer({
     escapeAttr,
@@ -126,7 +126,7 @@ export function createFormRenderingFeature(deps = {}) {
             <span class="source-group-status source-group-status-${escapeAttr(groupStatus)}">${escapeHtml(groupStatus)}</span>
             ${groupSummary ? `<span class="source-group-summary">${escapeHtml(groupSummary)}</span>` : ""}
           </div>
-          ${collapsed ? "" : `<div class="source-recog-block source-recog-block-formatted"><table class="source-recog-block-table source-field-table"><tbody>${rows || '<tr><td class="source-recog-empty">（空）</td><td></td></tr>'}</tbody></table></div>`}
+          ${collapsed ? "" : `<div class="source-recog-block source-recog-block-formatted"><table class="source-recog-block-table source-field-table"><tbody>${rows || '<tr><td class="source-recog-empty"></td><td></td></tr>'}</tbody></table></div>`}
         </div>
       `;
     }).join("");
@@ -142,11 +142,16 @@ export function createFormRenderingFeature(deps = {}) {
         const infoCollapsed = !!state.sourceFieldGroupCollapsed[infoGroupKey];
         const infoToggleHtml = `<button type="button" class="source-recog-group-toggle" data-group-toggle="1" data-group-key="${escapeAttr(infoGroupKey)}" aria-expanded="${infoCollapsed ? "false" : "true"}" title="${infoCollapsed ? "展开" : "收起"}">${infoCollapsed ? "▶" : "▼"}</button>`;
         const infoRowsHtml = infoFields.map((field) => {
-          const value = String(taskTemplateInfo[field.key] || "").trim();
+          const value = getTemplateInfoValue({
+            item,
+            taskTemplateInfo,
+            key: field.key,
+            schemaRules,
+          });
           return `
             <tr class="source-field-row">
               <td class="source-field-col-key">${escapeHtml(field.label)}</td>
-              <td class="source-field-col-value"><span class="source-field-value ${value ? "" : "source-recog-empty"}">${value ? escapeHtml(value) : "（空）"}</span></td>
+              <td class="source-field-col-value"><span class="source-field-value ${value ? "" : "source-recog-empty"}">${value ? escapeHtml(value) : ""}</span></td>
             </tr>
           `;
         }).join("");
@@ -174,6 +179,11 @@ export function createFormRenderingFeature(deps = {}) {
       if (typeof ocrDebug.reviewQueueCount === "number") summaryParts.push(`reviewQueue=${ocrDebug.reviewQueueCount}`);
       if (ocrDebug.reason) summaryParts.push(`reason=${String(ocrDebug.reason)}`);
       const traceRows = Array.isArray(ocrDebug.trace) ? ocrDebug.trace : [];
+      const resolveTraceColumnLabel = (traceItem) => resolveSchemaFieldLabel({
+        key: String((traceItem && traceItem.columnKey) || "").trim(),
+        label: String((traceItem && traceItem.columnLabel) || "").trim(),
+        schemaRules,
+      });
       const traceTableHtml = traceRows.length
         ? `
           <table class="source-recog-block-table source-field-table">
@@ -181,7 +191,7 @@ export function createFormRenderingFeature(deps = {}) {
             <tbody>
               ${traceRows.map((x) => `
                 <tr>
-                  <td>${escapeHtml(String(x.columnLabel || x.columnKey || ""))}</td>
+                  <td>${escapeHtml(resolveTraceColumnLabel(x))}</td>
                   <td>${escapeHtml(String(x.token || ""))}</td>
                   <td>${escapeHtml(String(x.mappedValue || ""))}</td>
                   <td>${x.reservedBlank ? '<span class="source-recog-empty">保留空槽</span>' : '已映射'}</td>
@@ -256,19 +266,94 @@ export function createFormRenderingFeature(deps = {}) {
     const problemKeys = isMultiMode ? new Set() : getProblemFieldKeys(item);
     const rowInfo = isMultiMode ? "" : (item.recordName || item.fileName || "未命名记录");
     const noteTextBase = "";
+    const taskTemplateInfo = (state.taskContext && state.taskContext.template_info && typeof state.taskContext.template_info === "object")
+      ? state.taskContext.template_info
+      : {};
+    const taskSchema = (state.taskContext && state.taskContext.import_template_schema && typeof state.taskContext.import_template_schema === "object")
+      ? state.taskContext.import_template_schema
+      : { columns: [] };
+    const taskSchemaRules = (taskSchema && taskSchema.rules && typeof taskSchema.rules === "object")
+      ? taskSchema.rules
+      : {};
+    const infoFields = resolveInfoFields(taskSchemaRules);
+    const schemaColumns = Array.isArray(taskSchema.columns) ? taskSchema.columns : [];
+    const multiCollectionColumns = schemaColumns.length
+      ? schemaColumns.map((col) => ({
+        key: String((col && col.key) || "").trim(),
+        label: resolveSchemaFieldLabel({
+          key: String((col && col.key) || "").trim(),
+          label: String((col && col.label) || "").trim(),
+          schemaRules: taskSchemaRules,
+        }),
+      })).filter((x) => x.key)
+      : [
+        { key: "device_code", label: "器具编号" },
+        { key: "manufacturer", label: "制造厂/商" },
+        { key: "device_model", label: "型号/规格" },
+      ];
+    const renderMultiCollectionTable = () => {
+      if (!isMultiMode || !multiItems.length) return "";
+      const thead = `
+        <tr>
+          <th style="width:52px;">#</th>
+          ${multiCollectionColumns.map((col) => `<th>${escapeHtml(col.label || col.key)}</th>`).join("")}
+        </tr>
+      `;
+      const renderedRows = multiItems.map((row, idx) => {
+        const rowFields = (row && row.fields && typeof row.fields === "object") ? row.fields : {};
+        const rowNo = Number(row && row.rowNumber) || idx + 1;
+        let hasAnyValue = false;
+        const cells = multiCollectionColumns.map((col) => {
+          const val = String(rowFields[col.key] || "");
+          if (String(val || "").trim()) hasAnyValue = true;
+          return `<td title="${escapeAttr(val)}">${escapeHtml(val)}</td>`;
+        }).join("");
+        return hasAnyValue ? `<tr><td>${rowNo}</td>${cells}</tr>` : "";
+      }).filter(Boolean);
+      const tbody = renderedRows.join("");
+      return `
+        <div class="source-recog-group">
+          <div class="source-recog-group-title"><span class="source-recog-group-title-text">多选合集表（当前筛选/选中记录）</span></div>
+          <div class="source-recog-block source-recog-block-formatted">
+            <table class="source-recog-block-table schema-record-table">
+              <thead>${thead}</thead>
+              <tbody>${tbody}</tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    };
+    const multiCollectionTableHtml = renderMultiCollectionTable();
     const getFieldView = (fieldKey) => {
       if (isMultiMode) {
         const merged = getSharedFieldValue(multiItems, fieldKey);
         if (merged === null) return { value: "", mixed: true };
-        return { value: String(merged || ""), mixed: false };
+        return { value: normalizeDisplayText(merged), mixed: false };
       }
-      return { value: String(f[fieldKey] || ""), mixed: false };
+      const currentValue = normalizeDisplayText(f[fieldKey]);
+      if (currentValue && !/undefined/i.test(currentValue)) return { value: currentValue, mixed: false };
+      return { value: resolveFieldFallbackValue(fieldKey, f), mixed: false };
     };
+    const renderFloatingMemoryHint = (label) => label
+      ? `<span class="field-memory-floating-hint" aria-hidden="true">Tab 使用上次：${escapeHtml(label)}</span>`
+      : "";
+    const shouldShowSuggestion = (value, isMixed = false) => !!String(value || "").trim() && !isMixed;
+    const renderTextControlWithHint = ({ fieldKey, value, placeholder, isProblem, suggestionLabel, listId = "" }) => `
+          <label class="source-form-item slot-field ${isProblem ? "is-problem" : ""}">
+            <span>${escapeHtml(fieldKey.label)}</span>
+            <span class="field-memory-inline-wrap">
+              <input type="text" class="${isProblem ? "is-problem" : ""}" data-field="${escapeAttr(fieldKey.key)}" value="${escapeAttr(value)}" ${listId ? `list="${escapeAttr(listId)}"` : ""} placeholder="${escapeAttr(placeholder)}" />
+              ${renderFloatingMemoryHint(suggestionLabel)}
+            </span>
+          </label>
+        `;
     const renderFieldControl = (field) => {
       const fieldView = getFieldView(field.key);
-      const value = String(fieldView.value || "");
+      const value = normalizeDisplayText(fieldView.value);
       const isMixed = !!fieldView.mixed;
       const isProblem = problemKeys.has(field.key);
+      const fieldSuggestion = isMultiMode ? "" : getFieldSuggestion(field.key, value);
+      const fieldSuggestionLabel = shouldShowSuggestion(value, isMixed) ? formatSuggestionLabel(fieldSuggestion) : "";
       const isMultiDisabled = isMultiMode && MULTI_EDIT_DISABLED_FIELD_KEYS.has(field.key);
       if (isMultiDisabled && field.key !== "measurement_items") {
         return `
@@ -304,7 +389,7 @@ export function createFormRenderingFeature(deps = {}) {
         const rows = (items.length ? items : [""]).map((itemValue, idx) => `
             <div class="basis-item-row">
               <span class="basis-item-no">${idx + 1}</span>
-              <input type="text" data-field="basis_standard_item" data-index="${idx}" value="${escapeAttr(itemValue)}" />
+              <input type="text" data-field="basis_standard_item" data-index="${idx}" value="${escapeAttr(itemValue)}" placeholder="${escapeAttr(isMultiMode ? "" : getFieldSuggestion("basis_standard_item", itemValue))}" />
               <button type="button" class="btn ghost" data-action="remove-basis-item" data-index="${idx}">删</button>
             </div>
           `).join("");
@@ -315,6 +400,7 @@ export function createFormRenderingFeature(deps = {}) {
                 ${rows}
                 <button type="button" class="btn ghost" data-action="add-basis-item">+ 添加一条</button>
               </div>
+              ${String(f.basis_standard || "").trim() && fieldSuggestionLabel ? `<div class="field-memory-hint">Tab 使用上次：${escapeHtml(fieldSuggestionLabel)}</div>` : ""}
             </label>
           `;
       }
@@ -348,7 +434,7 @@ export function createFormRenderingFeature(deps = {}) {
               ${header.map((cell) => `<th>${escapeHtml(cell)}</th>`).join("")}
             </tr>
           `;
-        const bodyHtml = body.map((row, rowIdx) => `
+      const bodyHtml = body.map((row, rowIdx) => `
             <tr class="${matchInfo[rowIdx] && matchInfo[rowIdx].mismatch ? "measurement-row-mismatch" : ""}">
               <td class="row-no">${rowIdx + 1}${matchInfo[rowIdx] && matchInfo[rowIdx].mismatch ? `<span class="measurement-row-mark" title="${escapeAttr(matchInfo[rowIdx].reason || "")}">异常</span>` : ""}</td>
               ${row.map((cell, colIdx) => {
@@ -356,7 +442,8 @@ export function createFormRenderingFeature(deps = {}) {
       colAttrs.push(`data-field="measurement_item_cell"`);
       colAttrs.push(`data-row="${rowIdx}"`);
       colAttrs.push(`data-col="${colIdx}"`);
-      return `<td><input type="text" ${colAttrs.join(" ")} value="${escapeAttr(cell)}" /></td>`;
+      const cellSuggestion = isMultiMode ? "" : getFieldSuggestion(`measurement_item_cell:${colIdx}`, cell);
+      return `<td><input type="text" ${colAttrs.join(" ")} value="${escapeAttr(cell)}" placeholder="${escapeAttr(cellSuggestion)}" /></td>`;
     }).join("")}
             </tr>
           `).join("");
@@ -395,6 +482,95 @@ export function createFormRenderingFeature(deps = {}) {
             </label>
           `;
       }
+      if (field.key === "appendix1_rows_text") {
+        const normalizeToIsoDate = (raw) => {
+          const text = String(raw || "").trim();
+          if (!text) return "";
+          let m = text.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+          if (m) {
+            const mm = String(Number(m[2] || 0)).padStart(2, "0");
+            const dd = String(Number(m[3] || 0)).padStart(2, "0");
+            return `${m[1]}-${mm}-${dd}`;
+          }
+          m = text.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日?$/);
+          if (m) {
+            const mm = String(Number(m[2] || 0)).padStart(2, "0");
+            const dd = String(Number(m[3] || 0)).padStart(2, "0");
+            return `${m[1]}-${mm}-${dd}`;
+          }
+          return "";
+        };
+        const pickNonEmpty = (rowFields, keys) => {
+          const src = (rowFields && typeof rowFields === "object") ? rowFields : {};
+          for (const key of keys) {
+            const text = String(src[key] || "").trim();
+            if (text) return text;
+          }
+          return "";
+        };
+        const findSchemaKeyByLabel = (patterns = []) => {
+          const cols = Array.isArray(multiCollectionColumns) ? multiCollectionColumns : [];
+          for (const col of cols) {
+            const key = String((col && col.key) || "").trim();
+            const label = String((col && col.label) || "").trim();
+            if (!key || !label) continue;
+            if (patterns.some((p) => label.includes(p))) return key;
+          }
+          return "";
+        };
+        const serialFromLabelKey = findSchemaKeyByLabel(["气瓶编号", "出厂编号", "瓶号"]);
+        const makerFromLabelKey = findSchemaKeyByLabel(["制造单位代码", "制造单位代号", "制造单位", "制造代码"]);
+        const nextFromLabelKey = findSchemaKeyByLabel(["下次检验日期", "下次检验", "下检日期"]);
+        const serialCandidates = [serialFromLabelKey, "factory_serial_no", "serial_no", "device_code", "col_05"].filter(Boolean);
+        const makerCandidates = [makerFromLabelKey, "manufacturer_code", "maker_code", "manufacturer", "col_04"].filter(Boolean);
+        const nextCandidates = [nextFromLabelKey, "next_inspection_date", "next_check_date", "col_33"].filter(Boolean);
+        const appendixRows = multiItems.map((row, idx) => {
+          const rowFields = (row && row.fields && typeof row.fields === "object") ? row.fields : {};
+          const rowNo = Number(row && row.rowNumber) || idx + 1;
+          const serialNo = pickNonEmpty(rowFields, serialCandidates);
+          const makerCode = pickNonEmpty(rowFields, makerCandidates);
+          const nextDate = normalizeToIsoDate(pickNonEmpty(rowFields, nextCandidates));
+          return { rowNo, serialNo, makerCode, nextDate };
+        }).filter((x) => x.serialNo || x.makerCode || x.nextDate);
+        const appendixValue = appendixRows.map((x) => [x.serialNo, x.makerCode, x.nextDate].join("\t")).join("\n");
+        if (!item.fields || typeof item.fields !== "object") item.fields = createEmptyFields();
+        item.fields.appendix1_rows_text = appendixValue;
+        if (isMultiMode) {
+          multiItems.forEach((row) => {
+            if (!row || typeof row !== "object") return;
+            if (!row.fields || typeof row.fields !== "object") row.fields = createEmptyFields();
+            row.fields.appendix1_rows_text = appendixValue;
+          });
+        }
+        const tableHead = `
+          <tr>
+            <th style="width:52px;">#</th>
+            <th>气瓶编号</th>
+            <th>制造单位代码</th>
+            <th>下次检验日期</th>
+          </tr>
+        `;
+        const tableBody = appendixRows.map((x) => `
+          <tr data-appendix-row="${x.rowNo}">
+            <td>${x.rowNo}</td>
+            <td><input type="text" data-field="appendix1_cell" data-col="serial_no" value="${escapeAttr(x.serialNo)}" placeholder="气瓶编号" /></td>
+            <td><input type="text" data-field="appendix1_cell" data-col="maker_code" value="${escapeAttr(x.makerCode)}" placeholder="制造单位代码" /></td>
+            <td><input type="date" data-field="appendix1_cell" data-col="next_date" value="${escapeAttr(x.nextDate)}" /></td>
+          </tr>
+        `).join("");
+        return `
+          <label class="source-form-item slot-field wide ${isProblem ? "is-problem" : ""}">
+            <span>${escapeHtml(field.label)}</span>
+            <div class="source-recog-block source-recog-block-formatted">
+              <table class="source-recog-block-table schema-record-table schema-record-table--appendix">
+                <thead>${tableHead}</thead>
+                <tbody>${tableBody || '<tr><td></td><td></td><td></td><td></td></tr>'}</tbody>
+              </table>
+            </div>
+            <textarea data-field="${escapeAttr(field.key)}" style="display:none;" rows="1">${escapeHtml(appendixValue)}</textarea>
+          </label>
+        `;
+      }
       const fieldKey = String(field.key || "").trim();
       const fieldLabel = String(field.label || "").trim();
       const isDateField = ["receive_date", "calibration_date", "release_date"].includes(fieldKey)
@@ -417,18 +593,21 @@ export function createFormRenderingFeature(deps = {}) {
         const year = String((normalizedDateParts && normalizedDateParts.year) || "");
         const month = String((normalizedDateParts && normalizedDateParts.month) || "");
         const day = String((normalizedDateParts && normalizedDateParts.day) || "");
+        const dateSuggestion = shouldShowSuggestion(value, isMixed) && !isMultiMode ? getFieldSuggestion(fieldKey, value) : "";
+        const dateSuggestionParts = parseDateParts(dateSuggestion) || parseLooseDateParts(dateSuggestion);
         return `
             <label class="source-form-item slot-field ${isProblem ? "is-problem" : ""}">
               <span>${escapeHtml(field.label)}</span>
               <input type="hidden" data-field="${escapeAttr(fieldKey)}" value="${escapeAttr(value)}" />
               <span class="target-date-grid">
-                <input type="text" class="target-date-input target-date-year ${isProblem ? "is-problem" : ""}" data-date-field="${escapeAttr(fieldKey)}" data-date-part="year" value="${escapeAttr(year)}" maxlength="4" placeholder="${isMixed ? MULTI_EDIT_MIXED_PLACEHOLDER : ""}" />
+                <input type="text" class="target-date-input target-date-year ${isProblem ? "is-problem" : ""}" data-date-field="${escapeAttr(fieldKey)}" data-date-part="year" value="${escapeAttr(year)}" maxlength="4" placeholder="${escapeAttr(isMixed ? MULTI_EDIT_MIXED_PLACEHOLDER : String((dateSuggestionParts && dateSuggestionParts.year) || ""))}" />
                 <span class="target-date-unit">年</span>
-                <input type="text" class="target-date-input target-date-month ${isProblem ? "is-problem" : ""}" data-date-field="${escapeAttr(fieldKey)}" data-date-part="month" value="${escapeAttr(month)}" maxlength="2" />
+                <input type="text" class="target-date-input target-date-month ${isProblem ? "is-problem" : ""}" data-date-field="${escapeAttr(fieldKey)}" data-date-part="month" value="${escapeAttr(month)}" maxlength="2" placeholder="${escapeAttr(String((dateSuggestionParts && dateSuggestionParts.month) || ""))}" />
                 <span class="target-date-unit">月</span>
-                <input type="text" class="target-date-input target-date-day ${isProblem ? "is-problem" : ""}" data-date-field="${escapeAttr(fieldKey)}" data-date-part="day" value="${escapeAttr(day)}" maxlength="2" />
+                <input type="text" class="target-date-input target-date-day ${isProblem ? "is-problem" : ""}" data-date-field="${escapeAttr(fieldKey)}" data-date-part="day" value="${escapeAttr(day)}" maxlength="2" placeholder="${escapeAttr(String((dateSuggestionParts && dateSuggestionParts.day) || ""))}" />
                 <span class="target-date-unit">日</span>
               </span>
+              ${dateSuggestion ? `<div class="field-memory-hint">Tab 使用上次：${escapeHtml(dateSuggestion)}</div>` : ""}
             </label>
           `;
       }
@@ -437,37 +616,31 @@ export function createFormRenderingFeature(deps = {}) {
         return `
             <label class="source-form-item slot-field wide ${isProblem ? "is-problem" : ""}">
               <span>${escapeHtml(field.label)}</span>
-              <textarea class="${isProblem ? "is-problem" : ""}" data-field="${escapeAttr(field.key)}" rows="${rows}" placeholder="${isMixed ? MULTI_EDIT_MIXED_PLACEHOLDER : ""}">${escapeHtml(value)}</textarea>
+              <span class="field-memory-inline-wrap field-memory-inline-wrap-textarea">
+                <textarea class="${isProblem ? "is-problem" : ""}" data-field="${escapeAttr(field.key)}" rows="${rows}" placeholder="${escapeAttr(isMixed ? MULTI_EDIT_MIXED_PLACEHOLDER : fieldSuggestion)}">${escapeHtml(value)}</textarea>
+                ${renderFloatingMemoryHint(fieldSuggestionLabel)}
+              </span>
             </label>
           `;
       }
-      const signatureRoleByField = {
-        inspector_sign_image: "inspector",
-        reviewer_sign_image: "reviewer",
-        approver_sign_image: "approver",
-      };
       const booleanFieldKeys = Array.isArray(item && item.booleanFieldKeys) ? item.booleanFieldKeys : [];
       const normalizedValue = String(value || "").trim().toLowerCase();
       const isBooleanField = booleanFieldKeys.includes(fieldKey)
         || normalizedValue === "true"
         || normalizedValue === "false";
       if (isBooleanField) {
+        const booleanSuggestion = normalizedValue && !isMultiMode ? getFieldSuggestion(fieldKey, normalizedValue) : "";
         return renderBooleanFieldControl({
           fieldKey,
           fieldLabel: field.label,
           checked: normalizedValue === "true",
           isProblem,
+          suggestionLabel: formatSuggestionLabel(booleanSuggestion, "boolean"),
         });
       }
-      const signatureRole = signatureRoleByField[String(field.key || "")] || "";
+      const signatureRole = getSignatureRoleForField(field.key);
       const dynamicSignatureOptions = signatureRole
-        ? Array.from(new Set((Array.isArray(state.signatures) ? state.signatures : [])
-          .filter((x) => {
-            const role = String((x && x.role) || "").trim();
-            return !role || role === signatureRole;
-          })
-          .map((x) => String((x && x.name) || "").trim())
-          .filter(Boolean)))
+        ? listSignatureNamesByRole(state.signatures, signatureRole)
         : [];
       const mergedOptions = Array.isArray(field.options) && field.options.length
         ? field.options
@@ -481,34 +654,68 @@ export function createFormRenderingFeature(deps = {}) {
         return `
           <label class="source-form-item slot-field ${isProblem ? "is-problem" : ""}">
             <span>${escapeHtml(field.label)}</span>
-            <input type="text" class="${isProblem ? "is-problem" : ""}" data-field="${escapeAttr(field.key)}" value="${escapeAttr(value)}" list="${escapeAttr(dataListId)}" placeholder="${isMixed ? MULTI_EDIT_MIXED_PLACEHOLDER : ""}" />
+            <span class="field-memory-inline-wrap">
+              <input type="text" class="${isProblem ? "is-problem" : ""}" data-field="${escapeAttr(field.key)}" value="${escapeAttr(value)}" list="${escapeAttr(dataListId)}" placeholder="${escapeAttr(isMixed ? MULTI_EDIT_MIXED_PLACEHOLDER : fieldSuggestion)}" />
+              ${renderFloatingMemoryHint(fieldSuggestionLabel)}
+            </span>
             <datalist id="${escapeAttr(dataListId)}">${optionsHtml}</datalist>
           </label>
         `;
       }
-      return `
-          <label class="source-form-item slot-field ${isProblem ? "is-problem" : ""}">
-            <span>${escapeHtml(field.label)}</span>
-            <input type="text" class="${isProblem ? "is-problem" : ""}" data-field="${escapeAttr(field.key)}" value="${escapeAttr(value)}" placeholder="${isMixed ? MULTI_EDIT_MIXED_PLACEHOLDER : ""}" />
-          </label>
-        `;
+      return renderTextControlWithHint({
+        fieldKey: { key: field.key, label: field.label },
+        value,
+        placeholder: isMixed ? MULTI_EDIT_MIXED_PLACEHOLDER : fieldSuggestion,
+        isProblem,
+        suggestionLabel: fieldSuggestionLabel,
+      });
     };
 
     const targetGroupScope = `target:${item.id || item.fileName || ""}`;
-    const controlsHtml = templateFields.map((field) => renderFieldControl(field)).join("");
-    const groupTitle = "模板字段";
-    const groupKey = `${targetGroupScope}:0:${groupTitle}`;
-    const collapsed = !!state.targetFieldGroupCollapsed[groupKey];
-    const toggleHtml = `<button type="button" class="source-recog-group-toggle" data-group-toggle="1" data-group-key="${escapeAttr(groupKey)}" aria-expanded="${collapsed ? "false" : "true"}" title="${collapsed ? "展开" : "收起"}">${collapsed ? "▶" : "▼"}</button>`;
-    const groupedHtml = controlsHtml ? `
+    const templateInfoControlsHtml = isMultiMode
+      ? ""
+      : infoFields.map((field) => {
+        const fieldKey = String((field && field.key) || "").trim();
+        const fieldLabel = String((field && field.label) || "").trim();
+        const value = String(taskTemplateInfo[fieldKey] || "").trim();
+        const suggestion = shouldShowSuggestion(value) ? getFieldSuggestion(fieldKey, value) : "";
+        const suggestionLabel = shouldShowSuggestion(value) ? formatSuggestionLabel(suggestion) : "";
+        return `
+          <label class="source-form-item slot-field">
+            <span>${escapeHtml(fieldLabel)}</span>
+            <span class="field-memory-inline-wrap">
+              <input type="text" data-template-info="${escapeAttr(fieldKey)}" value="${escapeAttr(value)}" placeholder="${escapeAttr(suggestion)}" />
+              ${renderFloatingMemoryHint(suggestionLabel)}
+            </span>
+          </label>
+        `;
+      }).join("");
+    const appendixFieldKeySet = new Set(["appendix1_rows_text"]);
+    const reportBodyFields = templateFields.filter((field) => !appendixFieldKeySet.has(String((field && field.key) || "").trim()));
+    const appendixFields = templateFields.filter((field) => appendixFieldKeySet.has(String((field && field.key) || "").trim()));
+    const renderFieldGroup = (groupTitle, fields, groupIndex, extraHtml = "") => {
+      const controlsHtml = fields.map((field) => renderFieldControl(field)).join("");
+      if (!controlsHtml && !extraHtml) return "";
+      const groupKey = `${targetGroupScope}:${groupIndex}:${groupTitle}`;
+      const collapsed = !!state.targetFieldGroupCollapsed[groupKey];
+      const toggleHtml = `<button type="button" class="source-recog-group-toggle" data-group-toggle="1" data-group-key="${escapeAttr(groupKey)}" aria-expanded="${collapsed ? "false" : "true"}" title="${collapsed ? "展开" : "收起"}">${collapsed ? "▶" : "▼"}</button>`;
+      const bodyHtml = `${controlsHtml ? `<div class="source-form-grid">${controlsHtml}</div>` : ""}${extraHtml || ""}`;
+      return `
         <div class="source-recog-group ${collapsed ? "is-collapsed" : ""}">
           <div class="source-recog-group-title">
             ${toggleHtml}
             <span class="source-recog-group-title-text">${escapeHtml(groupTitle)}</span>
           </div>
-          ${collapsed ? "" : `<div class="source-form-grid">${controlsHtml}</div>`}
+          ${collapsed ? "" : bodyHtml}
         </div>
-      ` : "";
+      `;
+    };
+    const appendixExtraHtml = multiCollectionTableHtml ? `<div class="appendix-multi-collection-wrap">${multiCollectionTableHtml}</div>` : "";
+    const groupedHtml = [
+      renderFieldGroup("基础信息", [], -1, templateInfoControlsHtml ? `<div class="source-form-grid">${templateInfoControlsHtml}</div>` : ""),
+      renderFieldGroup("报告正文字段", reportBodyFields, 0, appendixFields.length ? "" : appendixExtraHtml),
+      renderFieldGroup("附件一字段", appendixFields, 1, appendixExtraHtml),
+    ].filter(Boolean).join("");
 
     const noteParts = [];
     if (noteTextBase) noteParts.push(noteTextBase);
@@ -517,7 +724,9 @@ export function createFormRenderingFeature(deps = {}) {
     const noteText = noteParts.join(" ");
     if (!templateFields.length) {
       const emptyMessage = loading ? "模板字段加载中..." : (note || "模板字段未加载");
-      $("targetFieldForm").innerHTML = `<div class="placeholder">${escapeHtml(emptyMessage)}</div>`;
+      $("targetFieldForm").innerHTML = multiCollectionTableHtml
+        ? `<div class="source-form">${multiCollectionTableHtml}<div class="placeholder">${escapeHtml(emptyMessage)}</div></div>`
+        : `<div class="placeholder">${escapeHtml(emptyMessage)}</div>`;
       return;
     }
 

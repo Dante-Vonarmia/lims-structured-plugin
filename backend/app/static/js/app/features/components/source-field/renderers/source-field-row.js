@@ -1,4 +1,6 @@
 import { resolveFieldRule } from "../data/resolve-field-rule.js";
+import { isYearMonthField } from "../../../shared/field-display-utils.js";
+import { resolveSchemaFieldLabel } from "../../../shared/schema-field-meta-utils.js";
 
 export function createSourceFieldRowRenderer(deps = {}) {
   const {
@@ -17,7 +19,11 @@ export function createSourceFieldRowRenderer(deps = {}) {
       schemaRules,
     } = params;
     const key = String((col && col.key) || "").trim();
-    const label = String((col && col.label) || "").trim() || key;
+    const label = resolveSchemaFieldLabel({
+      key,
+      label: String((col && col.label) || "").trim(),
+      schemaRules,
+    });
     if (!key) return "";
     const staged = fieldPipeline[key] && typeof fieldPipeline[key] === "object" ? fieldPipeline[key] : null;
     const typed = itemTypedFields[key] && typeof itemTypedFields[key] === "object" ? itemTypedFields[key] : null;
@@ -35,17 +41,18 @@ export function createSourceFieldRowRenderer(deps = {}) {
     const ruleType = String((rule && rule.type) || "").trim();
     const ruleStdType = String((rule && rule.std_type) || "").trim();
     const keyOrLabel = `${key} ${label}`;
-    const looksLikeDateField = /日期|年月/.test(keyOrLabel);
     const pipelineType = staged ? String(staged.type || "").trim() : "";
     const typedType = typed ? String(typed.type || "").trim() : "";
-    const isDateType = ruleStdType === "date"
+    const yearMonthField = isYearMonthField({ key, label, typedType });
+    const looksLikeDateField = /日期/.test(keyOrLabel);
+    const isDateType = !yearMonthField && (ruleStdType === "date"
       || ruleType === "date"
       || ruleType === "date_or_dash"
       || pipelineType === "date"
       || pipelineType === "date_or_dash"
       || typedType === "date"
       || typedType === "date_or_dash"
-      || looksLikeDateField;
+      || looksLikeDateField);
     const isCheckType = ruleStdType === "check"
       || ruleType === "check"
       || pipelineType === "check"
@@ -58,8 +65,8 @@ export function createSourceFieldRowRenderer(deps = {}) {
       || ruleType === "signature"
       || pipelineType === "signature"
       || typedType === "signature";
-    const dateObjectText = (typed && typed.type === "date" && !typed.dash && !typed.inferredYear)
-      ? `${String(typed.year).padStart(4, "0")}-${String(typed.month).padStart(2, "0")}-${String(typed.day).padStart(2, "0")}`
+    const dateObjectText = (typed && typed.type === "date" && String(typed.isoDate || "").trim())
+      ? String(typed.isoDate || "").trim()
       : "";
     const finalDisplayValue = dateObjectText || displayValue;
     const dateWidgetHtml = (isDateType && finalDisplayValue && finalDisplayValue !== "-")
@@ -74,12 +81,12 @@ export function createSourceFieldRowRenderer(deps = {}) {
     const checkWidgetHtml = isPlainCheckType
       ? (checkValue
         ? '<span class="source-field-value">✓</span>'
-        : '<span class="source-field-value source-recog-empty">（空）</span>')
+        : '<span class="source-field-value source-recog-empty"></span>')
       : "";
     const choiceWidgetHtml = isCheckboxChoiceType
       ? (finalDisplayValue
-        ? `<span class="source-choice-chip">${escapeHtml(finalDisplayValue)}</span>`
-        : '<span class="source-field-value source-recog-empty">（空）</span>')
+        ? `<span class="source-field-value">${escapeHtml(finalDisplayValue)}</span>`
+        : '<span class="source-field-value source-recog-empty"></span>')
       : "";
     const signatureImageUrl = (isSignatureType && finalDisplayValue && typeof getSignatureImageUrl === "function")
       ? String(getSignatureImageUrl(finalDisplayValue) || "").trim()
@@ -87,13 +94,13 @@ export function createSourceFieldRowRenderer(deps = {}) {
     const signatureWidgetHtml = isSignatureType
       ? (finalDisplayValue
         ? `<span class="source-signature-wrap"><span class="source-signature-name">${escapeHtml(finalDisplayValue)}</span>${signatureImageUrl ? `<img class="source-signature-thumb" src="${escapeAttr(signatureImageUrl)}" alt="${escapeAttr(finalDisplayValue)}" loading="lazy" />` : ""}</span>`
-        : '<span class="source-field-value source-recog-empty">（空）</span>')
+        : '<span class="source-field-value source-recog-empty"></span>')
       : "";
     const renderedValueHtml = dateWidgetHtml
       || checkWidgetHtml
       || choiceWidgetHtml
       || signatureWidgetHtml
-      || `<span class="source-field-value ${finalDisplayValue ? "" : "source-recog-empty"}">${finalDisplayValue ? escapeHtml(finalDisplayValue) : "（空）"}</span>`;
+      || `<span class="source-field-value ${finalDisplayValue ? "" : "source-recog-empty"}">${finalDisplayValue ? escapeHtml(finalDisplayValue) : ""}</span>`;
     const issues = []
       .concat(errors.map((x) => `<li class="source-field-issue error">${escapeHtml(String(x || ""))}</li>`))
       .concat(warnings.map((x) => `<li class="source-field-issue warning">${escapeHtml(String(x || ""))}</li>`))

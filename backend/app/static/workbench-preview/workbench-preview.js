@@ -1,4 +1,5 @@
 import {
+  INSPECT_STANDARD_OPTIONS,
   TASK_TEMPLATE_INFO_FIELDS,
 } from "./constants/template-metadata.js";
 
@@ -29,6 +30,14 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function readTaskTemplateInfoValue(task, key) {
+  const row = task && typeof task === "object" ? task : {};
+  const templateInfo = (row.template_info && typeof row.template_info === "object") ? row.template_info : {};
+  const nestedValue = String(templateInfo[key] || "").trim();
+  if (nestedValue) return nestedValue;
+  return String(row[key] || "").trim();
 }
 
 function buildTaskDateKey(date = new Date()) {
@@ -126,9 +135,29 @@ async function renderTasks() {
   const rows = tasks
     .map(
       (t) => {
-        const templateInfo = (t && typeof t.template_info === "object" && t.template_info) || {};
         const infoCells = TASK_TEMPLATE_INFO_FIELDS.map((field) => {
-          const value = String(templateInfo[field.key] || "");
+          const value = readTaskTemplateInfoValue(t, field.key);
+          if (field.key === "inspect_standard") {
+            const options = Array.isArray(INSPECT_STANDARD_OPTIONS) ? INSPECT_STANDARD_OPTIONS : [];
+            const hasMatchedOption = options.includes(value);
+            const optionHtml = [
+              '<option value=""></option>',
+              ...options.map((option) => `<option value="${escapeHtml(option)}" ${value === option ? "selected" : ""}>${escapeHtml(option)}</option>`),
+              (!hasMatchedOption && value
+                ? [`<option value="${escapeHtml(value)}" selected>${escapeHtml(value)}</option>`]
+                : []),
+            ].flat().join("");
+            return `
+              <td>
+                <select
+                  class="inline-input"
+                  data-action="edit-template-info"
+                  data-task-id="${escapeHtml(t.id)}"
+                  data-field="${field.key}"
+                >${optionHtml}</select>
+              </td>
+            `;
+          }
           return `
             <td>
               <input
@@ -401,6 +430,28 @@ function bindGlobalEvents() {
       }
     })();
   }, true);
+
+  app.addEventListener("change", (event) => {
+    const input = event.target;
+    if (!(input instanceof HTMLSelectElement)) return;
+    if (String(input.getAttribute("data-action") || "") !== "edit-template-info") return;
+    const taskId = String(input.getAttribute("data-task-id") || "").trim();
+    const field = String(input.getAttribute("data-field") || "").trim();
+    if (!taskId || !field) return;
+    const payload = { [field]: String(input.value || "").trim() };
+    const requestToken = ++activeEditRequestToken;
+    void (async () => {
+      try {
+        await requestJson(`/api/tasks/${encodeURIComponent(taskId)}/template-info`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } catch (error) {
+        if (requestToken !== activeEditRequestToken) return;
+      }
+    })();
+  });
 
   app.addEventListener("keydown", (event) => {
     if (event.key !== "Enter") return;

@@ -240,6 +240,75 @@ test("owner code should stay blank while OCR medium aliases and short maker code
   assert.equal(rowOwnerPresent.serial_no, "A220033187");
 });
 
+test("manufacture year-month should keep yy.mm and auto-flip mm.yy for 制造年月 only", () => {
+  const columns = [
+    { key: "manufactureYm", label: "制造年月" },
+    { key: "lastInspectDate", label: "上次检验日期" },
+  ];
+  const rules = {
+    field_rules: {
+      制造年月: { type: "text" },
+      上次检验日期: { type: "date_or_dash" },
+    },
+  };
+
+  const normalizedDirect = applySchemaRulesToMappedFields({ manufactureYm: "20.06" }, columns, rules);
+  assert.equal(normalizedDirect.manufactureYm, "20.06");
+
+  const normalizedFlipped = applySchemaRulesToMappedFields({ manufactureYm: "07.13" }, columns, rules);
+  assert.equal(normalizedFlipped.manufactureYm, "13.07");
+
+  const typedFlipped = buildTypedFieldsFromMapped(normalizedFlipped, columns, rules);
+  assert.equal(typedFlipped.manufactureYm.type, "year_month");
+  assert.equal(typedFlipped.manufactureYm.value, "13.07");
+  assert.deepEqual(typedFlipped.manufactureYm.warnings, []);
+
+  const grouped = processSchemaRowInGroups({
+    rowFields: { manufactureYm: "07.13", lastInspectDate: "1.15" },
+    rawMapped: { manufactureYm: "07.13", lastInspectDate: "1.15" },
+    schemaColumns: [
+      { key: "manufactureYm", label: "制造年月", group: "钢印标记检查及余气处理" },
+      { key: "lastInspectDate", label: "上次检验日期", group: "钢印标记检查及余气处理" },
+    ],
+    schemaGroups: [
+      {
+        name: "钢印标记检查及余气处理",
+        columns: [
+          { key: "manufactureYm", label: "制造年月", index: 0 },
+          { key: "lastInspectDate", label: "上次检验日期", index: 1 },
+        ],
+      },
+    ],
+    schemaRules: rules,
+  });
+  assert.equal(grouped.normalizedMapped.manufactureYm, "13.07");
+  assert.match(grouped.fieldPipeline.manufactureYm.warnings[0], /制造年月从 07.13 自动校正为 13.07/);
+  assert.equal(grouped.normalizedMapped.lastInspectDate, "1.15");
+});
+
+test("field_rules_by_key should override legacy label rule for duplicated labels", () => {
+  const columns = [
+    { key: "hydro_holding_test_pressure_mpa", label: "试验压力MPa" },
+    { key: "air_tightness_test_pressure_mpa", label: "试验压力MPa" },
+  ];
+  const rules = {
+    field_rules: {
+      试验压力MPa: { type: "number" },
+    },
+    field_rules_by_key: {
+      air_tightness_test_pressure_mpa: { type: "text", choices: [{ label: "免试" }] },
+    },
+  };
+
+  const normalized = applySchemaRulesToMappedFields({
+    hydro_holding_test_pressure_mpa: "22.5",
+    air_tightness_test_pressure_mpa: "免试",
+  }, columns, rules);
+
+  assert.equal(normalized.hydro_holding_test_pressure_mpa, "22.5");
+  assert.equal(normalized.air_tightness_test_pressure_mpa, "免试");
+});
+
 test("D: integration regression with sample image fixture should keep row slots stable", async () => {
   const fixturePath = path.resolve("backend/tests/fixtures/ocr_sample_da_te.jpeg");
   assert.equal(fs.existsSync(fixturePath), true);

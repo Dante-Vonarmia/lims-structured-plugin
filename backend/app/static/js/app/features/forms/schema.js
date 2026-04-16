@@ -6,16 +6,32 @@ export function createFormSchemaFeature(deps = {}) {
     resolveTemplateRequiredFields,
   } = deps;
 
+  function resolveEffectiveTemplateName(item) {
+    const outputBundleId = String((state && state.taskContext && state.taskContext.output_bundle_id) || "").trim();
+    if (outputBundleId) {
+      return `bundle:${outputBundleId}`;
+    }
+    const normalizeName = (raw) => {
+      const text = String(raw || "").trim();
+      if (!text) return "";
+      if (text.startsWith("bundle:")) {
+        return text;
+      }
+      const base = text.split(/[\\/]/).pop() || text;
+      return base;
+    };
+    const itemTemplate = normalizeName(item && item.templateName);
+    if (itemTemplate) return itemTemplate;
+    return normalizeName(state && state.taskContext && state.taskContext.export_template_name);
+  }
+
   function resolveTargetFormFields(item, fields) {
-    if (item && item.templateName) {
-      ensureTemplateEditorSchema(item.templateName, item.id || "");
-      const schemaState = state.editorSchemaByTemplate[String(item.templateName || "").trim()];
+    const effectiveTemplateName = resolveEffectiveTemplateName(item);
+    if (effectiveTemplateName) {
+      ensureTemplateEditorSchema(effectiveTemplateName, (item && item.id) || "");
+      const schemaState = state.editorSchemaByTemplate[String(effectiveTemplateName || "").trim()];
       if (schemaState && !schemaState.loading && schemaState.editor_schema && Array.isArray(schemaState.editor_schema.fields)) {
-        const schemaFields = schemaState.editor_schema.fields.map((x) => ({
-          key: x.key,
-          label: x.label,
-          wide: !!x.wide,
-        }));
+        const schemaFields = schemaState.editor_schema.fields.map((x) => ({ ...x, wide: !!x.wide }));
         if (schemaFields.length) {
           return {
             fields: schemaFields,
@@ -50,17 +66,6 @@ export function createFormSchemaFeature(deps = {}) {
     const problemKeys = new Set();
     if (!item || !item.fields) return problemKeys;
     const fields = item.fields || {};
-
-    if (!hasMeaningfulValue(fields.device_name)) problemKeys.add("device_name");
-
-    const hasModel = hasMeaningfulValue(fields.device_model);
-    const hasCode = hasMeaningfulValue(fields.device_code);
-    if (!hasModel && !hasCode) {
-      problemKeys.add("device_model");
-      problemKeys.add("device_code");
-    }
-
-    if (!hasMeaningfulValue(fields.manufacturer)) problemKeys.add("manufacturer");
 
     const templateRequired = resolveTemplateRequiredFields(item);
     templateRequired.forEach((key) => {

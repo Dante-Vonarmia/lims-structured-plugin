@@ -25,6 +25,7 @@ from app.services.docx_fill_service import (
     _fill_modify_certificate_blueprint_sections,
     _fill_modify_certificate_measurement_rows,
     _find_modify_certificate_continued_page_table,
+    build_r825b_payload,
     fill_modify_certificate_docx,
     get_cell_text,
     set_cell_text,
@@ -268,6 +269,17 @@ class DocxFillServiceTDD(unittest.TestCase):
 
         cells = row.findall("./w:tc", NS)
         self.assertEqual(get_cell_text(cells[1]), "CC25-0202C-14")
+
+    def test_should_build_modify_certificate_payload_from_raw_record_fallback(self) -> None:
+        payload = build_r825b_payload(
+            {
+                "raw_record": "2.11 金鸽 Ar G工 A200441033 22.5 15.0 43.4 40.0 5.0 20.06 / √ √ √ √ √ 43.4 0 40.0 0 22.5 2 4.2 144 2.91 √ √ 校阀 15.0 2 √ √ 31.2 梁光志",
+            },
+            None,
+        )
+
+        self.assertEqual(payload.get("device_model"), "A200441033")
+        self.assertTrue(payload.get("device_name"))
 
     def test_should_copy_continued_page_table_from_source_in_modify_certificate_mode(self) -> None:
         template_path = BACKEND_DIR / "templates" / "modify-certificate-blueprint.docx"

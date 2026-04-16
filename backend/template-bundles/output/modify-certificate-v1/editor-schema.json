@@ -1,0 +1,102 @@
+{
+  "note": "修改证书蓝本模板字段（按 template.docx 占位维护）",
+  "fields": [
+    {
+      "key": "record_no",
+      "label": "记录编号"
+    },
+    {
+      "key": "retention_period",
+      "label": "保存期限"
+    },
+    {
+      "key": "report_owner_name",
+      "label": "报告抬头公司",
+      "wide": true
+    },
+    {
+      "key": "inspect_standard",
+      "label": "检验执行标准",
+      "wide": true,
+      "options": [
+        "《钢质无缝气瓶定期检验与评定》（GB/T13004-2016）",
+        "《铝合金无缝气瓶定期检验与评定》（GB/T13077-2024）"
+      ]
+    },
+    {
+      "key": "gas_type",
+      "label": "充装介质"
+    },
+    {
+      "key": "cylinder_total_count",
+      "label": "送检总数（只）"
+    },
+    {
+      "key": "qualified_count",
+      "label": "合格数量（只）"
+    },
+    {
+      "key": "valve_replaced_count",
+      "label": "换阀数量（只）"
+    },
+    {
+      "key": "valve_vendor_name",
+      "label": "阀门生产单位",
+      "wide": true
+    },
+    {
+      "key": "scrap_count",
+      "label": "报废数量（只）"
+    },
+    {
+      "key": "report_date",
+      "label": "报告日期"
+    },
+    {
+      "key": "submit_org_name",
+      "label": "送检单位",
+      "wide": true
+    },
+    {
+      "key": "inspector_sign_image",
+      "label": "检验员签字图片",
+      "wide": true
+    },
+    {
+      "key": "inspector_sign_date",
+      "label": "检验员日期"
+    },
+    {
+      "key": "reviewer_sign_image",
+      "label": "审核签字图片",
+      "wide": true
+    },
+    {
+      "key": "reviewer_sign_date",
+      "label": "审核日期"
+    },
+    {
+      "key": "approver_sign_image",
+      "label": "批准签字图片",
+      "wide": true
+    },
+    {
+      "key": "approver_sign_date",
+      "label": "批准日期"
+    },
+    {
+      "key": "company_name",
+      "label": "落款公司",
+      "wide": true
+    },
+    {
+      "key": "company_sign_date",
+      "label": "落款日期"
+    },
+    {
+      "key": "appendix1_rows_text",
+      "label": "附表1明细（每行：气瓶编号\\t制造单位代码\\t下次检验日期）",
+      "wide": true
+    }
+  ]
+}

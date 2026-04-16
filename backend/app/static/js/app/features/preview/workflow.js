@@ -1,3 +1,5 @@
+import { getAliasedFieldValue } from "../shared/template-info-utils.js";
+
 export function createPreviewWorkflowFeature(deps = {}) {
   const {
     $,
@@ -55,6 +57,47 @@ export function createPreviewWorkflowFeature(deps = {}) {
       return res.blob();
     }
     return fetchUploadBlobViaUrl(`/api/upload/${encoded}/view`);
+  }
+
+  async function createLiveModifyPreviewBlob(item) {
+    if (!item) throw new Error("记录为空");
+    if (item.isRecordRow) await ensureSourceFileId(item);
+    const previewTemplateName = resolveModifyPreviewTemplateName(item);
+    if (!previewTemplateName) throw new Error("导出模版未配置");
+    const fieldsForPreview = {
+      ...((item && item.fields && typeof item.fields === "object") ? item.fields : {}),
+    };
+    const taskTemplateInfo = (state.taskContext && state.taskContext.template_info && typeof state.taskContext.template_info === "object")
+      ? state.taskContext.template_info
+      : {};
+    const schemaRules = (state.taskContext && state.taskContext.import_template_schema && state.taskContext.import_template_schema.rules && typeof state.taskContext.import_template_schema.rules === "object")
+      ? state.taskContext.import_template_schema.rules
+      : {};
+    const payload = {
+      template_name: previewTemplateName,
+      source_file_id: item.fileId || null,
+      source_file_as_template: false,
+      fields: {
+        info_title: String(fieldsForPreview.info_title || taskTemplateInfo.info_title || ""),
+        file_no: String(fieldsForPreview.file_no || taskTemplateInfo.file_no || ""),
+        inspect_standard: String(fieldsForPreview.inspect_standard || taskTemplateInfo.inspect_standard || ""),
+        record_no: String(fieldsForPreview.record_no || taskTemplateInfo.record_no || ""),
+        submit_org: getAliasedFieldValue({ fields: fieldsForPreview, taskTemplateInfo, key: "submit_org", schemaRules }),
+        submit_org_name: String(fieldsForPreview.submit_org_name || getAliasedFieldValue({ fields: fieldsForPreview, taskTemplateInfo, key: "submit_org", schemaRules }) || ""),
+        ...fieldsForPreview,
+        raw_record: fieldsForPreview.raw_record || item.rawText || "",
+      },
+    };
+    const res = await fetch("/api/report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error((data && data.detail) || "导出预览生成失败");
+    }
+    return fetchBlob(String((data && data.download_url) || "").trim());
   }
 
   function resolvePreviewExtFromBlob(blob, nameCandidates = []) {
@@ -992,9 +1035,7 @@ export function createPreviewWorkflowFeature(deps = {}) {
       warn.textContent = `内嵌对象位置无法识别：${unresolved}/${total}（已跳过，避免放错位置）`;
       rootEl.prepend(warn);
     }
-    if (total === 0 && parsedReadonly && parsedReadonly.summaryHtml) {
-      rootEl.insertAdjacentHTML("beforeend", parsedReadonly.summaryHtml);
-    }
+    // Do not append fallback embedded summary blocks at preview bottom.
     return { inserted, total };
   }
 
@@ -1153,9 +1194,7 @@ export function createPreviewWorkflowFeature(deps = {}) {
             warn.textContent = `内嵌对象位置无法识别：${unresolved}/${total}（已跳过，避免放错位置）`;
             sourceEl.prepend(warn);
           }
-          if (total === 0 && parsedReadonly && parsedReadonly.summaryHtml) {
-            sourceEl.insertAdjacentHTML("beforeend", parsedReadonly.summaryHtml);
-          }
+          // Do not append fallback embedded summary blocks at preview bottom.
         }
         const globalStatus = $("globalStatus");
         if (globalStatus) {
@@ -1214,49 +1253,36 @@ export function createPreviewWorkflowFeature(deps = {}) {
           if (shouldRenderDocx || ext === ".docx") {
             const buf = await blob.arrayBuffer();
             await renderDocx("targetPreview", buf);
-            await injectEmbeddedReadonlyPreview("targetPreview", buf);
           } else {
             setPreviewPlaceholder("targetPreview", "导出预览仅支持 Word 渲染（已阻止自动下载）");
           }
           return;
         }
         revokeBlobUrl("target");
-        const previewTemplateName = resolveModifyPreviewTemplateName(item);
-        if (!previewTemplateName) {
-          setPreviewPlaceholder("targetPreview", "导出模版未配置");
-          return;
-        }
-        const tplBlob = await fetchTemplatePreviewBlob(previewTemplateName);
+        const tplBlob = await createLiveModifyPreviewBlob(item);
         const shouldRenderTplDocx = await shouldRenderDocxBlob(tplBlob, [
-          previewTemplateName,
+          item.sourceFileName,
+          item.fileName,
           item.templateName,
           currentReportName,
         ]);
         const tplExt = resolvePreviewExtFromBlob(tplBlob, [
-          previewTemplateName,
+          item.sourceFileName,
+          item.fileName,
           item.templateName,
           currentReportName,
         ]);
-        if (shouldRenderTplDocx || tplExt === ".docx") {
-          const docxReady = await ensureDocxLib();
-          if (docxReady) {
-            const buf = await tplBlob.arrayBuffer();
-            await renderDocx("targetPreview", buf);
-            await injectEmbeddedReadonlyPreview("targetPreview", buf);
-          } else {
-            const data = await runTemplateTextPreview(previewTemplateName);
-            const text = String((data && data.text) || "").trim();
-            const truncated = !!(data && data.truncated);
-            const tail = truncated ? "\n\n[文本过长，已截断]" : "";
-            $("targetPreview").innerHTML = `<div style="padding:10px;white-space:pre-wrap;line-height:1.5;font-size:12px;">${escapeHtml(text || "模板文本预览为空")}${escapeHtml(tail)}</div>`;
-          }
-        } else if (tplExt === ".pdf" || tplExt === ".html" || /^\.jpe?g$|^\.png$|^\.bmp$|^\.webp$|^\.tiff?$/.test(tplExt)) {
-          const url = URL.createObjectURL(tplBlob);
-          state.blobUrls.target = url;
-          $("targetPreview").innerHTML = `<iframe src="${url}"></iframe>`;
-        } else {
-          setPreviewPlaceholder("targetPreview", "导出模板预览格式不支持（已阻止自动下载）");
+        if (!(shouldRenderTplDocx || tplExt === ".docx")) {
+          setPreviewPlaceholder("targetPreview", "导出预览仅支持 Word 渲染");
+          return;
         }
+        const docxReady = await ensureDocxLib();
+        if (!docxReady) {
+          setPreviewPlaceholder("targetPreview", "导出预览依赖未加载（docx 组件不可用）");
+          return;
+        }
+        const buf = await tplBlob.arrayBuffer();
+        await renderDocx("targetPreview", buf);
         return;
       }
       if (!hasCurrentModeReport) {
@@ -1281,7 +1307,6 @@ export function createPreviewWorkflowFeature(deps = {}) {
           if (docxReady) {
             const buf = await tplBlob.arrayBuffer();
             await renderDocx("targetPreview", buf);
-            await injectEmbeddedReadonlyPreview("targetPreview", buf);
           } else {
             const data = await runTemplateTextPreview(item.templateName);
             const text = String((data && data.text) || "").trim();
@@ -1313,7 +1338,6 @@ export function createPreviewWorkflowFeature(deps = {}) {
       if (shouldRenderDocx || ext === ".docx") {
         const buf = await blob.arrayBuffer();
         await renderDocx("targetPreview", buf);
-        await injectEmbeddedReadonlyPreview("targetPreview", buf);
         applyTargetPreviewSlotHighlights(item);
       } else {
         setPreviewPlaceholder("targetPreview", "报告预览仅支持 Word 渲染（已阻止自动下载）");
@@ -1325,13 +1349,13 @@ export function createPreviewWorkflowFeature(deps = {}) {
 
   function resolveModifyPreviewTemplateName(item) {
     const templates = Array.isArray(state.templates) ? state.templates.map((x) => String(x || "").trim()).filter(Boolean) : [];
-    if (!templates.length) return "";
-    const exists = (name) => !!name && templates.includes(name);
+    const exists = (name) => !!name && (!templates.length || templates.includes(name));
     const outputBundleId = String((state.taskContext && state.taskContext.output_bundle_id) || "").trim();
     if (outputBundleId) {
       const bundleRef = `bundle:${outputBundleId}`;
-      if (exists(bundleRef)) return bundleRef;
+      return bundleRef;
     }
+    if (!templates.length) return "";
     const taskDefaultRaw = String((state.taskContext && state.taskContext.export_template_name) || "").trim();
     const taskDefaultBase = taskDefaultRaw.split(/[\\/]/).pop() || taskDefaultRaw;
     const taskDefaultName = taskDefaultBase;
@@ -1348,6 +1372,23 @@ export function createPreviewWorkflowFeature(deps = {}) {
 
   function normalizePreviewText(value) {
     return String(value || "").replace(/\s+/g, " ").trim();
+  }
+
+  function clearBracketPlaceholdersInText(value) {
+    return String(value || "").replace(/【[^】\r\n]{1,80}】/g, "");
+  }
+
+  function clearBracketPlaceholdersInPreview(elId) {
+    const root = $(elId);
+    if (!root || !root.ownerDocument) return;
+    const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const textNodes = [];
+    while (walker.nextNode()) textNodes.push(walker.currentNode);
+    textNodes.forEach((node) => {
+      if (!node || typeof node.nodeValue !== "string") return;
+      const next = clearBracketPlaceholdersInText(node.nodeValue);
+      if (next !== node.nodeValue) node.nodeValue = next;
+    });
   }
 
   function classifyPreviewSlotText(text) {

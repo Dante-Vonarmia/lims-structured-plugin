@@ -35,6 +35,7 @@ export function createInitialState() {
     targetFieldGroupCollapsed: {},
     excelPreviewSheetByFileId: {},
     editorSchemaByTemplate: {},
+    fieldMemory: {},
   };
 }
 
@@ -105,6 +106,8 @@ export function createEmptyFields() {
     general_check_part2: "",
     source_profile: "",
     source_profile_label: "",
+    inspect_standard: "",
+    record_no: "",
     device_group_count: "0",
     device_group_summary: "",
     has_measurement_scope: "0",

@@ -18,17 +18,150 @@ export function createTargetFieldEventBindings(deps = {}) {
     parseTableRowsFromBlock,
     refreshTargetFieldFormBySelection,
     renderQueue,
+    renderSourceFieldList,
     renderTargetFieldForm,
+    saveWorkspaceDraft,
     setStatus,
+    updateTaskTemplateInfoApi,
     validateItemForGeneration,
     handleTargetDateInput,
+    rememberFieldValueFromTarget,
+    acceptSuggestionFromTarget,
   } = deps;
 
+  function listTemplateInfoAliasKeys(key) {
+    const normalizedKey = String(key || "").trim();
+    if (!normalizedKey) return [];
+    const schemaRules = (state.taskContext && state.taskContext.import_template_schema && state.taskContext.import_template_schema.rules
+      && typeof state.taskContext.import_template_schema.rules === "object")
+      ? state.taskContext.import_template_schema.rules
+      : {};
+    const aliasMap = (schemaRules.aliases && typeof schemaRules.aliases === "object") ? schemaRules.aliases : {};
+    const aliases = [];
+    const seen = new Set([normalizedKey]);
+    const pushAlias = (value) => {
+      const aliasKey = String(value || "").trim();
+      if (!aliasKey || seen.has(aliasKey)) return;
+      seen.add(aliasKey);
+      aliases.push(aliasKey);
+    };
+    const direct = Array.isArray(aliasMap[normalizedKey]) ? aliasMap[normalizedKey] : [];
+    direct.forEach(pushAlias);
+    Object.entries(aliasMap).forEach(([canonicalKey, aliasList]) => {
+      if (!Array.isArray(aliasList)) return;
+      if (!aliasList.map((x) => String(x || "").trim()).includes(normalizedKey)) return;
+      pushAlias(canonicalKey);
+    });
+    return aliases;
+  }
+
   function bindTargetFieldEvents() {
+    const getFloatingHintElements = (target) => {
+      if (!(target instanceof HTMLElement)) return { wrap: null, hint: null };
+      const wrap = target.closest(".field-memory-inline-wrap");
+      if (!(wrap instanceof HTMLElement)) return { wrap: null, hint: null };
+      const hint = wrap.querySelector(".field-memory-floating-hint");
+      if (!(hint instanceof HTMLElement)) return { wrap, hint: null };
+      return { wrap, hint };
+    };
+    const measureTextWidth = (target, text) => {
+      const value = String(text || "");
+      if (!value) return 0;
+      const style = window.getComputedStyle(target);
+      const canvas = measureTextWidth.canvas || (measureTextWidth.canvas = document.createElement("canvas"));
+      const context = canvas.getContext("2d");
+      if (!context) return value.length * 8;
+      context.font = [
+        style.fontStyle,
+        style.fontVariant,
+        style.fontWeight,
+        style.fontSize,
+        style.fontFamily,
+      ].filter(Boolean).join(" ");
+      return context.measureText(value).width;
+    };
+    const syncFloatingHint = (target) => {
+      if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
+      if (target.type === "hidden" || target.type === "checkbox") return;
+      const { wrap, hint } = getFloatingHintElements(target);
+      if (!(wrap instanceof HTMLElement) || !(hint instanceof HTMLElement)) return;
+      const hintText = String(hint.textContent || "").trim();
+      const currentValue = String(target.value || target.textContent || "").trim();
+      const isActive = document.activeElement === target && !!currentValue && hintText;
+      wrap.classList.toggle("is-memory-hint-active", !!isActive);
+      if (!isActive) return;
+      const style = window.getComputedStyle(target);
+      const paddingLeft = Number.parseFloat(style.paddingLeft || "0") || 0;
+      const lineHeight = Number.parseFloat(style.lineHeight || "0") || 18;
+      const maxOffset = Math.max(0, target.clientWidth - 120);
+      const textOffset = Math.min(maxOffset, Math.max(0, measureTextWidth(target, currentValue) + 14));
+      hint.style.left = `${paddingLeft + textOffset}px`;
+      hint.style.top = target instanceof HTMLTextAreaElement ? `${Math.max(8, (lineHeight - 16) / 2 + 8)}px` : "50%";
+    };
     const handleTargetFieldChange = (event) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
+      syncFloatingHint(target);
+      const templateInfoKey = String(target.getAttribute("data-template-info") || "").trim();
+      if (templateInfoKey) {
+        const item = getActiveItem();
+        if (!item || !(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement)) return;
+        const nextValue = String(target.value || "").trim();
+        if (!state.taskContext || typeof state.taskContext !== "object") return;
+        const currentTemplateInfo = (state.taskContext.template_info && typeof state.taskContext.template_info === "object")
+          ? state.taskContext.template_info
+          : {};
+        if (currentTemplateInfo[templateInfoKey] === nextValue && event.type !== "change") return;
+        currentTemplateInfo[templateInfoKey] = nextValue;
+        state.taskContext.template_info = currentTemplateInfo;
+        if (templateInfoKey === "submit_org") {
+          const aliasKeys = listTemplateInfoAliasKeys(templateInfoKey);
+          state.queue.forEach((queueItem) => {
+            if (!queueItem || typeof queueItem !== "object") return;
+            if (!queueItem.fields || typeof queueItem.fields !== "object") {
+              queueItem.fields = createEmptyFields();
+            }
+            aliasKeys.forEach((aliasKey) => {
+              queueItem.fields[aliasKey] = nextValue;
+            });
+          });
+        }
+        if (event.type === "change") {
+          if (typeof rememberFieldValueFromTarget === "function") {
+            rememberFieldValueFromTarget(target, $("targetFieldForm"));
+          }
+          if (typeof updateTaskTemplateInfoApi === "function" && String((state.taskContext && state.taskContext.id) || "").trim()) {
+            updateTaskTemplateInfoApi(state.taskContext.id, { [templateInfoKey]: nextValue })
+              .then((task) => {
+                const payload = (task && task.template_info && typeof task.template_info === "object") ? task.template_info : {};
+                state.taskContext.template_info = {
+                  ...state.taskContext.template_info,
+                  ...payload,
+                };
+                renderSourceFieldList(item);
+                renderTargetFieldForm(item);
+                applyTargetFieldProblemStyles(item);
+                renderQueue();
+                if (typeof saveWorkspaceDraft === "function") void saveWorkspaceDraft();
+              })
+              .catch((error) => {
+                setStatus(`基础信息保存失败：${error && error.message ? error.message : "unknown"}`);
+              });
+          } else {
+            renderSourceFieldList(item);
+            renderQueue();
+            if (typeof saveWorkspaceDraft === "function") void saveWorkspaceDraft();
+          }
+          const labelEl = target.closest(".source-form-item")?.querySelector(":scope > span");
+          const labelText = String(labelEl && labelEl.textContent ? labelEl.textContent : "").trim();
+          setStatus(`已更新：${labelText || templateInfoKey}`);
+        }
+        return;
+      }
       if (handleTargetDateInput(target, event.type)) {
+        if (event.type === "change" && typeof rememberFieldValueFromTarget === "function") {
+          rememberFieldValueFromTarget(target, $("targetFieldForm"));
+        }
         return;
       }
       const key = String(target.getAttribute("data-field") || "").trim();
@@ -94,6 +227,9 @@ export function createTargetFieldEventBindings(deps = {}) {
         renderTargetFieldForm(item);
         applyTargetFieldProblemStyles(item);
         renderQueue();
+        if (event.type === "change" && typeof rememberFieldValueFromTarget === "function") {
+          rememberFieldValueFromTarget(target, $("targetFieldForm"));
+        }
         setStatus("已更新：本次校准所依据的技术规范");
         return;
       }
@@ -116,7 +252,53 @@ export function createTargetFieldEventBindings(deps = {}) {
         invalidateCurrentModeReports([item]);
         renderTargetFieldForm(item);
         renderQueue();
+        if (event.type === "change" && typeof rememberFieldValueFromTarget === "function") {
+          rememberFieldValueFromTarget(target, $("targetFieldForm"));
+        }
         setStatus("已更新：本次校准所使用的主要计量标准器具");
+        return;
+      }
+      if (key === "appendix1_cell") {
+        const formRoot = $("targetFieldForm");
+        if (!(formRoot instanceof HTMLElement)) return;
+        const parseDateToIso = (value) => {
+          const text = String(value || "").trim();
+          if (!text) return "";
+          let m = text.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+          if (m) {
+            const mm = String(Number(m[2] || 0)).padStart(2, "0");
+            const dd = String(Number(m[3] || 0)).padStart(2, "0");
+            return `${m[1]}-${mm}-${dd}`;
+          }
+          m = text.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日?$/);
+          if (m) {
+            const mm = String(Number(m[2] || 0)).padStart(2, "0");
+            const dd = String(Number(m[3] || 0)).padStart(2, "0");
+            return `${m[1]}-${mm}-${dd}`;
+          }
+          return "";
+        };
+        const rows = Array.from(formRoot.querySelectorAll('tr[data-appendix-row]')).map((row) => {
+          const serialInput = row.querySelector('input[data-field="appendix1_cell"][data-col="serial_no"]');
+          const makerInput = row.querySelector('input[data-field="appendix1_cell"][data-col="maker_code"]');
+          const dateInput = row.querySelector('input[data-field="appendix1_cell"][data-col="next_date"]');
+          const serialNo = String(serialInput && "value" in serialInput ? serialInput.value : "").trim();
+          const makerCode = String(makerInput && "value" in makerInput ? makerInput.value : "").trim();
+          const nextDate = parseDateToIso(String(dateInput && "value" in dateInput ? dateInput.value : ""));
+          return { serialNo, makerCode, nextDate };
+        }).filter((x) => x.serialNo || x.makerCode || x.nextDate);
+        const valueText = rows.map((x) => [x.serialNo, x.makerCode, x.nextDate].join("\t")).join("\n");
+        editTargets.forEach((targetItem) => {
+          if (!targetItem || typeof targetItem !== "object") return;
+          if (!targetItem.fields || typeof targetItem.fields !== "object") targetItem.fields = createEmptyFields();
+          targetItem.fields.appendix1_rows_text = valueText;
+        });
+        invalidateCurrentModeReports(editTargets);
+        renderQueue();
+        if (event.type === "change" && typeof rememberFieldValueFromTarget === "function") {
+          rememberFieldValueFromTarget(target, $("targetFieldForm"));
+        }
+        setStatus("已更新：附表1明细");
         return;
       }
       if (key === "general_check_cell") {
@@ -140,6 +322,9 @@ export function createTargetFieldEventBindings(deps = {}) {
           item.fields.general_check = item.fields.general_check_full;
           invalidateCurrentModeReports([item]);
           renderQueue();
+          if (event.type === "change" && typeof rememberFieldValueFromTarget === "function") {
+            rememberFieldValueFromTarget(target, $("targetFieldForm"));
+          }
           setStatus("已更新：一般检查");
           return;
         }
@@ -164,6 +349,9 @@ export function createTargetFieldEventBindings(deps = {}) {
         item.fields.general_check = item.fields.general_check_full;
         invalidateCurrentModeReports([item]);
         renderQueue();
+        if (event.type === "change" && typeof rememberFieldValueFromTarget === "function") {
+          rememberFieldValueFromTarget(target, $("targetFieldForm"));
+        }
         setStatus("已更新：一般检查");
         return;
       }
@@ -244,14 +432,36 @@ export function createTargetFieldEventBindings(deps = {}) {
       }
       applyTargetFieldProblemStyles(item);
       renderQueue();
+      if (event.type === "change" && typeof rememberFieldValueFromTarget === "function") {
+        rememberFieldValueFromTarget(target, $("targetFieldForm"));
+      }
       if (event.type === "change") {
         const labelEl = target.closest(".source-form-item")?.querySelector(":scope > span");
         const labelText = String(labelEl && labelEl.textContent ? labelEl.textContent : "").trim();
         setStatus(`已更新：${labelText || key}`);
       }
     };
+    const handleTargetFieldKeydown = (event) => {
+      if (!(event.target instanceof HTMLElement)) return;
+      if (event.key !== "Tab" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+      if (typeof acceptSuggestionFromTarget !== "function") return;
+      const accepted = acceptSuggestionFromTarget(event.target, $("targetFieldForm"));
+      if (!accepted) return;
+      event.preventDefault();
+      syncFloatingHint(event.target);
+      setStatus("已应用上次填写内容");
+    };
     $("targetFieldForm").addEventListener("input", handleTargetFieldChange);
     $("targetFieldForm").addEventListener("change", handleTargetFieldChange);
+    $("targetFieldForm").addEventListener("keydown", handleTargetFieldKeydown);
+    $("targetFieldForm").addEventListener("focusin", (event) => {
+      syncFloatingHint(event.target);
+    });
+    $("targetFieldForm").addEventListener("focusout", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      window.setTimeout(() => syncFloatingHint(target), 0);
+    });
     $("targetFieldForm").addEventListener("click", (event) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;

@@ -7,6 +7,7 @@ export function createBooleanFieldControlRenderer(deps = {}) {
       fieldLabel,
       checked = false,
       isProblem = false,
+      suggestionLabel = "",
     } = params;
 
     return `
@@ -14,8 +15,9 @@ export function createBooleanFieldControlRenderer(deps = {}) {
         <span>${escapeHtml(fieldLabel)}</span>
         <label>
           <input type="checkbox" data-field="${escapeAttr(fieldKey)}" ${checked ? "checked" : ""} style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px;" />
-          <span class="source-field-value">${checked ? "✓" : "（空）"}</span>
+          <span class="source-field-value">${checked ? "✓" : ""}</span>
         </label>
+        ${suggestionLabel ? `<div class="field-memory-hint">Tab 使用上次：${escapeHtml(suggestionLabel)}</div>` : ""}
       </label>
     `;
   }

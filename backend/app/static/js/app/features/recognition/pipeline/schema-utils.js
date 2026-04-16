@@ -67,8 +67,17 @@ export function getSchemaGroupsFromState(state, columns = []) {
 }
 
 export function buildFieldRuleResolver(rules = {}) {
+  const fields = (rules && typeof rules.fields === "object" && rules.fields) ? rules.fields : {};
+  const fieldRulesByKey = (rules && typeof rules.field_rules_by_key === "object" && rules.field_rules_by_key) ? rules.field_rules_by_key : {};
   const fieldRules = (rules && typeof rules.field_rules === "object" && rules.field_rules) ? rules.field_rules : {};
   return (label, key) => {
+    const fromFields = fields[String(key || "").trim()];
+    if (fromFields && typeof fromFields === "object") {
+      const { label: _label, index: _index, group: _group, ...rule } = fromFields;
+      return rule;
+    }
+    const byKeyFirst = fieldRulesByKey[String(key || "").trim()];
+    if (byKeyFirst && typeof byKeyFirst === "object") return byKeyFirst;
     const byLabel = fieldRules[String(label || "").trim()];
     if (byLabel && typeof byLabel === "object") return byLabel;
     const byKey = fieldRules[String(key || "").trim()];

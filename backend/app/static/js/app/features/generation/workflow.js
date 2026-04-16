@@ -1,3 +1,5 @@
+import { getAliasedFieldValue } from "../shared/template-info-utils.js";
+
 export function createGenerationWorkflowFeature(deps = {}) {
   const {
     state,
@@ -51,13 +53,27 @@ export function createGenerationWorkflowFeature(deps = {}) {
     const fieldsForGenerate = {
       ...(item.fields || {}),
     };
+    const taskTemplateInfo = (state.taskContext && state.taskContext.template_info && typeof state.taskContext.template_info === "object")
+      ? state.taskContext.template_info
+      : {};
+    const schemaRules = (state.taskContext && state.taskContext.import_template_schema && state.taskContext.import_template_schema.rules && typeof state.taskContext.import_template_schema.rules === "object")
+      ? state.taskContext.import_template_schema.rules
+      : {};
+    const outputBundleId = String((state.taskContext && state.taskContext.output_bundle_id) || "").trim();
+    const defaultBundleTemplateName = outputBundleId ? `bundle:${outputBundleId}` : "";
+    const effectiveTemplateName = String(item.templateName || "").trim() || defaultBundleTemplateName;
+    if (!effectiveTemplateName) throw new Error("未选择模板");
     const payload = {
-      template_name: isModifyCertificate
-        ? (item.sourceFileName || item.fileName || item.templateName || "")
-        : item.templateName,
+      template_name: effectiveTemplateName,
       source_file_id: item.fileId || null,
-      source_file_as_template: isModifyCertificate,
+      source_file_as_template: false,
       fields: {
+        info_title: String(fieldsForGenerate.info_title || taskTemplateInfo.info_title || ""),
+        file_no: String(fieldsForGenerate.file_no || taskTemplateInfo.file_no || ""),
+        inspect_standard: String(fieldsForGenerate.inspect_standard || taskTemplateInfo.inspect_standard || ""),
+        record_no: String(fieldsForGenerate.record_no || taskTemplateInfo.record_no || ""),
+        submit_org: getAliasedFieldValue({ fields: fieldsForGenerate, taskTemplateInfo, key: "submit_org", schemaRules }),
+        submit_org_name: String(fieldsForGenerate.submit_org_name || getAliasedFieldValue({ fields: fieldsForGenerate, taskTemplateInfo, key: "submit_org", schemaRules }) || ""),
         ...fieldsForGenerate,
         raw_record: fieldsForGenerate.raw_record || item.rawText || "",
       },

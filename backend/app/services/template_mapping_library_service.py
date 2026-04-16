@@ -1,4 +1,5 @@
 import re
+import json
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -6,6 +7,7 @@ from typing import Any
 import yaml
 from .template_profile_service import load_template_profiles
 from .template_schema import infer_editor_schema
+from .template_bundle import BundleError, resolve_output_bundle
 
 RULES_FILE = Path(__file__).resolve().parents[1] / "rules" / "template_mapping_library.yaml"
 
@@ -36,6 +38,9 @@ def resolve_handler_key(template_name: str) -> str | None:
 
 
 def get_editor_schema(template_name: str) -> dict[str, Any] | None:
+    bundle_schema = _load_bundle_editor_schema(template_name)
+    if bundle_schema:
+        return bundle_schema
     config = _find_profile_by_template_name(template_name)
     if config:
         schema = _normalize_editor_schema(config.get("editor"))
@@ -183,6 +188,28 @@ def _normalize_editor_schema(editor: Any) -> dict[str, Any] | None:
         "note": note,
         "fields": fields,
     }
+
+
+def _load_bundle_editor_schema(template_name: str) -> dict[str, Any] | None:
+    text = str(template_name or "").strip()
+    if not text.lower().startswith("bundle:"):
+        return None
+    bundle_id = text.split(":", 1)[1].strip()
+    if not bundle_id:
+        return None
+    try:
+        bundle = resolve_output_bundle(bundle_id)
+    except BundleError:
+        return None
+    entries = bundle.get("entries") if isinstance(bundle.get("entries"), dict) else {}
+    schema_path = Path(str((entries or {}).get("editor_schema") or "").strip())
+    if not schema_path.exists() or not schema_path.is_file():
+        return None
+    try:
+        loaded = json.loads(schema_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return _normalize_editor_schema(loaded)
 
 
 def _normalize_handler_key(value: str) -> str:

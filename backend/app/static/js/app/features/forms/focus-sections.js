@@ -100,7 +100,7 @@ export function createFocusSectionsFeature(deps = {}) {
         const value = String(row.value || "").trim();
         const isMissing = !value;
         const isProblem = (!row.optional && isMissing) || (row.key && problemKeys.has(row.key));
-        let display = '<span class="source-recog-empty">（空）</span>';
+        let display = '<span class="source-recog-empty"></span>';
         const isDateLikeKey = ["receive_date", "calibration_date", "release_date"].includes(String(row.key || ""));
         if (isDateLikeKey) {
           const parts = parseDateParts(value);
@@ -137,7 +137,7 @@ export function createFocusSectionsFeature(deps = {}) {
         const hasBlock = !!String(blockHtml || "").trim();
         if (hasRows) contentHtml += rowHtml;
         if (hasBlock) contentHtml += blockHtml;
-        if (!hasRows && !hasBlock) contentHtml = '<div class="source-recog-block">（空）</div>';
+        if (!hasRows && !hasBlock) contentHtml = '<div class="source-recog-block"></div>';
       }
       return `<div class="source-recog-group ${collapsed ? "is-collapsed" : ""}"><div class="source-recog-group-title">${toggleHtml}<span class="source-recog-group-title-text">${escapeHtml(groupTitle)}</span></div>${contentHtml}</div>`;
     }).join("");

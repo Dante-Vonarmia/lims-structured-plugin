@@ -1,0 +1,38 @@
+{
+  "id": "task-6a8ae2be233945b9a8ed8f7ef4de09d4",
+  "task_name": "气瓶报告-20260414-002",
+  "import_file_name": "/Users/dantevonalcatraz/Development/lims-structured-plugin/backend/templates/导入模板-钢质无缝气瓶定期检验与评定记录.csv",
+  "import_template_type": "/Users/dantevonalcatraz/Development/lims-structured-plugin/backend/templates/导入模板-钢质无缝气瓶定期检验与评定记录.csv",
+  "export_template_id": "export-docx-2026030604-date",
+  "export_template_name": "/Users/dantevonalcatraz/Development/lims-structured-plugin/backend/templates/2026030604-大特.docx",
+  "status": "待处理",
+  "created_at": "2026/04/13 16:56:27",
+  "updated_at": "2026/04/14 07:12:07",
+  "remark": "",
+  "template_info": {
+    "info_title": "钢质无缝气瓶定期检验与评定记录",
+    "file_no": "",
+    "inspect_standard": "",
+    "record_no": "",
+    "submit_org": ""
+  },
+  "archived": true,
+  "workspace_draft": {
+    "queue": [],
+    "active_id": "",
+    "selected_ids": [],
+    "list_filter": {
+      "keyword": "",
+      "status": "",
+      "sortKey": "",
+      "sortDir": "asc",
+      "columnFilters": {},
+      "activeFilterKey": ""
+    },
+    "source_view_mode": "preview",
+    "right_view_mode": "preview",
+    "saved_at": "2026-04-14T07:12:04.483Z"
+  },
+  "input_bundle_id": "",
+  "output_bundle_id": ""
+}
