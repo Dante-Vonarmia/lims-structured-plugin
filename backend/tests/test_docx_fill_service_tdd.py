@@ -477,10 +477,10 @@ class DocxFillServiceTDD(unittest.TestCase):
 
         title_row = ET.SubElement(tbl, f"{{{W_NS}}}tr")
         title_cell = ET.SubElement(title_row, f"{{{W_NS}}}tc")
-        set_cell_text(title_cell, "本次校准所使用的主要计量标准器具：")
+        set_cell_text(title_cell, "本次校准所使用的主要计量标准气瓶：")
 
         header_row = ET.SubElement(tbl, f"{{{W_NS}}}tr")
-        for text in ("器具名称\nInstrument name", "型号/规格\nModel/Specification", "", "测量范围\nMeasurement range"):
+        for text in ("气瓶名称\nInstrument name", "型号/规格\nModel/Specification", "", "测量范围\nMeasurement range"):
             cell = ET.SubElement(header_row, f"{{{W_NS}}}tc")
             set_cell_text(cell, text)
 
@@ -491,7 +491,7 @@ class DocxFillServiceTDD(unittest.TestCase):
 
         summary_row = ET.SubElement(tbl, f"{{{W_NS}}}tr")
         summary_cell = ET.SubElement(summary_row, f"{{{W_NS}}}tc")
-        set_cell_text(summary_cell, "以上计量标准器具的量值溯源至国家基准/测量标准。")
+        set_cell_text(summary_cell, "以上计量标准气瓶的量值溯源至国家基准/测量标准。")
 
         changed = _fill_modify_certificate_measurement_rows(tbl, [])
         self.assertTrue(changed)
@@ -549,7 +549,7 @@ class DocxFillServiceTDD(unittest.TestCase):
         source_intro_tbl = ET.SubElement(source_body, f"{{{W_NS}}}tbl")
         intro_tr = ET.SubElement(source_intro_tbl, f"{{{W_NS}}}tr")
         intro_tc = ET.SubElement(intro_tr, f"{{{W_NS}}}tc")
-        set_cell_text(intro_tc, "器具编号：R802B")
+        set_cell_text(intro_tc, "气瓶编号：R802B")
 
         source_header_tbl = ET.SubElement(source_body, f"{{{W_NS}}}tbl")
         source_header_tr = ET.SubElement(source_header_tbl, f"{{{W_NS}}}tr")
@@ -576,7 +576,7 @@ class DocxFillServiceTDD(unittest.TestCase):
         target_anchor_tbl = ET.SubElement(target_body, f"{{{W_NS}}}tbl")
         target_anchor_tr = ET.SubElement(target_anchor_tbl, f"{{{W_NS}}}tr")
         target_anchor_tc = ET.SubElement(target_anchor_tr, f"{{{W_NS}}}tc")
-        set_cell_text(target_anchor_tc, "器具编号 型号/规格")
+        set_cell_text(target_anchor_tc, "气瓶编号 型号/规格")
         target_body.append(ET.Element(f"{{{W_NS}}}sectPr"))
 
         source_xml = ET.tostring(source_root, encoding="utf-8", xml_declaration=True)

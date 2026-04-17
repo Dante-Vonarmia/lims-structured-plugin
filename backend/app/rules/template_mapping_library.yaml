@@ -5,7 +5,7 @@ templates:
       - R-801B
       - R_801B
     source_keywords:
-      - 本次任务信息和计量标准器具清单
+      - 本次任务信息和计量标准气瓶清单
 
   r-803b:
     handler_key: r803b
@@ -15,7 +15,7 @@ templates:
     source_keywords:
       - 低温冲击
       - 缆专检号
-      - 器具名称
+      - 气瓶名称
       - 型号/规格
     editor:
       note: 可编辑后再点“匹配数据”更新目标 Word。
@@ -23,13 +23,13 @@ templates:
         - key: certificate_no
           label: 序号
         - key: device_name
-          label: 器具名称
+          label: 气瓶名称
         - key: manufacturer
           label: 制造厂/商
         - key: device_model
           label: 型号/规格
         - key: device_code
-          label: 器具编号
+          label: 气瓶编号
         - key: basis_mode
           label: 依据类型（检测/校准）
         - key: basis_standard
@@ -77,13 +77,13 @@ templates:
         - key: certificate_no
           label: 序号
         - key: device_name
-          label: 器具名称
+          label: 气瓶名称
         - key: manufacturer
           label: 制造厂/商
         - key: device_model
           label: 型号/规格
         - key: device_code
-          label: 器具编号
+          label: 气瓶编号
         - key: basis_mode
           label: 依据类型（检测/校准）
         - key: basis_standard
@@ -122,13 +122,13 @@ templates:
         - key: certificate_no
           label: 序号
         - key: device_name
-          label: 器具名称
+          label: 气瓶名称
         - key: manufacturer
           label: 制造厂/商
         - key: device_model
           label: 型号/规格
         - key: device_code
-          label: 器具编号
+          label: 气瓶编号
         - key: basis_mode
           label: 依据类型（检测/校准）
         - key: basis_standard

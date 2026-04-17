@@ -13,7 +13,7 @@ export function createSourceSplittingFeature(deps = {}) {
   const EXTRA_HIDDEN_KEYS = new Set([
     "devicename", "device_model", "devicemodel", "devicecode", "manufacturer", "unitname", "address",
     "powerrating", "manufacturedate", "contactinfo", "measurementitems", "measurementitemcount", "rawrecord",
-    "器具名称", "设备名称", "仪器名称", "型号规格", "型号", "编号", "器具编号", "设备编号",
+    "气瓶名称", "设备名称", "仪器名称", "型号规格", "型号", "编号", "气瓶编号", "设备编号",
     "生产厂商", "制造厂商", "厂家", "厂商", "使用部门", "单位名称", "地址", "电源功率", "制造日期", "生产日期",
     "联系方式", "检测项数",
   ]);
@@ -42,7 +42,7 @@ export function createSourceSplittingFeature(deps = {}) {
   function splitRecordBlocks(rawText) {
     const text = String(rawText || "").replace(/\r/g, "");
     if (!text.trim()) return [];
-    const marker = /(设备名称|器具名称|仪器名称|设备名)\s*[:：]?/g;
+    const marker = /(设备名称|气瓶名称|仪器名称|设备名)\s*[:：]?/g;
     const starts = [];
     let match;
     while ((match = marker.exec(text)) !== null) {
@@ -121,7 +121,7 @@ export function createSourceSplittingFeature(deps = {}) {
     const code = String((group && group.code) || "").trim();
     if (!name) return true;
 
-    const standardNameLike = /(数字温度表|热电偶|铜卷尺|标准器具|测量范围|溯源机构|证书编号|有效期限|measurement\s*range|traceability|certificate\s*number)/i;
+    const standardNameLike = /(数字温度表|热电偶|铜卷尺|标准气瓶|测量范围|溯源机构|证书编号|有效期限|measurement\s*range|traceability|certificate\s*number)/i;
     const hasColon = /[:：]/.test(name);
     const noModel = !model || model === "-" || model === "—";
 
@@ -149,9 +149,9 @@ export function createSourceSplittingFeature(deps = {}) {
     return filteredGroups.map((group, idx) => {
       const rowNumber = idx + 1;
       const rowRawRecord = [
-        `器具名称: ${group.name || (baseFields && baseFields.device_name) || ""}`,
+        `气瓶名称: ${group.name || (baseFields && baseFields.device_name) || ""}`,
         `型号规格: ${group.model || ""}`,
-        `器具编号: ${group.code || ""}`,
+        `气瓶编号: ${group.code || ""}`,
       ].join("\n");
       const fields = {
         ...createEmptyFields(),
@@ -189,7 +189,7 @@ export function createSourceSplittingFeature(deps = {}) {
         matchedBy: "",
         templateUserSelected: false,
         status: "ready",
-        message: buildCategoryMessage({ category, fields }, "已按多器具分组拆分，待匹配模板"),
+        message: buildCategoryMessage({ category, fields }, "已按多气瓶分组拆分，待匹配模板"),
         reportId: "",
         reportDownloadUrl: "",
         reportFileName: "",

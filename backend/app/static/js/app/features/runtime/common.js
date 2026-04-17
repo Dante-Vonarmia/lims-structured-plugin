@@ -52,7 +52,7 @@ export function createRuntimeCommonFeature(deps = {}) {
   function getDeviceCodeDisplay(item) {
     const fields = (item && item.fields) || {};
     const value = String(fields.device_code || "")
-      .replace(/^(?:器具编号|设备编号|编号)\s*[:：]?\s*/g, "")
+      .replace(/^(?:气瓶编号|设备编号|编号)\s*[:：]?\s*/g, "")
       .trim();
     if (/^\/?\s*编号\s*[:：]?\s*$/.test(value) || value === "/") return "";
     return value;

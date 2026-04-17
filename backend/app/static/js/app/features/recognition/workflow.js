@@ -39,17 +39,32 @@ export function createRecognitionWorkflowFeature(deps = {}) {
     waitMs,
   });
 
-  async function processItem(item) {
+  async function processItem(item, options = {}) {
+    const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
+    const reportProgress = (phase, progress, message = "") => {
+      if (!onProgress) return;
+      onProgress({
+        phase: String(phase || "").trim(),
+        progress: Number(progress) || 0,
+        message: String(message || "").trim(),
+      });
+    };
+
     const forcedMode = String(item && item.recognitionOverride ? item.recognitionOverride : "").trim().toLowerCase();
     const forceAsExcel = forcedMode === "excel";
     const forceAsWord = forcedMode === "word";
+    reportProgress("init", 5, "准备识别");
     const recordRowHandled = await handleRecordRowBranch({
       item,
       applyAutoTemplateMatch,
       renderQueue,
       renderTemplateSelect,
     });
-    if (recordRowHandled) return;
+    if (recordRowHandled) {
+      reportProgress("done", 100, "识别完成");
+      return;
+    }
+    reportProgress("route", 12, "识别分支判断中");
     const forcedExcelHandled = await handleForcedExcelSingleBranch({
       item,
       forceAsExcel,
@@ -65,7 +80,11 @@ export function createRecognitionWorkflowFeature(deps = {}) {
       appendLog,
       renderTemplateSelect,
     });
-    if (forcedExcelHandled) return;
+    if (forcedExcelHandled) {
+      reportProgress("done", 100, "识别完成");
+      return;
+    }
+    reportProgress("excel", 20, "Excel识别中");
     const excelHandled = await handleExcelSingleBranch({
       item,
       forceAsExcel,
@@ -77,8 +96,13 @@ export function createRecognitionWorkflowFeature(deps = {}) {
       applyAutoTemplateMatch,
       state,
       renderTemplateSelect,
+      progressCallback: reportProgress,
     });
-    if (excelHandled) return;
+    if (excelHandled) {
+      reportProgress("done", 100, "识别完成");
+      return;
+    }
+    reportProgress("ocr", 25, "OCR识别中");
     await handleGeneralBranch({
       item,
       state,
@@ -102,7 +126,9 @@ export function createRecognitionWorkflowFeature(deps = {}) {
       buildMultiDeviceWordItems,
       appendLog,
       replaceSourceWithRowsProgressively,
+      progressCallback: reportProgress,
     });
+    reportProgress("done", 100, "识别完成");
   }
 
   return { processItem };

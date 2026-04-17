@@ -9,7 +9,7 @@ from fastapi import HTTPException
 
 from .docx_structure_service import _extract_docx_table_rows
 
-_INSTRUMENT_NAME_TOKENS = ("器具名称", "设备名称", "仪器名称", "instrument name", "device name")
+_INSTRUMENT_NAME_TOKENS = ("气瓶名称", "设备名称", "仪器名称", "instrument name", "device name")
 _INSTRUMENT_NAME_TOKEN_SET = {re.sub(r"[\s:：/\\\-_.|*（）()]+", "", value.lower()) for value in _INSTRUMENT_NAME_TOKENS}
 _PLACEHOLDER_VALUES = {"", "-", "--", "—", "/", "／"}
 _MODEL_TOKEN_SET = {
@@ -22,7 +22,7 @@ _MODEL_TOKEN_SET = {
 }
 _CODE_TOKEN_SET = {
     "编号",
-    "器具编号",
+    "气瓶编号",
     "设备编号",
     "仪器编号",
     "出厂编号",
@@ -535,7 +535,7 @@ def _finalize_catalog_rows(candidates: list[dict[str, str]]) -> list[dict[str, s
             continue
         if _normalize_catalog_value(name) in _PLACEHOLDER_VALUES:
             continue
-        if name in {"以上计量标准器具", "其它校准信息"}:
+        if name in {"以上计量标准气瓶", "其它校准信息"}:
             continue
         if _is_catalog_header_like_item(item):
             continue
@@ -551,8 +551,8 @@ def _is_catalog_header_like_item(item: dict[str, str]) -> bool:
         return True
 
     header_tokens = {
-        _normalize_catalog_token("器具总目录"),
-        _normalize_catalog_token("器具名称"),
+        _normalize_catalog_token("气瓶总目录"),
+        _normalize_catalog_token("气瓶名称"),
         _normalize_catalog_token("型号/规格"),
         _normalize_catalog_token("编号"),
         _normalize_catalog_token("测量范围"),

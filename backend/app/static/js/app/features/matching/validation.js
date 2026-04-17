@@ -19,8 +19,8 @@ export function createMatchingValidationFeature(deps = {}) {
     if (!token) return false;
     return !new Set([
       "instrumentname", "devicename", "equipmentname", "modelspecification", "instrumentserialnumber",
-      "serialnumber", "manufacturer", "client", "器具名称", "设备名称", "仪器名称",
-      "型号规格", "型号", "编号", "器具编号", "设备编号", "生产厂商", "制造厂商", "厂家", "厂商",
+      "serialnumber", "manufacturer", "client", "气瓶名称", "设备名称", "仪器名称",
+      "型号规格", "型号", "编号", "气瓶编号", "设备编号", "生产厂商", "制造厂商", "厂家", "厂商",
     ]).has(token);
   }
 
@@ -51,12 +51,12 @@ export function createMatchingValidationFeature(deps = {}) {
     const issues = [];
 
     if (!item.templateName) issues.push("模板");
-    if (!hasMeaningfulValue(fields.device_name)) issues.push("器具名称");
-    if (!(hasMeaningfulValue(fields.device_model) || hasMeaningfulValue(fields.device_code))) issues.push("型号规格或器具编号");
+    if (!hasMeaningfulValue(fields.device_name)) issues.push("气瓶名称");
+    if (!(hasMeaningfulValue(fields.device_model) || hasMeaningfulValue(fields.device_code))) issues.push("型号规格或气瓶编号");
     if (!hasMeaningfulValue(fields.manufacturer)) issues.push("生产厂商");
 
     const groupCount = Number.parseInt(String(fields.device_group_count || "0"), 10) || 0;
-    if (groupCount > 1) issues.push(`来源文件包含${groupCount}组器具信息（需拆分后再生成）`);
+    if (groupCount > 1) issues.push(`来源文件包含${groupCount}组气瓶信息（需拆分后再生成）`);
 
     return {
       ok: issues.length === 0,

@@ -251,7 +251,7 @@ export function createGeneralCheckFeature(deps = {}) {
         if (/缆专检号[:：]?/.test(text)) return true;
         if (/中国合格评定国家认可委员会|No\.?\s*CNAS/i.test(text)) return true;
         if (/本次校准所依据的技术规范|Reference documents for the calibration/i.test(text)) return true;
-        if (/本次校准所使用的主要计量标准器具|Main measurement standard instruments/i.test(text)) return true;
+        if (/本次校准所使用的主要计量标准气瓶|Main measurement standard instruments/i.test(text)) return true;
         if (/(?:其它|其他)校准信息|Calibration Information/i.test(text)) return true;
         if (/^备注[:：]?|^Remarks[:：]?/i.test(text)) return true;
         return false;
@@ -391,7 +391,7 @@ export function createGeneralCheckFeature(deps = {}) {
           if (/缆专检号[:：]?/.test(text)) return true;
           if (/中国合格评定国家认可委员会|No\.?\s*CNAS/i.test(text)) return true;
           if (/本次校准所依据的技术规范|Reference documents for the calibration/i.test(text)) return true;
-          if (/本次校准所使用的主要计量标准器具|Main measurement standard instruments/i.test(text)) return true;
+          if (/本次校准所使用的主要计量标准气瓶|Main measurement standard instruments/i.test(text)) return true;
           if (/(?:其它|其他)校准信息|Calibration Information/i.test(text)) return true;
           if (/^备注[:：]?|^Remarks[:：]?/i.test(text)) return true;
           return false;
@@ -1054,7 +1054,7 @@ export function createGeneralCheckFeature(deps = {}) {
         const noisePatterns = [
           /中国合格评定国家认可委员会|No\.?\s*CNAS/i,
           /本次校准所依据的技术规范|Reference documents for the calibration/i,
-          /本次校准所使用的主要计量标准器具|Main measurement standard instruments/i,
+          /本次校准所使用的主要计量标准气瓶|Main measurement standard instruments/i,
           /(?:其它|其他)校准信息|Calibration Information/i,
           /^注[:：]?\s*$/i,
           /^备注[:：]?|^Remarks[:：]?/i,

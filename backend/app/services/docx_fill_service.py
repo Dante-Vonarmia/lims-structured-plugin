@@ -771,7 +771,7 @@ def _fill_modify_certificate_front_page_sections(
             continue
         if "CALIBRATION CERTIFICATE" not in table_text:
             continue
-        if "委托单位" not in table_text or "器具名称" not in table_text:
+        if "委托单位" not in table_text or "气瓶名称" not in table_text:
             continue
         rows = tbl.findall("./w:tr", NS)
         for row in rows:
@@ -846,7 +846,7 @@ def _fill_modify_certificate_blueprint_sections(
         if re.search(r"缆\s*专\s*检\s*号|Certificate\s*series\s*number", table_text, flags=re.IGNORECASE):
             changed = _fill_modify_certificate_continued_certificate_no(tbl, payload, context) or changed
         if (
-            ("Main measurement standard instruments" in table_text or "主要计量标准器具" in table_text)
+            ("Main measurement standard instruments" in table_text or "主要计量标准气瓶" in table_text)
             and ("Calibration Information" in table_text or "校准信息" in table_text)
             and ("Received date" in table_text or "收样日期" in table_text)
         ):
@@ -915,9 +915,9 @@ def _fill_modify_certificate_continued_certificate_no(
 
 
 _MODIFY_CERT_MEASUREMENT_COL_RULES: tuple[tuple[str, tuple[str, ...], int], ...] = (
-    ("name", ("器具名称", "Instrument name"), 0),
+    ("name", ("气瓶名称", "Instrument name"), 0),
     ("model", ("型号/规格", "Model/Specification"), 1),
-    ("code", ("器具编号", "仪器编号", "设备编号", "编号"), 2),
+    ("code", ("气瓶编号", "仪器编号", "设备编号", "编号"), 2),
     ("range", ("测量范围", "Measurement range"), 3),
     ("uncertainty", ("不确定度", "Accuracy", "Uncertainty"), 4),
     ("cert_valid", ("证书编号", "有效期限", "Certificate number", "Valid date"), 5),
@@ -952,7 +952,7 @@ def _expand_data_rows_before_anchor(tbl: ET.Element, data_start: int, data_end: 
 def _fill_modify_certificate_basis_rows(tbl: ET.Element, basis_lines: list[str]) -> bool:
     rows = tbl.findall("./w:tr", NS)
     basis_title_idx = _find_first_row_index(rows, r"本次校准所依据的技术规范|Reference documents for the calibration")
-    measurement_title_idx = _find_first_row_index(rows, r"本次校准所使用的主要计量标准器具|Main measurement standard instruments")
+    measurement_title_idx = _find_first_row_index(rows, r"本次校准所使用的主要计量标准气瓶|Main measurement standard instruments")
     if basis_title_idx < 0 or measurement_title_idx <= basis_title_idx + 1:
         return False
     basis_start = basis_title_idx + 1
@@ -988,12 +988,12 @@ def _fill_modify_certificate_measurement_rows(tbl: ET.Element, measurement_rows:
         (
             idx
             for idx, row in enumerate(rows)
-            if re.search(r"器具名称|Instrument name", _modify_cert_row_text(row), flags=re.IGNORECASE)
+            if re.search(r"气瓶名称|Instrument name", _modify_cert_row_text(row), flags=re.IGNORECASE)
             and re.search(r"测量范围|Measurement range", _modify_cert_row_text(row), flags=re.IGNORECASE)
         ),
         -1,
     )
-    summary_idx = _find_first_row_index(rows, r"以上计量标准器具|Quantity values of above measurement standards")
+    summary_idx = _find_first_row_index(rows, r"以上计量标准气瓶|Quantity values of above measurement standards")
     if header_idx < 0 or summary_idx <= header_idx + 1:
         return False
     data_start = header_idx + 1
@@ -1148,7 +1148,7 @@ def _parse_measurement_items_rows(text: str) -> list[dict[str, str]]:
     if not rows:
         return []
     header_tokens = "".join(rows[0]).lower()
-    if ("器具名称" in rows[0][0]) or ("instrumentname" in re.sub(r"\s+", "", header_tokens)):
+    if ("气瓶名称" in rows[0][0]) or ("instrumentname" in re.sub(r"\s+", "", header_tokens)):
         rows = rows[1:]
     result: list[dict[str, str]] = []
     for row in rows:
@@ -1396,10 +1396,10 @@ def build_r803b_payload(
 
     device_name = sanitize_context_value(context.get("device_name", "")) or extract_value_from_tables(
         tables,
-        labels=("器具名称", "设备名称", "仪器名称", "Instrument name"),
+        labels=("气瓶名称", "设备名称", "仪器名称", "Instrument name"),
     ) or extract_value_by_regex(
         text_block,
-        patterns=(r"(?:器具名称|设备名称|仪器名称)[:：]?\s*([^\n|]+)",),
+        patterns=(r"(?:气瓶名称|设备名称|仪器名称)[:：]?\s*([^\n|]+)",),
     )
     manufacturer = sanitize_context_value(context.get("manufacturer", "")) or extract_value_from_tables(
         tables,
@@ -1424,18 +1424,18 @@ def build_r803b_payload(
     )
     device_code = sanitize_context_value(context.get("device_code", "")) or extract_value_from_tables(
         tables,
-        labels=("器具编号", "设备编号", "仪器编号", "出厂编号", "Instrument serial number"),
+        labels=("气瓶编号", "设备编号", "仪器编号", "出厂编号", "Instrument serial number"),
     ) or extract_value_by_regex(
         text_block,
-        patterns=(r"(?:器具编号|设备编号|仪器编号|出厂编号)[:：]?\s*([^\n|]+)",),
+        patterns=(r"(?:气瓶编号|设备编号|仪器编号|出厂编号)[:：]?\s*([^\n|]+)",),
     )
 
     model_code_combined = extract_value_from_tables(
         tables,
-        labels=("型号/编号", "型号编号", "型号/器具编号", "Model/Number"),
+        labels=("型号/编号", "型号编号", "型号/气瓶编号", "Model/Number"),
     ) or extract_value_by_regex(
         text_block,
-        patterns=(r"(?:型号/编号|型号编号|型号/器具编号|Model/Number)[:：]?\s*([^\n|]+)",),
+        patterns=(r"(?:型号/编号|型号编号|型号/气瓶编号|Model/Number)[:：]?\s*([^\n|]+)",),
     )
     combo_model, combo_code = _split_model_code_combined(model_code_combined)
     if not device_model:
@@ -1691,7 +1691,7 @@ def build_r802b_payload(
 
     detail_instruments = extract_text_block(
         raw_text,
-        start_patterns=(r"本次校准所使用的主要计量标准器具", r"主要计量标准器具", r"Main measurement standard instruments"),
+        start_patterns=(r"本次校准所使用的主要计量标准气瓶", r"主要计量标准气瓶", r"Main measurement standard instruments"),
         end_patterns=(r"本次校准所依据的技术规范", r"(?:其它|其他)校准信息", r"一般检查", r"备注"),
         normalize_space=normalize_space,
     )
@@ -1754,7 +1754,7 @@ def _extract_basis_detail_text(text: str) -> str:
 def _find_r802b_record_table(tables: list[ET.Element]) -> ET.Element | None:
     for tbl in tables:
         row_text = " ".join([get_cell_text(tc) for tc in tbl.findall("./w:tr/w:tc", NS)])
-        if "原 始 记 录" in row_text and "校准依据" in row_text and "器具编号" in row_text:
+        if "原 始 记 录" in row_text and "校准依据" in row_text and "气瓶编号" in row_text:
             return tbl
     return None
 
@@ -1783,9 +1783,9 @@ def _fill_r802b_record_table(tbl: ET.Element, payload: dict[str, Any]) -> None:
                 set_cell_text(cells[basis_idx], f"{_format_dual_mode_checkbox(basis_mode)}依据：{basis_text}")
 
         if payload.get("device_name"):
-            name_idx = _find_cell_index_contains(cells, "器具名称")
+            name_idx = _find_cell_index_contains(cells, "气瓶名称")
             if name_idx >= 0:
-                set_cell_text(cells[name_idx], f"器具名称：{payload['device_name']}")
+                set_cell_text(cells[name_idx], f"气瓶名称：{payload['device_name']}")
 
         if payload.get("manufacturer"):
             manufacturer_idx = _find_cell_index_contains(cells, "制造厂/商")
@@ -1798,9 +1798,9 @@ def _fill_r802b_record_table(tbl: ET.Element, payload: dict[str, Any]) -> None:
                 set_cell_text(cells[model_idx], f"型号/规格：{payload['device_model']}")
 
         if payload.get("device_code"):
-            code_idx = _find_cell_index_contains(cells, "器具编号")
+            code_idx = _find_cell_index_contains(cells, "气瓶编号")
             if code_idx >= 0:
-                set_cell_text(cells[code_idx], f"器具编号：{payload['device_code']}")
+                set_cell_text(cells[code_idx], f"气瓶编号：{payload['device_code']}")
 
         location_idx = _find_cell_index_contains(cells, "校准地点")
         if location_idx >= 0 and (basis_mode or payload.get("location")):
@@ -1836,7 +1836,7 @@ def _append_r802b_detail_blocks(
         return
 
     sections: list[tuple[str, str]] = [
-        ("本次校准所使用的主要计量标准器具：", normalize_multiline_text(payload.get("detail_instruments", ""), normalize_space=normalize_space)),
+        ("本次校准所使用的主要计量标准气瓶：", normalize_multiline_text(payload.get("detail_instruments", ""), normalize_space=normalize_space)),
         ("本次校准所依据的技术规范（代号、名称）：", normalize_multiline_text(payload.get("detail_basis", ""), normalize_space=normalize_space)),
         ("其它校准信息：", normalize_multiline_text(payload.get("detail_calibration_info", ""), normalize_space=normalize_space)),
     ]
@@ -2147,7 +2147,7 @@ def _find_general_check_table_element(root: ET.Element) -> ET.Element | None:
         score = 0
         if re.search(r"校准结果\s*/\s*说明|Results of calibration and additional explanation", text, flags=re.IGNORECASE):
             score -= 100
-        if re.search(r"本次校准所使用的主要计量标准器具|本次校准所依据的技术规范|(?:其它|其他)校准信息", text):
+        if re.search(r"本次校准所使用的主要计量标准气瓶|本次校准所依据的技术规范|(?:其它|其他)校准信息", text):
             score -= 100
         score += len(tbl.findall(".//w:tr", NS))
         candidates.append((score, tbl))
@@ -2199,7 +2199,7 @@ def _sanitize_general_check_table_rows(tbl: ET.Element) -> None:
             flags=re.IGNORECASE,
         ):
             remove = True
-        if re.search(r"本次校准所使用的主要计量标准器具|本次校准所依据的技术规范|(?:其它|其他)校准信息", text):
+        if re.search(r"本次校准所使用的主要计量标准气瓶|本次校准所依据的技术规范|(?:其它|其他)校准信息", text):
             remove = True
         if remove:
             tbl.remove(row)
@@ -2326,7 +2326,7 @@ def _find_r802b_general_check_insert_index(body: ET.Element) -> int:
         if child.tag != f"{{{W_NS}}}tbl":
             continue
         text = "".join([(node.text or "") for node in child.findall(".//w:t", NS)])
-        if "器具编号" in text and "型号/规格" in text:
+        if "气瓶编号" in text and "型号/规格" in text:
             return idx + 1
     return _find_r802b_insert_index(body)
 
@@ -2358,7 +2358,7 @@ def _has_r802b_section_heading(value: str, title: str) -> bool:
         return True
     if "技术规范" in title and re.search(r"(?:^|\n)本次校准所依据的技术规范", text):
         return True
-    if "主要计量标准器具" in title and re.search(r"(?:^|\n)本次校准所使用的主要计量标准器具", text):
+    if "主要计量标准气瓶" in title and re.search(r"(?:^|\n)本次校准所使用的主要计量标准气瓶", text):
         return True
     return False
 
@@ -2415,7 +2415,7 @@ def _find_info_table(tables: list[ET.Element]) -> ET.Element | None:
 def _find_record_table(tables: list[ET.Element]) -> ET.Element | None:
     for tbl in tables:
         row_text = " ".join([get_cell_text(tc) for tc in tbl.findall("./w:tr/w:tc", NS)])
-        if "器具名称" in row_text and "型号/规格" in row_text and "编号" in row_text:
+        if "气瓶名称" in row_text and "型号/规格" in row_text and "编号" in row_text:
             return tbl
     return None
 
@@ -2517,7 +2517,7 @@ def _fill_record_table(tbl: ET.Element, payload: dict[str, Any]) -> None:
     normalized_instrument_rows = [item for item in normalized_instrument_rows if item["name"]][:MAX_INSTRUMENT_ROWS]
 
     header_cells = rows[0].findall("./w:tc", NS)
-    index_name = _find_cell_index_contains_any(header_cells, ("器具名称", "Instrument name"))
+    index_name = _find_cell_index_contains_any(header_cells, ("气瓶名称", "Instrument name"))
     index_model = _find_cell_index_contains_any(header_cells, ("型号/规格", "Model/Specification"))
     index_code = _find_cell_index_contains_any(header_cells, ("编号", "Number"))
     index_range = _find_cell_index_contains_any(header_cells, ("测量范围", "Measurement range"))
@@ -2611,9 +2611,9 @@ def _fill_r803b_record_table(tbl: ET.Element, payload: dict[str, Any]) -> None:
                 set_cell_text(cells[basis_idx], f"{_format_dual_mode_checkbox(basis_mode)}依据：{basis_text}")
 
         if payload.get("device_name"):
-            name_idx = _find_cell_index_contains(cells, "器具名称")
+            name_idx = _find_cell_index_contains(cells, "气瓶名称")
             if name_idx >= 0:
-                set_cell_text(cells[name_idx], f"器具名称：{payload['device_name']}")
+                set_cell_text(cells[name_idx], f"气瓶名称：{payload['device_name']}")
 
         if payload.get("manufacturer"):
             manufacturer_idx = _find_cell_index_contains(cells, "制造厂/商")
@@ -2626,9 +2626,9 @@ def _fill_r803b_record_table(tbl: ET.Element, payload: dict[str, Any]) -> None:
                 set_cell_text(cells[model_idx], f"型号/规格：{payload['device_model']}")
 
         if payload.get("device_code"):
-            code_idx = _find_cell_index_contains(cells, "器具编号")
+            code_idx = _find_cell_index_contains(cells, "气瓶编号")
             if code_idx >= 0:
-                set_cell_text(cells[code_idx], f"器具编号：{payload['device_code']}")
+                set_cell_text(cells[code_idx], f"气瓶编号：{payload['device_code']}")
 
         location_idx = _find_cell_index_contains(cells, "校准地点")
         if location_idx >= 0 and (basis_mode or payload.get("location")):

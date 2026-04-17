@@ -178,7 +178,7 @@ TABLE_ANCHOR_KEYWORDS = {
 TABLE_DEFAULT_COL_WIDTH_RATIOS = tuple([1.0] * len(TABLE_COL_KEYS))
 TABLE_CALIBRATION_FILE = OUTPUT_DIR / "cylinder_table_calibration.json"
 TABLE_SECOND_PASS_ENGINES = tuple(
-    [x.strip().lower() for x in str(os.getenv("TABLE_SECOND_PASS_ENGINES", "rapid,tesseract") or "rapid,tesseract").split(",") if x.strip()]
+    [x.strip().lower() for x in str(os.getenv("TABLE_SECOND_PASS_ENGINES", "rapid,paddle,tesseract") or "rapid,paddle,tesseract").split(",") if x.strip()]
 )
 
 
@@ -210,6 +210,11 @@ def _is_table_critical_column(col_index: int) -> bool:
 
 def _recognize_cylinder_table(file_path: Path) -> dict[str, object]:
     import time
+    try:
+        import cv2
+    except Exception:
+        logger.warning("OpenCV unavailable, skip structured table OCR: %s", file_path.name)
+        return {}
 
     t0 = time.perf_counter()
     grid_payload = _detect_table_grid(file_path)
@@ -230,21 +235,51 @@ def _recognize_cylinder_table(file_path: Path) -> dict[str, object]:
 
     col_count = min(len(x_lines) - 1, len(TABLE_COL_KEYS))
     row_start = 2 if len(y_lines) > 3 else 1
+    is_dense_photo = image.shape[1] >= 1800 and image.shape[0] >= 2400 and (len(y_lines) - row_start) >= 16
+    # Relax blanking/quality gates when table anchors are weak (typical for partial crops).
+    relaxed_mode = anchor_count < 3
+    second_pass_state: dict[str, int] = {
+        "used": 0,
+        "max": 120 if is_dense_photo else 80,
+    }
     table_cells: list[dict[str, object]] = []
     row_records: list[dict[str, object]] = []
     review_queue: list[dict[str, object]] = []
 
     for row_index in range(row_start, len(y_lines) - 1):
+        row_y0 = int(y_lines[row_index])
+        row_y1 = int(y_lines[row_index + 1])
+        row_x_lines = _refine_row_x_lines(image, row_y0, row_y1, x_lines) if is_dense_photo else x_lines
+        row_scale = 1
+        row_band = image[row_y0:row_y1, :]
+        if is_dense_photo and row_band.size > 0:
+            row_h = max(1, row_band.shape[0])
+            if row_h <= 34:
+                row_scale = 3
+            elif row_h <= 52:
+                row_scale = 2
+            if row_scale > 1:
+                row_band = cv2.resize(row_band, None, fx=row_scale, fy=row_scale, interpolation=cv2.INTER_CUBIC)
         fields: dict[str, str] = {}
         row_line_texts: list[str] = []
         has_any_value = False
         for col_index in range(col_count):
-            x0, x1 = int(x_lines[col_index]), int(x_lines[col_index + 1])
-            y0, y1 = int(y_lines[row_index]), int(y_lines[row_index + 1])
+            x0, x1 = int(row_x_lines[col_index]), int(row_x_lines[col_index + 1])
+            sx0, sx1 = int(x0 * row_scale), int(x1 * row_scale)
+            y0, y1 = row_y0, row_y1
             if x1 - x0 <= 4 or y1 - y0 <= 4:
                 continue
-            crop = image[y0:y1, x0:x1]
-            cell_payload = _recognize_table_cell(crop, col_index)
+            if row_band.size > 0 and sx1 - sx0 > 4:
+                crop = row_band[:, sx0:sx1]
+            else:
+                crop = image[y0:y1, x0:x1]
+            cell_payload = _recognize_table_cell(
+                crop,
+                col_index,
+                dense_photo=is_dense_photo,
+                second_pass_state=second_pass_state,
+                relaxed_mode=relaxed_mode,
+            )
             key = _to_table_col_key(col_index)
             label = _to_table_col_label(col_index)
             final_text = str(cell_payload.get("final_text", "")).strip()
@@ -311,7 +346,17 @@ def _recognize_cylinder_table(file_path: Path) -> dict[str, object]:
 
     quality = _evaluate_table_quality(table_cells, row_records, review_queue)
     if not quality.get("ok", False):
-        return {}
+        non_empty_ratio = float(quality.get("non_empty_ratio", 0.0) or 0.0)
+        critical_ratio = float(quality.get("critical_non_empty_ratio", 0.0) or 0.0)
+        salvage_ok = (
+            relaxed_mode
+            and len(row_records) >= 1
+            and (non_empty_ratio >= 0.10 or critical_ratio >= 0.08)
+        )
+        if not salvage_ok:
+            return {}
+        quality["ok"] = True
+        quality["salvage_mode"] = "partial_capture_relaxed"
 
     if OCR_TIMING_LOG:
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
@@ -333,7 +378,13 @@ def _recognize_cylinder_table(file_path: Path) -> dict[str, object]:
     }
 
 
-def _recognize_table_cell(crop, col_index: int) -> dict[str, object]:
+def _recognize_table_cell(
+    crop,
+    col_index: int,
+    dense_photo: bool = False,
+    second_pass_state: dict[str, int] | None = None,
+    relaxed_mode: bool = False,
+) -> dict[str, object]:
     if crop is None:
         return {"raw_text": "", "final_text": "", "confidence": 0.0, "preprocess_id": "p0"}
     if _is_table_checkbox_column(col_index):
@@ -361,8 +412,18 @@ def _recognize_table_cell(crop, col_index: int) -> dict[str, object]:
                 "confidence": final_score,
                 "preprocess_id": preprocess_id,
             }
-    if _is_table_critical_column(col_index) and float(best.get("confidence", 0.0) or 0.0) < TABLE_SECOND_PASS_TRIGGER:
+    second_pass_trigger = TABLE_SECOND_PASS_TRIGGER
+    if dense_photo:
+        second_pass_trigger = min(TABLE_SECOND_PASS_TRIGGER, 0.58)
+    can_second_pass = True
+    if isinstance(second_pass_state, dict):
+        used = int(second_pass_state.get("used", 0) or 0)
+        max_allowed = int(second_pass_state.get("max", 0) or 0)
+        can_second_pass = used < max_allowed
+    if _is_table_critical_column(col_index) and float(best.get("confidence", 0.0) or 0.0) < second_pass_trigger and can_second_pass:
         voted = _second_pass_critical_cell_vote(crop, col_index, best)
+        if isinstance(second_pass_state, dict):
+            second_pass_state["used"] = int(second_pass_state.get("used", 0) or 0) + 1
         if voted and float(voted.get("confidence", 0.0) or 0.0) >= float(best.get("confidence", 0.0) or 0.0):
             best = voted
     final_text = str(best.get("final_text", "")).strip()
@@ -374,7 +435,11 @@ def _recognize_table_cell(crop, col_index: int) -> dict[str, object]:
     if OCR_STRICT_BLANK_ENABLED and final_text and (not _is_table_critical_column(col_index)) and _should_suppress_noise_text(final_text, final_conf):
         best["final_text"] = ""
         best["confidence"] = 0.0
-    elif OCR_STRICT_BLANK_ENABLED and final_text and _is_table_critical_column(col_index) and final_conf < TABLE_SECOND_PASS_TRIGGER:
+    elif OCR_STRICT_BLANK_ENABLED and final_text and _is_table_critical_column(col_index) and final_conf < second_pass_trigger:
+        # Partial-capture relaxed mode: keep weak-but-usable critical tokens
+        # as editable initial values instead of blanking the whole row.
+        if relaxed_mode and final_conf >= max(0.42, second_pass_trigger - 0.18):
+            return best
         best["final_text"] = ""
         best["confidence"] = 0.0
     return best
@@ -471,6 +536,7 @@ def _read_cell_with_retries(crop, col_index: int) -> list[dict[str, object]]:
     import pytesseract
 
     gray = crop if len(getattr(crop, "shape", [])) == 2 else cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    gray = _upscale_small_cell(gray, col_index)
     degrid = _prepare_cell_for_ocr(gray, col_index)
     prep_variants = [
         ("p0", gray),
@@ -510,6 +576,27 @@ def _read_cell_with_retries(crop, col_index: int) -> list[dict[str, object]]:
                 }
             )
     return candidates
+
+
+def _upscale_small_cell(gray, col_index: int):
+    import cv2
+
+    if gray is None:
+        return gray
+    h, w = gray.shape[:2]
+    if h <= 0 or w <= 0:
+        return gray
+    scale = 1
+    if h <= 28 or w <= 72:
+        scale = 3
+    elif h <= 44 or w <= 112:
+        scale = 2
+    # Handwritten/alnum-heavy columns and date columns are more sensitive to small glyphs.
+    if col_index in {0, 2, 3, 4, 10, 11, 33, 34, 35} and scale > 1:
+        return cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+    if scale >= 3:
+        return cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+    return gray
 
 
 def _prepare_cell_for_ocr(gray, col_index: int):
@@ -1128,6 +1215,53 @@ def _project_line_positions(mask, axis: int) -> list[int]:
     return _merge_near_positions(indexes, min_gap=6)
 
 
+def _refine_row_x_lines(image, row_y0: int, row_y1: int, base_x_lines: list[int]) -> list[int]:
+    try:
+        import cv2
+        import numpy as np
+    except Exception:
+        return base_x_lines
+
+    if image is None or not isinstance(base_x_lines, list) or len(base_x_lines) < 4:
+        return base_x_lines
+    h, w = image.shape[:2]
+    if h <= 0 or w <= 0:
+        return base_x_lines
+    y0 = max(0, int(row_y0) - 8)
+    y1 = min(h, int(row_y1) + 8)
+    if y1 - y0 < 12:
+        return base_x_lines
+
+    band = image[y0:y1, :]
+    if band.size == 0:
+        return base_x_lines
+    blur = cv2.GaussianBlur(band, (3, 3), 0)
+    _, binary = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    if float(np.mean(binary)) < 127:
+        binary = cv2.bitwise_not(binary)
+
+    v_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(10, (y1 - y0) - 2)))
+    vertical = cv2.morphologyEx(binary, cv2.MORPH_OPEN, v_kernel, iterations=1)
+    vertical = cv2.dilate(vertical, np.ones((2, 2), np.uint8), iterations=1)
+    candidates = _project_line_positions(vertical, axis=0)
+    if len(candidates) < max(8, int(len(base_x_lines) * 0.4)):
+        return base_x_lines
+
+    tolerance = max(6, int(TABLE_XLINE_FUSE_TOLERANCE * 0.75))
+    fused: list[int] = []
+    for base in base_x_lines:
+        nearest = min(candidates, key=lambda x: abs(int(x) - int(base)))
+        if abs(int(nearest) - int(base)) <= tolerance:
+            fused.append(int(round(int(base) * 0.55 + int(nearest) * 0.45)))
+        else:
+            fused.append(int(base))
+
+    fixed = [max(0, min(w - 1, int(fused[0])))]
+    for value in fused[1:]:
+        fixed.append(max(fixed[-1] + 2, min(w - 1, int(value))))
+    return fixed
+
+
 def _merge_near_positions(values: list[int], min_gap: int = 6) -> list[int]:
     if not values:
         return []
@@ -1245,6 +1379,72 @@ def _remove_shadow(gray_image):
     return normalized
 
 
+def _build_image_quality_feedback(file_path: Path, table_payload: dict[str, object] | None = None) -> dict[str, object]:
+    try:
+        import cv2
+        import numpy as np
+    except Exception:
+        return {"score": 0, "issues": [], "suggestions": [], "summary": ""}
+
+    image = cv2.imread(str(file_path), cv2.IMREAD_GRAYSCALE)
+    if image is None or image.size <= 0:
+        return {"score": 0, "issues": [], "suggestions": [], "summary": ""}
+
+    h, w = image.shape[:2]
+    lap_var = float(cv2.Laplacian(image, cv2.CV_64F).var())
+    contrast_std = float(np.std(image))
+    issues: list[dict[str, str]] = []
+    suggestions: list[str] = []
+    score = 100
+
+    if min(w, h) < 1800:
+        score -= 20
+        issues.append({"code": "low_resolution", "level": "high", "message": "分辨率偏低，小字难以稳定识别"})
+        suggestions.append("建议使用更高分辨率拍摄或裁切到单页后再上传")
+    if lap_var < 70:
+        score -= 22
+        issues.append({"code": "blur", "level": "high", "message": "清晰度不足，文字边缘模糊"})
+        suggestions.append("拍摄时保持页面静止并对焦后再拍")
+    elif lap_var < 110:
+        score -= 10
+        issues.append({"code": "soft_focus", "level": "medium", "message": "清晰度一般，细小手写字可能丢失"})
+    if contrast_std < 45:
+        score -= 16
+        issues.append({"code": "low_contrast", "level": "medium", "message": "对比度偏低，网格线和文字分离困难"})
+        suggestions.append("提升光照并避免阴影覆盖表格区域")
+
+    if isinstance(table_payload, dict):
+        quality = table_payload.get("quality")
+        if isinstance(quality, dict) and not bool(quality.get("ok", False)):
+            reason = str(quality.get("reason", "") or "").strip()
+            if reason == "empty_table":
+                score -= 18
+                issues.append({"code": "table_not_detected", "level": "high", "message": "未稳定检测到有效表格行"})
+                suggestions.append("尽量让表格四边完整入镜，减少透视和遮挡")
+            review_ratio = float(quality.get("review_ratio", 0.0) or 0.0)
+            if review_ratio > 0.6:
+                score -= 12
+                issues.append({"code": "high_uncertainty", "level": "medium", "message": "低置信度单元格比例偏高"})
+
+    if not suggestions:
+        suggestions.append("当前图像质量可接受，如仍有误识别可仅裁切表格区域再识别")
+
+    score = max(0, min(100, score))
+    summary = "；".join([x.get("message", "") for x in issues[:3]])
+    return {
+        "score": score,
+        "issues": issues,
+        "suggestions": suggestions,
+        "summary": summary,
+        "metrics": {
+            "width": int(w),
+            "height": int(h),
+            "laplacian_var": round(lap_var, 2),
+            "contrast_std": round(contrast_std, 2),
+        },
+    }
+
+
 def recognize_file(file_path: Path) -> tuple[str, list[str], str, dict[str, object]]:
     suffix = file_path.suffix.lower()
 
@@ -1268,8 +1468,10 @@ def _recognize_image(file_path: Path) -> tuple[str, list[str], str, dict[str, ob
     try:
         table_t0 = time.perf_counter()
         table_payload = _recognize_cylinder_table(prepared_path)
+        quality_feedback = _build_image_quality_feedback(prepared_path, table_payload if isinstance(table_payload, dict) else None)
         table_ms = int((time.perf_counter() - table_t0) * 1000)
         if table_payload and isinstance(table_payload, dict):
+            table_payload["image_quality"] = quality_feedback
             row_records = table_payload.get("row_records", [])
             if isinstance(row_records, list) and row_records:
                 lines = [str(x.get("raw_record", "")).strip() for x in row_records if str(x.get("raw_record", "")).strip()]
@@ -1319,11 +1521,11 @@ def _recognize_image(file_path: Path) -> tuple[str, list[str], str, dict[str, ob
             if OCR_TIMING_LOG:
                 total_ms = int((time.perf_counter() - t0) * 1000)
                 logger.info("ocr.image done file=%s engine=%s score=%s total_ms=%s", file_path.name, best_engine, best_score, total_ms)
-            return best_text, best_lines, best_engine, {}
+            return best_text, best_lines, best_engine, {"image_quality": quality_feedback}
         if OCR_TIMING_LOG:
             total_ms = int((time.perf_counter() - t0) * 1000)
             logger.info("ocr.image done file=%s engine=none total_ms=%s", file_path.name, total_ms)
-        return "", [], "none", {}
+        return "", [], "none", {"image_quality": quality_feedback}
     finally:
         if cleanup_path:
             cleanup_path.unlink(missing_ok=True)
@@ -1853,7 +2055,11 @@ def _ocr_by_rapid(file_path: Path) -> str:
 
 
 def _prepare_image_file(file_path: Path) -> tuple[Path, Path | None]:
-    from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+    try:
+        from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+    except Exception:
+        logger.warning("Pillow unavailable, skip image preprocessing and use original file: %s", file_path.name)
+        return file_path, None
 
     _enable_heif_support()
     try:
@@ -1863,7 +2069,9 @@ def _prepare_image_file(file_path: Path) -> tuple[Path, Path | None]:
         return file_path, None
 
     image = _try_perspective_correction(image)
-    if OCR_PREP_MODE == "quality":
+    is_large_photo = image.width >= 2600 and image.height >= 3400
+    effective_prep_mode = "quality" if OCR_PREP_MODE == "quality" or is_large_photo else "fast"
+    if effective_prep_mode == "quality":
         rotation = _detect_best_rotation(image)
         candidates = [
             image,

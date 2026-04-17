@@ -14,6 +14,7 @@ export function createQueueRenderingFeature(deps = {}) {
     getFilteredSortedQueue,
     getKeywordStatusFilteredQueue,
     getColumnFilterOptionEntries,
+    readListColumnValue,
     getModelCodeDisplay,
     getDeviceCodeDisplay,
     updateSourceDeviceNameText,
@@ -27,6 +28,10 @@ export function createQueueRenderingFeature(deps = {}) {
     resolveBlankTemplateName,
     isExcelItem,
   } = deps;
+  const safeReadListColumnValue = (item, key) => {
+    if (typeof readListColumnValue === "function") return readListColumnValue(item, key);
+    return "";
+  };
 
   function getSchemaColumns() {
     const schema = (state.taskContext && state.taskContext.import_template_schema && typeof state.taskContext.import_template_schema === "object")
@@ -144,6 +149,7 @@ export function createQueueRenderingFeature(deps = {}) {
     const booleanHtml = isBooleanTextValue(value) ? renderBooleanDisplayHtml(value, "-") : "";
     return `<td title="${escapeAttr(value)}">${booleanHtml || escapeHtml(value || "-")}</td>`;
   }).join("")}
+          <td title="${escapeAttr(safeReadListColumnValue(item, "ocr_quality") || "-")}">${escapeHtml(safeReadListColumnValue(item, "ocr_quality") || "-")}</td>
           <td><span class="status ${statusClass(item.status)}">${escapeHtml(statusLabel(item))}</span></td>
           <td title="${escapeAttr(item.message || "")}">${escapeHtml(item.message || "")}</td>
         </tr>
@@ -166,6 +172,7 @@ export function createQueueRenderingFeature(deps = {}) {
               <th><input id="selectAllVisible" type="checkbox" ${allVisibleChecked ? "checked" : ""} /></th>
               <th>#</th>
               ${getSchemaColumns().map((field) => buildHeadCell(String((field && field.label) || ""), String((field && field.key) || ""))).join("")}
+              ${buildHeadCell("OCR质量", "ocr_quality")}
               ${buildHeadCell("状态", "status")}
               <th>说明</th>
             </tr>
@@ -256,7 +263,7 @@ export function createQueueRenderingFeature(deps = {}) {
     const selectedNormalItems = getSelectedNormalItems();
     const canGenerateSelected = selectedNormalItems.length > 0;
     const canExportSelected = selectedNormalItems.some((x) => !!x.reportDownloadUrl);
-    setDisabled("uploadBtn", state.busy);
+    setDisabled("uploadBtn", false);
     const runExcelBatchBtn = $("runExcelBatchBtn");
     if (runExcelBatchBtn) runExcelBatchBtn.disabled = state.busy || !(item && isExcelItem(item));
     setDisabled("runGenerateAllBtn", state.busy || !canGenerateSelected);

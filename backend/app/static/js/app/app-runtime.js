@@ -177,32 +177,80 @@ import { normalizeImportTemplateSchemaPayload } from "./features/shared/schema-f
       if (statusEl) statusEl.textContent = raw ? `动态：${raw}` : "动态：";
     }
 
-    function setPreprocessProgress(current, total, fileName, label = "预处理") {
+    function setLoadingStageSteps(activeStage = 0, completedStage = 0) {
+      const active = Number(activeStage) || 0;
+      const completed = Number(completedStage) || 0;
+      for (let idx = 1; idx <= 4; idx += 1) {
+        const node = $(`loadingStageStep${idx}`);
+        if (!node) continue;
+        node.classList.toggle("is-done", idx <= completed);
+        node.classList.toggle("is-active", idx === active && idx > completed);
+      }
+    }
+
+    function parseStageFromDetail(detail = "") {
+      const text = String(detail || "").trim();
+      if (!text) return 0;
+      const matched = text.match(/阶段\s*([1-4])\s*\/\s*4/);
+      if (!matched) return 0;
+      return Number(matched[1]) || 0;
+    }
+
+    function setPreprocessProgress(current, total, fileName, label = "预处理", detail = "") {
       const row = $("preprocessProgressRow");
       const bar = $("preprocessProgressBar");
       const text = $("preprocessProgressText");
-      if (!row || !bar || !text) return;
       const safeTotal = total > 0 ? total : 1;
       const percent = Math.max(0, Math.min(100, Math.round((current / safeTotal) * 100)));
-      row.classList.add("show");
-      bar.value = percent;
-      text.textContent = `${label}：${current}/${total}${fileName ? `（${fileName}）` : ""}`;
+      const finished = Math.max(0, Math.min(total, Math.floor(Number(current) || 0)));
+      const extra = String(detail || "").trim();
+      if (row && bar && text) {
+        row.classList.add("show");
+        bar.value = percent;
+        text.textContent = `${label}：${finished}/${total}（${percent}%）${extra ? ` · ${extra}` : ""}${fileName ? `（${fileName}）` : ""}`;
+      }
+      const loadingBar = $("loadingProgressBar");
+      const loadingText = $("loadingProgressText");
+      const loadingDetail = $("loadingProgressDetail");
+      if (loadingBar) loadingBar.value = percent;
+      if (loadingText) loadingText.textContent = `${percent}%`;
+      if (loadingDetail) loadingDetail.textContent = `${label}：${finished}/${total}${extra ? ` · ${extra}` : ""}${fileName ? `（${fileName}）` : ""}`;
+      const stage = parseStageFromDetail(extra);
+      if (percent >= 100) {
+        setLoadingStageSteps(0, 4);
+      } else if (stage > 0) {
+        setLoadingStageSteps(stage, stage - 1);
+      } else {
+        setLoadingStageSteps(0, 0);
+      }
     }
 
     function clearPreprocessProgress(label = "预处理") {
       const row = $("preprocessProgressRow");
       const bar = $("preprocessProgressBar");
       const text = $("preprocessProgressText");
-      if (!row || !bar || !text) return;
-      bar.value = 0;
-      text.textContent = `${label}：0/0`;
-      row.classList.remove("show");
+      if (bar) bar.value = 0;
+      if (text) text.textContent = `${label}：0/0（0%）`;
+      if (row) row.classList.remove("show");
+      const loadingBar = $("loadingProgressBar");
+      const loadingText = $("loadingProgressText");
+      const loadingDetail = $("loadingProgressDetail");
+      if (loadingBar) loadingBar.value = 0;
+      if (loadingText) loadingText.textContent = "0%";
+      if (loadingDetail) loadingDetail.textContent = `${label}：0/0`;
+      setLoadingStageSteps(0, 0);
     }
 
     function setLoading(show, text) {
       state.busy = !!show;
       $("loadingMask").classList.toggle("show", !!show);
       $("loadingText").textContent = text || "处理中...";
+      if (show) {
+        const loadingDetail = $("loadingProgressDetail");
+        if (loadingDetail) loadingDetail.textContent = String(text || "处理中...");
+      } else {
+        setLoadingStageSteps(0, 0);
+      }
       refreshActionButtons();
     }
 
@@ -307,6 +355,7 @@ import { normalizeImportTemplateSchemaPayload } from "./features/shared/schema-f
       getFilteredSortedQueue,
       getKeywordStatusFilteredQueue,
       getColumnFilterOptionEntries,
+      readListColumnValue,
       getModelCodeDisplay,
       getDeviceCodeDisplay,
       updateSourceDeviceNameText,

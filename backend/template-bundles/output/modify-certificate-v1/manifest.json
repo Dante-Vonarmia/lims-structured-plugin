@@ -1,10 +1,10 @@
 {
   "bundleId": "output.modify-certificate.v1",
-  "displayName": "修改证书蓝本",
+  "displayName": "气瓶定期检验报告",
   "version": "1.0.0",
   "kind": "output",
   "enabled": true,
-  "description": "修改证书蓝本输出资料包",
+  "description": "气瓶定期检验报告输出资料包",
   "entries": {
     "template": "template.docx",
     "editor_schema": "editor-schema.json",

@@ -190,7 +190,7 @@ class FormulaTemplateMatchTDD(unittest.TestCase):
             key = "882" if file_name.startswith("882") else file_name.split(" ")[0]
             device_name = device_name_hints.get(key, "")
             matched, matched_by = match_template_name(
-                raw_text=f"器具名称: {device_name}\n",
+                raw_text=f"气瓶名称: {device_name}\n",
                 file_name=file_name,
                 device_name=device_name,
                 device_code="",

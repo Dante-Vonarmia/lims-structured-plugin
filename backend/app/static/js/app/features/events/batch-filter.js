@@ -119,11 +119,11 @@ export function createBatchFilterBindings(deps = {}) {
           setLoading(
             true,
             generateMode === "source_file"
-              ? `批量生成修改证书中：${targets.length} 条`
+              ? `批量生成气瓶定期检验报告中：${targets.length} 条`
               : `批量生成原始记录中：${targets.length} 条`,
           );
         } else {
-          setLoading(true, generateMode === "source_file" ? `生成修改证书中：${item.fileName}` : `生成原始记录中：${item.fileName}`);
+          setLoading(true, generateMode === "source_file" ? `生成气瓶定期检验报告中：${item.fileName}` : `生成原始记录中：${item.fileName}`);
         }
         let success = 0;
         let failed = 0;
@@ -146,11 +146,11 @@ export function createBatchFilterBindings(deps = {}) {
         if (targets.length > 1) {
           setStatus(
             generateMode === "source_file"
-              ? `批量生成修改证书完成：成功 ${success}，失败 ${failed}`
+              ? `批量生成气瓶定期检验报告完成：成功 ${success}，失败 ${failed}`
               : `批量生成原始记录完成：成功 ${success}，失败 ${failed}`,
           );
         } else if (failed === 0) {
-          setStatus(generateMode === "source_file" ? `已生成修改证书：${item.fileName}` : `已生成原始记录：${item.fileName}`);
+          setStatus(generateMode === "source_file" ? `已生成气瓶定期检验报告：${item.fileName}` : `已生成原始记录：${item.fileName}`);
         } else {
           setStatus(`生成失败：${item.fileName}`);
         }

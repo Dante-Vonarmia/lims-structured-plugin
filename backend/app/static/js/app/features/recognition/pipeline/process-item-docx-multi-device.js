@@ -27,7 +27,7 @@ export async function handleDocxMultiDevicePath(deps = {}) {
     }
     renderQueue();
     renderTemplateSelect();
-    appendLog(`多器具拆分完成 ${item.fileName}：${groupItems.length} 条`);
+    appendLog(`多气瓶拆分完成 ${item.fileName}：${groupItems.length} 条`);
     return true;
   }
 

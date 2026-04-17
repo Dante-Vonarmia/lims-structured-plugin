@@ -4,10 +4,10 @@ from typing import Any
 def build_field_registry() -> dict[str, dict[str, Any]]:
     return {
         "certificate_no": {"label": "序号"},
-        "device_name": {"label": "器具名称"},
+        "device_name": {"label": "气瓶名称"},
         "manufacturer": {"label": "制造厂/商"},
         "device_model": {"label": "型号/规格"},
-        "device_code": {"label": "器具编号"},
+        "device_code": {"label": "气瓶编号"},
         "basis_mode": {"label": "依据类型（检测/校准）"},
         "basis_standard": {"label": "检测/校准依据", "wide": True},
         "temperature": {"label": "温度 (℃)"},

@@ -1,7 +1,7 @@
 aliases:
   device_name:
     - deviceName
-    - 器具名称
+    - 气瓶名称
     - 设备名称
     - 仪器名称
     - name
@@ -14,7 +14,7 @@ aliases:
     - model
   device_code:
     - deviceCode
-    - 器具编号
+    - 气瓶编号
     - 设备编号
     - 仪器编号
     - 资产编号

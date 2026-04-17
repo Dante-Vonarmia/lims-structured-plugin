@@ -25,6 +25,16 @@ export async function handleSchemaTableBranch(deps = {}) {
     ocrEngine,
   } = deps;
 
+  const buildOcrQualityHint = () => {
+    const quality = item && item.ocrStructured && item.ocrStructured.image_quality;
+    if (!quality || typeof quality !== "object") return "";
+    const summary = String(quality.summary || "").trim();
+    if (summary) return `；图像反馈：${summary}`;
+    const issues = Array.isArray(quality.issues) ? quality.issues : [];
+    const first = issues[0] && String(issues[0].message || "").trim();
+    return first ? `；图像反馈：${first}` : "";
+  };
+
   if (!schemaColumns.length) return false;
 
   item.fieldPipeline = buildWaitingFieldPipeline(schemaColumns, schemaRules);
@@ -82,7 +92,7 @@ export async function handleSchemaTableBranch(deps = {}) {
   item.fieldPipeline = buildWaitingFieldPipeline(schemaColumns, schemaRules);
   item.groupPipeline = buildWaitingGroupPipeline(schemaGroups);
   item.status = "ready";
-  item.message = "未识别到表格数据行";
+  item.message = `未识别到表格数据行${buildOcrQualityHint()}`;
   renderQueue();
   renderTemplateSelect();
   return true;

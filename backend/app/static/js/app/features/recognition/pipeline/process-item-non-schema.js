@@ -45,7 +45,7 @@ export async function handleNonSchemaBranch(deps = {}) {
         structuredInstrumentData = extracted;
       }
     } catch (error) {
-      appendLog(`结构化器具表提取失败 ${item.fileName}：${error.message || "unknown"}`);
+      appendLog(`结构化气瓶表提取失败 ${item.fileName}：${error.message || "unknown"}`);
     }
     try {
       const structRes = await runGeneralCheckStructureExtract(item.fileId);

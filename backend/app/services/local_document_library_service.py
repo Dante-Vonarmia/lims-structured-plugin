@@ -150,10 +150,10 @@ def _extract_template_markers(path: Path) -> dict[str, bool]:
     text_block = "\n".join(lines)
 
     return {
-        "device_name": _contains_any(text_block, ("器具名称", "设备名称", "仪器名称")),
+        "device_name": _contains_any(text_block, ("气瓶名称", "设备名称", "仪器名称")),
         "manufacturer": _contains_any(text_block, ("制造厂/商", "制造商", "生产厂商", "厂商", "厂家")),
         "device_model": _contains_any(text_block, ("型号/规格", "型号", "规格型号", "型号/编号")),
-        "device_code": _contains_any(text_block, ("器具编号", "设备编号", "仪器编号", "编号")),
+        "device_code": _contains_any(text_block, ("气瓶编号", "设备编号", "仪器编号", "编号")),
         "certificate_no": _contains_any(text_block, ("缆专检号", "证书编号", "证书号", "序号")),
         "basis_standard": _contains_any(text_block, ("依据", "检测依据", "校准依据")),
         "location": _contains_any(text_block, ("地点", "检测地点", "校准地点")),

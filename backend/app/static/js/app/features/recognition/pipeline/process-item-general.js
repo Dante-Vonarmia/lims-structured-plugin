@@ -30,8 +30,14 @@ export async function handleGeneralBranch(deps = {}) {
     buildMultiDeviceWordItems,
     appendLog,
     replaceSourceWithRowsProgressively,
+    progressCallback,
   } = deps;
+  const reportProgress = (phase, progress, message = "") => {
+    if (typeof progressCallback !== "function") return;
+    progressCallback(phase, progress, message);
+  };
 
+  reportProgress("upload", 30, "上传文件中");
   item.status = "processing";
   item.message = "上传中";
   item.reportId = "";
@@ -49,6 +55,7 @@ export async function handleGeneralBranch(deps = {}) {
   const schemaColumns = getSchemaColumnsFromState(state);
   const schemaRules = getSchemaRulesFromState(state);
   const schemaGroups = getSchemaGroupsFromState(state, schemaColumns);
+  reportProgress("ocr", 55, "OCR识别中");
   item.message = "识别中";
   renderQueue();
   const ocr = await runOcr(item.fileId);
@@ -64,6 +71,26 @@ export async function handleGeneralBranch(deps = {}) {
   const reviewQueue = Array.isArray(item.ocrStructured && item.ocrStructured.review_queue)
     ? item.ocrStructured.review_queue
     : [];
+  const hasRawText = !!String(item.rawText || "").trim();
+  const hasStructuredRows = structuredRowsRaw.length > 0;
+  const hasStructuredCells = tableCells.some((cell) => {
+    const finalText = String((cell && cell.final_text) || "").trim();
+    const rawCellText = String((cell && cell.raw_text) || "").trim();
+    return !!(finalText || rawCellText);
+  });
+  if (!hasRawText && !hasStructuredRows && !hasStructuredCells) {
+    const quality = item && item.ocrStructured && item.ocrStructured.image_quality;
+    const qualitySummary = String((quality && quality.summary) || "").trim();
+    const baseMessage = item.ocrEngine && item.ocrEngine !== "none"
+      ? `OCR未提取到有效内容（引擎：${item.ocrEngine}）`
+      : "OCR未提取到有效内容（引擎不可用或结果为空）";
+    item.status = "error";
+    item.message = qualitySummary ? `${baseMessage}；${qualitySummary}` : baseMessage;
+    renderQueue();
+    renderTemplateSelect();
+    throw new Error(item.message);
+  }
+  reportProgress("parse", 75, schemaColumns.length ? "结构化解析中" : "文本解析中");
   const schemaHandled = await handleSchemaTableBranch({
     item,
     state,
@@ -82,7 +109,11 @@ export async function handleGeneralBranch(deps = {}) {
     structuredRowsRaw,
     ocrEngine: item.ocrEngine,
   });
-  if (schemaHandled) return;
+  if (schemaHandled) {
+    reportProgress("match", 92, "模板匹配中");
+    return;
+  }
+  reportProgress("match", 92, "模板匹配中");
   await handleNonSchemaBranch({
     item,
     state,

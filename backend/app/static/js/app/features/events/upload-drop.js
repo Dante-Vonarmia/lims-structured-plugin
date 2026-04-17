@@ -75,18 +75,17 @@ export function createUploadDropBindings(deps = {}) {
     }
   }
 
-  function bindUploadEvents() {
-    $("uploadBtn").addEventListener("click", (event) => {
-      if (state.busy) return;
-      event.preventDefault();
-      $("sourceFiles").click();
-    });
+    function bindUploadEvents() {
+      $("uploadBtn").addEventListener("click", (event) => {
+        event.preventDefault();
+        $("sourceFiles").click();
+      });
 
     $("sourceFiles").addEventListener("change", async () => {
       const files = Array.from($("sourceFiles").files || []);
       addFilesToQueue(files);
       $("sourceFiles").value = "";
-      if (!state.busy) await processAllPending();
+      void processAllPending();
     });
   }
 
@@ -154,11 +153,10 @@ export function createUploadDropBindings(deps = {}) {
       event.preventDefault();
       dragDepth = 0;
       hideDropState();
-      if (state.busy) return;
       try {
         const files = await filesFromDataTransfer(event.dataTransfer);
         addFilesToQueue(files);
-        if (!state.busy) await processAllPending();
+        void processAllPending();
       } catch (error) {
         setStatus(`拖拽失败：${error.message || "unknown"}`);
         appendLog(`拖拽失败：${error.message || "unknown"}`);
@@ -172,4 +170,3 @@ export function createUploadDropBindings(deps = {}) {
     bindQueueLayoutAndDropEvents,
   };
 }
-

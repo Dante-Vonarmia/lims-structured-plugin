@@ -39,9 +39,9 @@
           </select>
           <select id="sortKey" hidden>
             <option value="">排序：默认</option>
-            <option value="device_name">器具名称</option>
+            <option value="device_name">气瓶名称</option>
             <option value="model_code">型号规格</option>
-            <option value="device_code">器具编号</option>
+            <option value="device_code">气瓶编号</option>
             <option value="manufacturer">生产厂商</option>
             <option value="status">状态</option>
             <option value="templateName">模板</option>
@@ -126,7 +126,22 @@
 
   </div>
 
-  <div id="loadingMask" class="mask"><div id="loadingText" class="mask-box">处理中...</div></div>
+  <div id="loadingMask" class="mask">
+    <div class="mask-box">
+      <div id="loadingText" class="mask-title">处理中...</div>
+      <div id="loadingProgressRow" class="mask-progress-row">
+        <div id="loadingProgressText" class="mask-progress-text">0%</div>
+        <progress id="loadingProgressBar" max="100" value="0"></progress>
+      </div>
+      <div id="loadingStageSteps" class="mask-stage-steps" aria-label="识别阶段">
+        <span id="loadingStageStep1" class="mask-stage-step">1. 上传</span>
+        <span id="loadingStageStep2" class="mask-stage-step">2. OCR识别</span>
+        <span id="loadingStageStep3" class="mask-stage-step">3. 结构化解析</span>
+        <span id="loadingStageStep4" class="mask-stage-step">4. 模板匹配</span>
+      </div>
+      <div id="loadingProgressDetail" class="mask-progress-detail">准备中</div>
+    </div>
+  </div>
   <script type="module" src="/static/js/app/main.js?v=20260331-1650"></script>
 </body>
 </html>

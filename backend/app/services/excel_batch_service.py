@@ -7,9 +7,9 @@ from .template_service import list_available_templates, match_template_name
 
 FIELD_ALIASES: dict[str, set[str]] = {
     "template_name": {"template_name", "模板", "模板名称", "template"},
-    "device_name": {"device_name", "器具名称", "设备名称", "仪器名称", "name"},
+    "device_name": {"device_name", "气瓶名称", "设备名称", "仪器名称", "name"},
     "device_model": {"device_model", "型号规格", "规格型号", "型号", "规格", "model"},
-    "device_code": {"device_code", "器具编号", "设备编号", "资产编号", "编号", "serial", "code"},
+    "device_code": {"device_code", "气瓶编号", "设备编号", "资产编号", "编号", "serial", "code"},
     "manufacturer": {"manufacturer", "生产厂商", "制造厂商", "制造厂/商", "厂家", "厂商"},
     "use_department": {"use_department", "使用部门", "部门", "使用科室", "科室"},
     "certificate_no": {"certificate_no", "证书编号", "证书号", "缆专检号", "certificate"},
@@ -331,7 +331,7 @@ for extra_header in [
     "设备编号",
     "设备名称",
     "规格型号",
-    "器具编号",
+    "气瓶编号",
     "计量单位",
     "购置日期",
     "启用日期",
@@ -353,7 +353,7 @@ HEADER_KEYWORD_HINTS = (
     "日期",
     "模板",
     "设备",
-    "器具",
+    "气瓶",
     "证书",
     "厂商",
     "厂家",
@@ -687,7 +687,7 @@ def is_placeholder_record_row(fields: dict[str, str]) -> bool:
         "instrumentname",
         "devicename",
         "equipmentname",
-        "器具名称",
+        "气瓶名称",
         "设备名称",
         "仪器名称",
     }

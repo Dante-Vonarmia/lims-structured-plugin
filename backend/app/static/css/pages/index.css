@@ -2044,9 +2044,70 @@ tr.row-generated.active { background: #dceddf; }
 .mask-box {
   border: 1px solid var(--border-2);
   background: #f6f9ff;
-  padding: 10px 12px;
-  font-weight: 700;
+  padding: 10px 12px 9px;
   color: #1d3550;
+  min-width: 320px;
+  display: grid;
+  gap: 6px;
+}
+
+.mask-title {
+  font-weight: 700;
+}
+
+.mask-progress-row {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.mask-progress-text {
+  font-weight: 700;
+  font-size: 12px;
+  color: #214060;
+}
+
+.mask-progress-row progress {
+  width: 100%;
+  height: 12px;
+}
+
+.mask-progress-detail {
+  font-size: 12px;
+  color: #39526e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mask-stage-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.mask-stage-step {
+  font-size: 11px;
+  color: #6d8096;
+  border: 1px solid #cfdae8;
+  background: #eef3fa;
+  padding: 3px 5px;
+  border-radius: 2px;
+  text-align: center;
+}
+
+.mask-stage-step.is-done {
+  color: #1f4f34;
+  border-color: #8ec6a4;
+  background: #e4f4ea;
+}
+
+.mask-stage-step.is-active {
+  color: #1f4565;
+  border-color: #8fb1d6;
+  background: #e2edf9;
+  font-weight: 700;
 }
 
 @media (max-width: 1080px) {

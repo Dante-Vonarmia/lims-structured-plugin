@@ -2,9 +2,9 @@ export const TARGET_BASIC_FORM_FIELDS = [
   { key: "certificate_no", label: "缆专检号" },
   { key: "client_name", label: "委托单位" },
   { key: "address", label: "地址" },
-  { key: "device_name", label: "器具名称" },
+  { key: "device_name", label: "气瓶名称" },
   { key: "device_model", label: "型号" },
-  { key: "device_code", label: "器具编号" },
+  { key: "device_code", label: "气瓶编号" },
   { key: "manufacturer", label: "生产厂商" },
 ];
 
@@ -15,9 +15,9 @@ export const TARGET_EDIT_GROUPS = [
       { key: "certificate_no", label: "缆专检号" },
       { key: "client_name", label: "委托单位" },
       { key: "address", label: "地址" },
-      { key: "device_name", label: "器具名称" },
+      { key: "device_name", label: "气瓶名称" },
       { key: "device_model", label: "型号" },
-      { key: "device_code", label: "器具编号" },
+      { key: "device_code", label: "气瓶编号" },
       { key: "manufacturer", label: "生产厂商" },
     ],
   },
@@ -29,9 +29,9 @@ export const TARGET_EDIT_GROUPS = [
     ],
   },
   {
-    title: "本次校准所使用的主要计量标准器具",
+    title: "本次校准所使用的主要计量标准气瓶",
     fields: [
-      { key: "measurement_items", label: "器具表信息", multiline: true, rows: 6 },
+      { key: "measurement_items", label: "气瓶表信息", multiline: true, rows: 6 },
     ],
   },
   {

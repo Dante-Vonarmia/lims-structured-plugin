@@ -29,7 +29,7 @@ TEMPLATE_BUNDLE_ROOT = Path(os.getenv("TEMPLATE_BUNDLE_ROOT", BASE_DIR / "templa
 RAW_RECORD_DIR = Path(os.getenv("RAW_RECORD_DIR", BASE_DIR / "raw-records"))
 INSTRUMENT_CATALOG_AUTO_DIR = Path(os.getenv("INSTRUMENT_CATALOG_AUTO_DIR", BASE_DIR / "instrument-catalog"))
 INSTRUMENT_CATALOG_AUTO_KEYWORDS = tuple(
-    [x.strip() for x in os.getenv("INSTRUMENT_CATALOG_AUTO_KEYWORDS", "器具目录,器具总目录,instrument_catalog,catalog").split(",") if x.strip()]
+    [x.strip() for x in os.getenv("INSTRUMENT_CATALOG_AUTO_KEYWORDS", "气瓶目录,气瓶总目录,instrument_catalog,catalog").split(",") if x.strip()]
 )
 LOCAL_DOCUMENT_LIBRARY_FILE = Path(os.getenv("LOCAL_DOCUMENT_LIBRARY_FILE", OUTPUT_DIR / "local_document_library.json"))
 DEFAULT_TEMPLATE_NAME = os.getenv("DEFAULT_TEMPLATE_NAME", "report_template.docx")

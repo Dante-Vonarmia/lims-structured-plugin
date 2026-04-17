@@ -66,7 +66,7 @@ def detect_candidate_field_keys(template_name: str, text: str) -> list[str]:
         push("humidity")
     if contains_any(source, ("一般检查", "校准结果", "结果：")):
         push("general_check_full")
-    if contains_any(source, ("检测项目", "测量项目", "主要计量标准器具")):
+    if contains_any(source, ("检测项目", "测量项目", "主要计量标准气瓶")):
         push("measurement_items")
 
     # High-voltage measurement profile

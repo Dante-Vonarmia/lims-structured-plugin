@@ -60,7 +60,7 @@ def extract_instrument_rows(
         trace_idx = -1
         for ri, row in enumerate(rows):
             for ci, cell in enumerate(row):
-                if "器具名称" in cell:
+                if "气瓶名称" in cell:
                     name_idx = ci
                 if "型号/规格" in cell:
                     model_idx = ci
@@ -102,7 +102,7 @@ def extract_instrument_rows(
                 continue
             if normalize_space(name) in {"/", "／"} and normalize_space(model) in {"/", "／", ""}:
                 continue
-            if "以上计量标准器具" in name or "其它校准信息" in name:
+            if "以上计量标准气瓶" in name or "其它校准信息" in name:
                 break
             cleaned_name = clean_item_name(name)
             cleaned_name = sanitize_instrument_cell(cleaned_name)

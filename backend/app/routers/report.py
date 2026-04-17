@@ -98,7 +98,7 @@ def create_report(request: ReportRequest) -> ReportResponse:
     if source_file_as_template:
         blueprint_name = normalize_legacy_template_name(str(MODIFY_CERTIFICATE_BLUEPRINT_TEMPLATE_NAME or "").strip())
         if not blueprint_name:
-            raise HTTPException(status_code=422, detail="修改证书蓝本未配置")
+            raise HTTPException(status_code=422, detail="气瓶定期检验报告未配置")
         template_name = blueprint_name
         source_file_as_template = False
     try:
@@ -441,7 +441,7 @@ def extract_instrument_table(file_id: str) -> dict[str, object]:
 
     if not rows:
         return {"rows": [], "tsv": "", "total": 0}
-    header = ["计量标准器具名称", "型号/规格", "编号", "测量范围", "准确度/不确定度", "证书编号/有效期", "溯源机构"]
+    header = ["计量标准气瓶名称", "型号/规格", "编号", "测量范围", "准确度/不确定度", "证书编号/有效期", "溯源机构"]
     table = [header, *rows]
     tsv = "\n".join(["\t".join(row) for row in table])
     return {"rows": rows, "tsv": tsv, "total": len(rows)}

@@ -63,7 +63,7 @@ class NonFormulaTemplateMatchTDD(unittest.TestCase):
             with patch("app.services.template_feedback_service.DEFAULTS_FILE", defaults_file):
                 for file_name, device_name, expected in NON_FORMULA_CASES:
                     matched, matched_by = match_template_name(
-                        raw_text=f"器具名称: {device_name}\n",
+                        raw_text=f"气瓶名称: {device_name}\n",
                         file_name=file_name,
                         device_name=device_name,
                         device_code="",
@@ -88,7 +88,7 @@ class NonFormulaTemplateMatchTDD(unittest.TestCase):
             defaults_file.write_text("version: 1\nentries: []\n", encoding="utf-8")
             with patch("app.services.template_feedback_service.DEFAULTS_FILE", defaults_file):
                 matched, matched_by = match_template_name(
-                    raw_text="器具名称: 热延伸试验箱\n器具编号: 12040DA15\n",
+                    raw_text="气瓶名称: 热延伸试验箱\n气瓶编号: 12040DA15\n",
                     file_name="005 自然通风热老化试验箱-1.docx",
                     device_name="热延伸试验箱",
                     device_code="12040DA15",
@@ -121,7 +121,7 @@ class NonFormulaTemplateMatchTDD(unittest.TestCase):
             )
             with patch("app.services.template_feedback_service.DEFAULTS_FILE", defaults_file):
                 matched, matched_by = match_template_name(
-                    raw_text="器具名称: 扁线立绕试验仪\n器具编号: 2301021\n",
+                    raw_text="气瓶名称: 扁线立绕试验仪\n气瓶编号: 2301021\n",
                     file_name="2 立绕试验仪CNAS.docx",
                     device_name="扁线立绕试验仪",
                     device_code="2301021",

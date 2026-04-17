@@ -43,7 +43,7 @@ def _normalize_device_code_value(value: str) -> str:
     if not text:
         return ""
     text = _strip_english_label_prefix(text)
-    text = re.sub(r"^(?:出厂编号|设备编号|器具编号|编号|No\.?|Serial(?:\s*No\.?)?|Number)\s*[:：]?\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"^(?:出厂编号|设备编号|气瓶编号|编号|No\.?|Serial(?:\s*No\.?)?|Number)\s*[:：]?\s*", "", text, flags=re.IGNORECASE)
     text = re.split(r"(输出容量|额定功率|Rated power)", text, maxsplit=1, flags=re.IGNORECASE)[0]
     text = text.strip(" /|;,")
     compact_candidate = re.sub(r"\s+", "", text)
@@ -78,7 +78,7 @@ def _is_placeholder_name(value: str) -> bool:
         "instrumentname",
         "devicename",
         "equipmentname",
-        "器具名称",
+        "气瓶名称",
         "设备名称",
         "仪器名称",
     }
@@ -141,9 +141,9 @@ def _strip_english_label_prefix(value: str) -> str:
 
 
 STRUCTURED_FIELD_LABELS: dict[str, tuple[str, ...]] = {
-    "device_name": ("器具名称", "设备名称", "仪器名称", "instrument name"),
+    "device_name": ("气瓶名称", "设备名称", "仪器名称", "instrument name"),
     "device_model": ("型号/规格", "型号规格", "型号", "model/specification", "model"),
-    "device_code": ("器具编号", "设备编号", "编号", "instrument serial number", "serial number"),
+    "device_code": ("气瓶编号", "设备编号", "编号", "instrument serial number", "serial number"),
     "manufacturer": ("制造厂/商", "生产厂商", "制造厂商", "manufacturer"),
     "unit_name": ("委托单位", "单位名称", "client"),
     "address": ("地址", "地 址", "address"),
@@ -238,7 +238,7 @@ def _looks_like_structured_label_line(value: str) -> bool:
     if not token:
         return False
     if token in {
-        "器具名称",
+        "气瓶名称",
         "设备名称",
         "仪器名称",
         "instrumentname",
@@ -247,7 +247,7 @@ def _looks_like_structured_label_line(value: str) -> bool:
         "规格",
         "modelspecification",
         "model",
-        "器具编号",
+        "气瓶编号",
         "设备编号",
         "编号",
         "instrumentserialnumber",
@@ -290,9 +290,9 @@ def _looks_like_structured_label_line(value: str) -> bool:
             "serialnumber",
             "manufacturer",
             "certificateseriesnumber",
-            "器具名称",
+            "气瓶名称",
             "型号规格",
-            "器具编号",
+            "气瓶编号",
             "制造厂商",
             "生产厂商",
         )
@@ -391,7 +391,7 @@ def _is_low_quality_field_value(field_key: str, value: str) -> bool:
     if field_key == "device_model":
         return _is_placeholder_model(text) or token in {"型号", "规格", "型号规格", "modelspecification"}
     if field_key == "device_code":
-        if _is_placeholder_code(text) or token in {"编号", "器具编号", "设备编号", "serialnumber"}:
+        if _is_placeholder_code(text) or token in {"编号", "气瓶编号", "设备编号", "serialnumber"}:
             return True
         compact = re.sub(r"\s+", "", text)
         if not re.search(r"\d", compact) and not re.search(r"[A-Za-z]{2,}", compact):

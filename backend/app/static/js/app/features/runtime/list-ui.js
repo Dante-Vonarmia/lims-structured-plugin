@@ -128,6 +128,13 @@ export function createRuntimeListUiFeature(deps = {}) {
     if (key === "manufacture_date") return String(toDateOnlyDisplay(f.manufacture_date || ""));
     if (key === "contact_info") return String(f.contact_info || "");
     if (key === "measurement_item_count") return String(f.measurement_item_count || "");
+    if (key === "ocr_quality") {
+      const quality = item && item.ocrStructured && item.ocrStructured.image_quality;
+      const score = Number(quality && quality.score);
+      if (!Number.isFinite(score)) return "";
+      const safe = Math.max(0, Math.min(100, Math.round(score)));
+      return `${safe}/100`;
+    }
     if (key === "manufacturer") return String(f.manufacturer || "");
     if (key === "use_department") return String(f.use_department || "");
     if (key === "unit_name") return String(f.unit_name || "");

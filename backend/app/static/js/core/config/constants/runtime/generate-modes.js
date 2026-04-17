@@ -1,7 +1,7 @@
 export const GENERATE_MODE_META = Object.freeze({
   source_file: Object.freeze({
-    label: "修改证书",
-    generatedStatusLabel: "已生成·修改证书",
+    label: "气瓶定期检验报告",
+    generatedStatusLabel: "已生成·气瓶定期检验报告",
   }),
   certificate_template: Object.freeze({
     label: "原始记录",

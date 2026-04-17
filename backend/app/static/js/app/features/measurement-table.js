@@ -34,7 +34,7 @@ export function createMeasurementTableFeature(deps = {}) {
     if (tableBySpace && tableBySpace.length >= 3) return tableBySpace;
 
     const parseInstrumentBlockTable = () => {
-      const hasInstrumentMarker = lines.some((line) => /本次校准所使用的主要计量标准器具|main measurement standard instruments used in this calibration/i.test(line));
+      const hasInstrumentMarker = lines.some((line) => /本次校准所使用的主要计量标准气瓶|main measurement standard instruments used in this calibration/i.test(line));
       const hasColumnMarker = lines.some((line) => /测量范围|measurement range|证书编号|certificate number|溯源机构|traceability/i.test(line));
       if (!hasInstrumentMarker && !hasColumnMarker) return null;
 
@@ -42,7 +42,7 @@ export function createMeasurementTableFeature(deps = {}) {
         const text = String(line || "").trim();
         if (!text) return true;
         const patterns = [
-          /本次校准所使用的主要计量标准器具/i,
+          /本次校准所使用的主要计量标准气瓶/i,
           /main measurement standard instruments used in this calibration/i,
           /^(?:编\s*号|number|编号\s*\/?\s*number)$/i,
           /^(?:编号\s*number|number\s*编号)$/i,
@@ -59,7 +59,7 @@ export function createMeasurementTableFeature(deps = {}) {
           /^(?:溯源机构名称|name of traceability)$/i,
           /^(?:溯源机构名称\s*name of traceability)$/i,
           /^institution$/i,
-          /^以上计量标准器具/u,
+          /^以上计量标准气瓶/u,
           /^quantity values of above measurement standards/i,
         ];
         return patterns.some((pattern) => pattern.test(text));
@@ -122,7 +122,7 @@ export function createMeasurementTableFeature(deps = {}) {
         const looksLikeUncertainty = (v) => /(?:u\s*=|Urel|U=|k\s*=|电压|电流|长度|重复性|时间间隔|日差|μV|mV|%RH)/i.test(String(v || ""));
         const looksLikeDate = (v) => /(?:\d{4}年\d{1,2}月\d{1,2}日|\d{4}[./-]\d{1,2}[./-]\d{1,2})/.test(String(v || ""));
         const looksLikeInstitution = (v) => /^[A-Z]{2,8}$/.test(String(v || "").trim());
-        const header = ["计量标准器具名称", "型号/规格", "编号", "测量范围", "准确度/不确定度", "证书编号/有效期", "溯源机构"];
+        const header = ["计量标准气瓶名称", "型号/规格", "编号", "测量范围", "准确度/不确定度", "证书编号/有效期", "溯源机构"];
         const rows = [];
 
         for (let ni = 0; ni < nameIndexes.length; ni += 1) {
@@ -181,8 +181,8 @@ export function createMeasurementTableFeature(deps = {}) {
       else if (preparedLines.length % 7 === 0) chunkSize = 7;
 
       const headersBySize = {
-        8: ["计量标准器具名称", "型号/规格", "编号", "测量范围", "准确度/不确定度", "证书编号", "有效期", "溯源机构"],
-        7: ["计量标准器具名称", "型号/规格", "编号", "测量范围", "准确度/不确定度", "证书编号/有效期", "溯源机构"],
+        8: ["计量标准气瓶名称", "型号/规格", "编号", "测量范围", "准确度/不确定度", "证书编号", "有效期", "溯源机构"],
+        7: ["计量标准气瓶名称", "型号/规格", "编号", "测量范围", "准确度/不确定度", "证书编号/有效期", "溯源机构"],
       };
       const looksLikeNoiseCell = (text) => {
         const v = String(text || "").trim();
@@ -191,7 +191,7 @@ export function createMeasurementTableFeature(deps = {}) {
           /准确度等级|最大允许误差|不确定度/i,
           /证书编号|有效期|certificate number|valid date/i,
           /时间间隔|日差|温度[:：]\s*u=|电压[:：]\s*u=|电流[:：]\s*u=/i,
-          /以上计量标准器具|quantity values of above measurement standards/i,
+          /以上计量标准气瓶|quantity values of above measurement standards/i,
         ];
         return checks.some((re) => re.test(v));
       };
@@ -312,7 +312,7 @@ export function createMeasurementTableFeature(deps = {}) {
     if (!raw) return "";
     const block = extractBlockByLine(
       raw,
-      [/(?:本次校准所使用的主要计量标准器具|主要计量标准器具|Main measurement standard instruments)/i],
+      [/(?:本次校准所使用的主要计量标准气瓶|主要计量标准气瓶|Main measurement standard instruments)/i],
       [/(?:本次校准所依据的技术规范|检测\/校准依据|校准依据)/i, /(?:其它|其他)校准信息|Calibration Information/i, /(?:一般检查|General inspection)/i, /^备注[:：]?/i],
     );
     return String(block || "").trim();
@@ -333,7 +333,7 @@ export function createMeasurementTableFeature(deps = {}) {
     if (sourceTag === "structured") return false;
     const [header, ...body] = tableRows;
     const headerText = (Array.isArray(header) ? header : []).map((x) => String(x || "")).join(" ");
-    const hasNameHeader = /器具名称|计量标准器具名称|instrument\s*name/i.test(headerText);
+    const hasNameHeader = /气瓶名称|计量标准气瓶名称|instrument\s*name/i.test(headerText);
     const hasModelHeader = /型号\/规格|model\/specification/i.test(headerText);
     const hasCertHeader = /证书编号/i.test(headerText);
     const hasValidHeader = /有效期/i.test(headerText);
@@ -376,7 +376,7 @@ export function createMeasurementTableFeature(deps = {}) {
   }
 
   function buildFallbackMeasurementRows(text) {
-    const header = ["计量标准器具名称", "型号/规格", "编号", "测量范围", "准确度/不确定度", "证书编号/有效期", "溯源机构"];
+    const header = ["计量标准气瓶名称", "型号/规格", "编号", "测量范围", "准确度/不确定度", "证书编号/有效期", "溯源机构"];
     const raw = String(text || "").trim();
     if (!raw) return [header, ["", "", "", "", "", "", ""]];
     return [header, [raw, "", "", "", "", "", ""]];
@@ -387,7 +387,7 @@ export function createMeasurementTableFeature(deps = {}) {
     const token = (x) => normalizeValidationToken(String(x || ""));
     const nameIdx = header.findIndex((h) => {
       const t = token(h);
-      return t.includes("计量标准器具名称") || t.includes("器具名称") || t.includes("instrumentname");
+      return t.includes("计量标准气瓶名称") || t.includes("气瓶名称") || t.includes("instrumentname");
     });
     const modelIdx = header.findIndex((h) => {
       const t = token(h);
@@ -395,7 +395,7 @@ export function createMeasurementTableFeature(deps = {}) {
     });
     const codeIdx = header.findIndex((h) => {
       const t = token(h);
-      return t === "编号" || t.includes("器具编号") || t.includes("instrumentserialnumber") || t.includes("serialnumber");
+      return t === "编号" || t.includes("气瓶编号") || t.includes("instrumentserialnumber") || t.includes("serialnumber");
     });
     return {
       nameIdx: nameIdx >= 0 ? nameIdx : 0,

@@ -259,7 +259,7 @@ def _infer_fixed_handler_key(template_name: str) -> str | None:
         except Exception:
             pass
     normalized = _normalize_for_match(template_name)
-    if "修改证书蓝本" in template_name or "modify-certificate-blueprint" in normalized or "modify_certificate_blueprint" in normalized:
+    if "气瓶定期检验报告" in template_name or "modify-certificate-blueprint" in normalized or "modify_certificate_blueprint" in normalized:
         return "modify_certificate_blueprint"
     if re.search(r"r[-_ ]?802b", normalized, flags=re.IGNORECASE):
         return "r802b"
@@ -319,7 +319,7 @@ def _normalize_context_aliases(context: dict[str, str] | None) -> dict[str, str]
     alias_map = {
         "device_name": (
             "deviceName",
-            "器具名称",
+            "气瓶名称",
             "设备名称",
             "仪器名称",
             "name",
@@ -334,7 +334,7 @@ def _normalize_context_aliases(context: dict[str, str] | None) -> dict[str, str]
         ),
         "device_code": (
             "deviceCode",
-            "器具编号",
+            "气瓶编号",
             "设备编号",
             "仪器编号",
             "资产编号",
@@ -439,12 +439,12 @@ def _build_name_hints(raw_text: str, file_name: str | None, device_name: str = "
     _push(device_name)
 
     for pattern in (
-        r"(?mi)^\s*(?:器具名称|设备名称|仪器名称)[:：]?\s*([^\n|]+)",
+        r"(?mi)^\s*(?:气瓶名称|设备名称|仪器名称)[:：]?\s*([^\n|]+)",
         r"(?mi)^\s*(?:device|instrument)\s*name[:：]?\s*([^\n|]+)",
     ):
         for match in re.finditer(pattern, raw_text or "", flags=re.IGNORECASE):
             value = match.group(1)
-            if "计量标准器具名称" in value:
+            if "计量标准气瓶名称" in value:
                 continue
             _push(value)
 
@@ -457,7 +457,7 @@ def _build_name_hints(raw_text: str, file_name: str | None, device_name: str = "
 
 def _extract_primary_device_name(raw_text: str) -> str:
     for pattern in (
-        r"(?mi)^\s*器具名称[:：]?\s*([^\n|]+)",
+        r"(?mi)^\s*气瓶名称[:：]?\s*([^\n|]+)",
         r"(?mi)^\s*设备名称[:：]?\s*([^\n|]+)",
         r"(?mi)^\s*仪器名称[:：]?\s*([^\n|]+)",
         r"(?mi)^\s*(?:device|instrument)\s*name[:：]?\s*([^\n|]+)",
@@ -466,7 +466,7 @@ def _extract_primary_device_name(raw_text: str) -> str:
         if not match:
             continue
         value = _clean_name_hint(match.group(1))
-        if value and "计量标准器具名称" not in value:
+        if value and "计量标准气瓶名称" not in value:
             return value
     return ""
 
@@ -480,7 +480,7 @@ def _clean_name_hint(value: str) -> str:
     text = re.sub(r"[-_ ]*\d+$", "", text)
     if "|" in text:
         text = text.split("|", 1)[0].strip()
-    text = re.sub(r"^(?:器具名称|设备名称|仪器名称|instrument\s*name|device\s*name)[:：]?\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"^(?:气瓶名称|设备名称|仪器名称|instrument\s*name|device\s*name)[:：]?\s*", "", text, flags=re.IGNORECASE)
     text = re.sub(r"\s+", " ", text).strip()
     if len(text) < 2:
         return ""

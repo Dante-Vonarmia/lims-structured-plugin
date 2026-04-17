@@ -46,14 +46,14 @@ def _set_cell_text(tc: ET.Element, value: str) -> None:
 
 class FixedTemplateRuleEngineTDD(unittest.TestCase):
     def test_should_fill_next_value_cell_when_marker_cell_is_label_only(self) -> None:
-        cells = [_tc("器具名称：\nInstrument name"), _tc("")]
+        cells = [_tc("气瓶名称：\nInstrument name"), _tc("")]
         payload = {"device_name": "介质损耗试验仪"}
         rules = {
             "base_fields": [
                 {
                     "key": "device_name",
-                    "markers": ["器具名称", "设备名称", "仪器名称"],
-                    "format": "器具名称：{value}",
+                    "markers": ["气瓶名称", "设备名称", "仪器名称"],
+                    "format": "气瓶名称：{value}",
                 }
             ]
         }
@@ -68,18 +68,18 @@ class FixedTemplateRuleEngineTDD(unittest.TestCase):
                 format_mode_prefix=lambda _mode: "",
             )
         self.assertTrue(changed)
-        self.assertEqual(_get_cell_text(cells[0]), "器具名称：\nInstrument name")
+        self.assertEqual(_get_cell_text(cells[0]), "气瓶名称：\nInstrument name")
         self.assertEqual(_get_cell_text(cells[1]), "介质损耗试验仪")
 
     def test_should_fallback_to_same_cell_when_no_value_cell_available(self) -> None:
-        cells = [_tc("器具名称：")]
+        cells = [_tc("气瓶名称：")]
         payload = {"device_name": "介质损耗试验仪"}
         rules = {
             "base_fields": [
                 {
                     "key": "device_name",
-                    "markers": ["器具名称", "设备名称", "仪器名称"],
-                    "format": "器具名称：{value}",
+                    "markers": ["气瓶名称", "设备名称", "仪器名称"],
+                    "format": "气瓶名称：{value}",
                 }
             ]
         }
@@ -94,7 +94,7 @@ class FixedTemplateRuleEngineTDD(unittest.TestCase):
                 format_mode_prefix=lambda _mode: "",
             )
         self.assertTrue(changed)
-        self.assertEqual(_get_cell_text(cells[0]), "器具名称：介质损耗试验仪")
+        self.assertEqual(_get_cell_text(cells[0]), "气瓶名称：介质损耗试验仪")
 
     def test_should_not_apply_paragraph_rule_inside_table_cells(self) -> None:
         root = ET.Element(f"{{{W_NS}}}document")
@@ -105,20 +105,20 @@ class FixedTemplateRuleEngineTDD(unittest.TestCase):
         p_in_table = ET.SubElement(tc, f"{{{W_NS}}}p")
         r_in_table = ET.SubElement(p_in_table, f"{{{W_NS}}}r")
         t_in_table = ET.SubElement(r_in_table, f"{{{W_NS}}}t")
-        t_in_table.text = "器具名称："
+        t_in_table.text = "气瓶名称："
 
         p_outside = ET.SubElement(body, f"{{{W_NS}}}p")
         r_outside = ET.SubElement(p_outside, f"{{{W_NS}}}r")
         t_outside = ET.SubElement(r_outside, f"{{{W_NS}}}t")
-        t_outside.text = "器具名称："
+        t_outside.text = "气瓶名称："
 
         payload = {"device_name": "介质损耗试验仪"}
         rules = {
             "base_fields": [
                 {
                     "key": "device_name",
-                    "markers": ["器具名称", "设备名称", "仪器名称"],
-                    "format": "器具名称：{value}",
+                    "markers": ["气瓶名称", "设备名称", "仪器名称"],
+                    "format": "气瓶名称：{value}",
                 }
             ]
         }
@@ -131,8 +131,8 @@ class FixedTemplateRuleEngineTDD(unittest.TestCase):
                 format_mode_prefix=lambda _mode: "",
             )
         self.assertTrue(changed)
-        self.assertEqual("".join((n.text or "") for n in p_in_table.findall(f".//{{{W_NS}}}t")), "器具名称：")
-        self.assertEqual("".join((n.text or "") for n in p_outside.findall(f".//{{{W_NS}}}t")), "器具名称：介质损耗试验仪")
+        self.assertEqual("".join((n.text or "") for n in p_in_table.findall(f".//{{{W_NS}}}t")), "气瓶名称：")
+        self.assertEqual("".join((n.text or "") for n in p_outside.findall(f".//{{{W_NS}}}t")), "气瓶名称：介质损耗试验仪")
 
 
 if __name__ == "__main__":

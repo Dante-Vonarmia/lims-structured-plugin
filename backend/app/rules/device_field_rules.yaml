@@ -1,6 +1,6 @@
 device_name:
   patterns:
-    - "(设备名称|器具名称|仪器名称|品名)[:：]?\\s*(.+)"
+    - "(设备名称|气瓶名称|仪器名称|品名)[:：]?\\s*(.+)"
 
 device_model:
   patterns:

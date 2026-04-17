@@ -163,7 +163,7 @@ def _fill_by_fallback(result: dict[str, str], text: str) -> None:
         result["device_name"] = _extract_by_pattern(
             text,
             (
-                r"(?:设备名称|器具名称|仪器名称)[:：]?\s*([^\n]+)",
+                r"(?:设备名称|气瓶名称|仪器名称)[:：]?\s*([^\n]+)",
                 r"(局放仪|局部放电[^\n]{0,20}(?:系统|仪|装置))",
             ),
         )
@@ -188,7 +188,7 @@ def _fill_by_fallback(result: dict[str, str], text: str) -> None:
             text,
             (
                 r"(?:型号/编号)[:：]?\s*[A-Za-z0-9\-_./ ]*[:：]?\s*([A-Za-z0-9\-_./]+)",
-                r"(?:设备编号|器具编号|编号)[:：]?\s*([A-Za-z0-9\-_./]+)",
+                r"(?:设备编号|气瓶编号|编号)[:：]?\s*([A-Za-z0-9\-_./]+)",
                 r"(?:Number|Serial No\.?)[:：]?\s*([A-Za-z0-9\-_./]+)",
             ),
         )
@@ -364,7 +364,7 @@ def _extract_basis_block(text: str) -> str:
         r"(?:检测|校准)\s*/?\s*依据",
     )
     end_patterns = (
-        r"本次校准所使用的主要计量标准器具",
+        r"本次校准所使用的主要计量标准气瓶",
         r"Main measurement standard instruments",
         r"(?:其它|其他)校准信息",
         r"Calibration Information",
@@ -432,7 +432,7 @@ def _extract_basis_standard_items(text: str) -> list[str]:
         ):
             continue
         if re.search(
-            r"(?:本次校准所使用的主要计量标准器具|Main measurement standard instruments|(?:其它|其他)校准信息|Calibration Information|(?:一[、.．)]\s*)?一般检查|General inspection|备注|结果|检测员|校准员|核验员)",
+            r"(?:本次校准所使用的主要计量标准气瓶|Main measurement standard instruments|(?:其它|其他)校准信息|Calibration Information|(?:一[、.．)]\s*)?一般检查|General inspection|备注|结果|检测员|校准员|核验员)",
             line,
             flags=re.IGNORECASE,
         ):

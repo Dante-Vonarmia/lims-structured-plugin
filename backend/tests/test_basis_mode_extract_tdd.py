@@ -9,7 +9,7 @@ class BasisModeExtractTDD(unittest.TestCase):
     def test_extract_basis_mode_from_checked_calibration_marker(self) -> None:
         text = "\n".join(
             [
-                "器具名称：电脑导体电阻测试仪",
+                "气瓶名称：电脑导体电阻测试仪",
                 "□检测/☑校准依据：JB/T 4279.2-2008",
                 "□检测/☑校准地点：浙江省湖州市南浔区练市镇万潭湾1楼试验室",
             ]
@@ -20,7 +20,7 @@ class BasisModeExtractTDD(unittest.TestCase):
     def test_extract_basis_mode_from_checked_detection_marker(self) -> None:
         text = "\n".join(
             [
-                "器具名称：示例设备",
+                "气瓶名称：示例设备",
                 "☑检测/□校准依据：GB/T 1234-2020",
             ]
         )
@@ -30,7 +30,7 @@ class BasisModeExtractTDD(unittest.TestCase):
     def test_extract_partial_discharge_fields(self) -> None:
         text = "\n".join(
             [
-                "器具名称：局部放电检测系统",
+                "气瓶名称：局部放电检测系统",
                 "五、校准脉冲发生器校准：电荷量Urel=0.1%,k=2；上升沿Urel=0.3%,k=2",
                 "实测值 0.49 4.99 49.8 101",
                 "上升沿 9.9 12.8 16.8 22.8",
@@ -50,7 +50,7 @@ class BasisModeExtractTDD(unittest.TestCase):
         text = "\n".join(
             [
                 "本次校准所依据的技术规范（代号、名称）：Reference documents for the calibration(code、name)",
-                "器具名称：往复刮漆试验仪",
+                "气瓶名称：往复刮漆试验仪",
             ]
         )
         fields = extract_fields(text)

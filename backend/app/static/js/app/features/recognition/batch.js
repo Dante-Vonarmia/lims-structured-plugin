@@ -20,12 +20,54 @@ export function createRecognitionBatchFeature(deps = {}) {
     resolveSourceCode,
     inferCategory,
   } = deps;
+  let processAllPendingRunning = false;
+  let processAllPendingQueued = false;
 
   function buildRecordGroupKey(item) {
     if (!item || !item.isRecordRow) return "";
     const fid = String(item.fileId || "").trim();
     const src = String(item.sourceFileName || item.fileName || "").trim();
     return `${fid}::${src}`;
+  }
+
+  function clampPercent(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 0;
+    if (n < 0) return 0;
+    if (n > 100) return 100;
+    return n;
+  }
+
+  function resolvePhaseDisplay(event = {}) {
+    const phase = String((event && event.phase) || "").trim();
+    const rawMessage = String((event && event.message) || "").trim();
+    const phaseMap = {
+      init: { index: 1, name: "上传" },
+      route: { index: 1, name: "上传" },
+      upload: { index: 1, name: "上传" },
+      ocr: { index: 2, name: "OCR识别" },
+      excel: { index: 3, name: "结构化解析" },
+      inspect: { index: 3, name: "结构化解析" },
+      parse: { index: 3, name: "结构化解析" },
+      match: { index: 4, name: "模板匹配" },
+      done: { index: 4, name: "模板匹配" },
+    };
+    const resolved = phaseMap[phase] || { index: 3, name: "结构化解析" };
+    const detail = rawMessage ? `阶段${resolved.index}/4：${resolved.name} · ${rawMessage}` : `阶段${resolved.index}/4：${resolved.name}`;
+    return {
+      detail,
+      stageIndex: resolved.index,
+    };
+  }
+
+  function buildProgressReporter({ done, total, fileName, label }) {
+    return (event = {}) => {
+      const { detail } = resolvePhaseDisplay(event);
+      const progress = Number(event.progress) || 0;
+      const stagePercent = clampPercent(progress);
+      const current = done + (stagePercent / 100);
+      setPreprocessProgress(current, total, fileName, label, detail);
+    };
   }
 
   async function refreshRecordRowGroup(group, logPrefix = "记录刷新完成") {
@@ -69,33 +111,61 @@ export function createRecognitionBatchFeature(deps = {}) {
   }
 
   async function processAllPending() {
-    const targets = state.queue.filter((x) => x.status === "pending");
-    if (!targets.length) {
+    if (processAllPendingRunning) {
+      processAllPendingQueued = true;
+      return;
+    }
+    processAllPendingRunning = true;
+    if (!state.queue.some((x) => x.status === "pending")) {
       setStatus("没有待识别项");
+      processAllPendingRunning = false;
       return;
     }
     setLoading(true, "预处理中...");
-    setPreprocessProgress(0, targets.length, "");
     let done = 0;
-    for (const item of targets) {
-      state.activeId = item.id;
-      renderQueue();
-      renderTemplateSelect();
-      try {
-        setPreprocessProgress(done, targets.length, item.fileName);
-        await processItem(item);
-      } catch (error) {
-        item.status = "error";
-        item.message = error.message || "处理失败";
-        renderQueue();
-        appendLog(`处理失败 ${item.fileName}：${item.message}`);
+    try {
+      while (true) {
+        const targets = state.queue.filter((x) => x.status === "pending");
+        const total = done + targets.length;
+        if (!targets.length) break;
+        setPreprocessProgress(done, total, "", "预处理", "阶段1/4：上传 · 准备识别");
+        for (const item of targets) {
+          state.activeId = item.id;
+          renderQueue();
+          renderTemplateSelect();
+          try {
+            setPreprocessProgress(done, total, item.fileName, "预处理", "阶段1/4：上传 · 准备识别");
+            const reportProgress = buildProgressReporter({
+              done,
+              total,
+              fileName: item.fileName,
+              label: "预处理",
+            });
+            await processItem(item, {
+              onProgress: (event) => reportProgress(event || {}),
+            });
+          } catch (error) {
+            item.status = "error";
+            item.message = error.message || "处理失败";
+            renderQueue();
+            appendLog(`处理失败 ${item.fileName}：${item.message}`);
+          }
+          done += 1;
+          setPreprocessProgress(done, total, item.fileName, "预处理", "阶段4/4：模板匹配 · 识别完成");
+        }
       }
-      done += 1;
-      setPreprocessProgress(done, targets.length, item.fileName);
+      setStatus("识别完成");
+    } finally {
+      clearPreprocessProgress();
+      setLoading(false);
+      processAllPendingRunning = false;
+      if (processAllPendingQueued) {
+        processAllPendingQueued = false;
+        queueMicrotask(() => {
+          void processAllPending();
+        });
+      }
     }
-    clearPreprocessProgress();
-    setLoading(false);
-    setStatus("识别完成");
   }
 
   async function refreshAllRecognition() {
@@ -132,7 +202,7 @@ export function createRecognitionBatchFeature(deps = {}) {
       return;
     }
     setLoading(true, "刷新识别中...");
-    setPreprocessProgress(0, totalTargets, "", "刷新识别");
+    setPreprocessProgress(0, totalTargets, "", "刷新识别", "阶段1/4：上传 · 准备刷新");
     let done = 0;
 
     for (const group of excelGroups) {
@@ -142,7 +212,7 @@ export function createRecognitionBatchFeature(deps = {}) {
       renderQueue();
       renderTemplateSelect();
       try {
-        setPreprocessProgress(done, totalTargets, sample.fileName, "刷新识别");
+        setPreprocessProgress(done, totalTargets, sample.fileName, "刷新识别", "阶段3/4：结构化解析 · Excel记录计数中");
         const inspect = await runExcelInspect(sample.fileId, "");
         const sourceItem = {
           ...sample,
@@ -178,7 +248,7 @@ export function createRecognitionBatchFeature(deps = {}) {
         appendLog(`刷新失败 ${sample.fileName}：${error.message || "unknown"}`);
       }
       done += 1;
-      setPreprocessProgress(done, totalTargets, sample.fileName, "刷新识别");
+      setPreprocessProgress(done, totalTargets, sample.fileName, "刷新识别", "阶段4/4：模板匹配 · 识别完成");
     }
 
     for (const group of recordGroups) {
@@ -188,7 +258,7 @@ export function createRecognitionBatchFeature(deps = {}) {
       renderQueue();
       renderTemplateSelect();
       try {
-        setPreprocessProgress(done, totalTargets, sample.fileName, "刷新识别");
+        setPreprocessProgress(done, totalTargets, sample.fileName, "刷新识别", "阶段3/4：结构化解析 · 记录刷新中");
         await refreshRecordRowGroup(group, "记录刷新完成");
       } catch (error) {
         for (const row of group) {
@@ -199,7 +269,7 @@ export function createRecognitionBatchFeature(deps = {}) {
         appendLog(`刷新失败 ${sample.fileName}：${error.message || "unknown"}`);
       }
       done += 1;
-      setPreprocessProgress(done, totalTargets, sample.fileName, "刷新识别");
+      setPreprocessProgress(done, totalTargets, sample.fileName, "刷新识别", "阶段4/4：模板匹配 · 识别完成");
     }
 
     for (const item of normalTargets) {
@@ -207,9 +277,17 @@ export function createRecognitionBatchFeature(deps = {}) {
       renderQueue();
       renderTemplateSelect();
       try {
-        setPreprocessProgress(done, totalTargets, item.fileName, "刷新识别");
+        setPreprocessProgress(done, totalTargets, item.fileName, "刷新识别", "阶段1/4：上传 · 准备刷新");
         if (item.status === "pending") {
-          await processItem(item);
+          const reportProgress = buildProgressReporter({
+            done,
+            total: totalTargets,
+            fileName: item.fileName,
+            label: "刷新识别",
+          });
+          await processItem(item, {
+            onProgress: (event) => reportProgress(event || {}),
+          });
         } else {
           item.status = "processing";
           item.message = "字段重识别中";
@@ -244,7 +322,7 @@ export function createRecognitionBatchFeature(deps = {}) {
         appendLog(`刷新失败 ${item.fileName}：${item.message}`);
       }
       done += 1;
-      setPreprocessProgress(done, totalTargets, item.fileName, "刷新识别");
+      setPreprocessProgress(done, totalTargets, item.fileName, "刷新识别", "阶段4/4：模板匹配 · 识别完成");
     }
     clearPreprocessProgress();
     setLoading(false);
@@ -274,7 +352,7 @@ export function createRecognitionBatchFeature(deps = {}) {
       && isExcelExt(extFromName(activeItem.fileName))
     );
     setLoading(true, "刷新识别中...");
-    setPreprocessProgress(0, 1, activeItem.fileName, "刷新识别");
+    setPreprocessProgress(0, 1, activeItem.fileName, "刷新识别", "阶段1/4：上传 · 准备刷新");
 
     try {
       if (isExcelRecordRow) {
@@ -314,7 +392,14 @@ export function createRecognitionBatchFeature(deps = {}) {
         const group = state.queue.filter((item) => item && item.isRecordRow && buildRecordGroupKey(item) === groupKey);
         await refreshRecordRowGroup(group.length ? group : [activeItem], "当前项记录刷新完成");
       } else if (activeItem.status === "pending" || (!activeItem.isRecordRow && (forceAsExcel || forcedMode === "word"))) {
-        await processItem(activeItem);
+        await processItem(activeItem, {
+          onProgress: (event) => {
+            const safeEvent = event || {};
+            const stagePercent = clampPercent(safeEvent.progress);
+            const { detail } = resolvePhaseDisplay(safeEvent);
+            setPreprocessProgress(stagePercent / 100, 1, activeItem.fileName, "刷新识别", detail);
+          },
+        });
       } else {
         activeItem.status = "processing";
         activeItem.message = "字段重识别中";
@@ -342,7 +427,7 @@ export function createRecognitionBatchFeature(deps = {}) {
         activeItem.templateUserSelected = false;
         await applyAutoTemplateMatch(activeItem, { force: true });
       }
-      setPreprocessProgress(1, 1, activeItem.fileName, "刷新识别");
+      setPreprocessProgress(1, 1, activeItem.fileName, "刷新识别", "阶段4/4：模板匹配 · 识别完成");
       setStatus("当前预览项刷新识别完成");
       appendLog(`当前预览项刷新识别完成：${activeItem.fileName}`);
     } catch (error) {

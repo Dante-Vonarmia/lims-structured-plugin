@@ -1,7 +1,7 @@
 export const SOURCE_FORM_FIELDS = [
-  { key: "device_name", label: "器具名称" },
+  { key: "device_name", label: "气瓶名称" },
   { key: "device_model", label: "型号" },
-  { key: "device_code", label: "器具编号" },
+  { key: "device_code", label: "气瓶编号" },
   { key: "power_rating", label: "电源/功率" },
   { key: "manufacture_date", label: "制造日期" },
   { key: "contact_info", label: "联系方式" },

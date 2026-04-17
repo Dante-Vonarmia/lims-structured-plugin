@@ -238,7 +238,7 @@ export function createTargetFieldEventBindings(deps = {}) {
           rememberFieldValueFromTarget(target, $("targetFieldForm"));
         }
         persistDraftOnChange();
-        setStatus("已更新：本次校准所使用的主要计量标准器具");
+        setStatus("已更新：本次校准所使用的主要计量标准气瓶");
         return;
       }
       if (key === "appendix1_cell" || key === "appendix1_cell_date_part") {

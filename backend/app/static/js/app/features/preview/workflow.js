@@ -1446,7 +1446,7 @@ export function createPreviewWorkflowFeature(deps = {}) {
   function classifyPreviewSlotText(text) {
     const t = normalizePreviewText(text);
     if (!t) return "";
-    if (/^(温度|湿度|器具名称|制造厂\/商|型号\/规格|器具编号|序号|检测\/校准依据|检测\/校准地点)[:：]?$/.test(t)) {
+    if (/^(温度|湿度|气瓶名称|制造厂\/商|型号\/规格|气瓶编号|序号|检测\/校准依据|检测\/校准地点)[:：]?$/.test(t)) {
       return "";
     }
 
@@ -1468,7 +1468,7 @@ export function createPreviewWorkflowFeature(deps = {}) {
       if (locationTail) return "filled";
       return /(☑|√|■)/.test(t) ? "filled" : "missing";
     }
-    const labelMatch = t.match(/(序号|器具名称|制造厂\/商|型号\/规格|器具编号|检测\/校准地点|温度|湿度)\s*[:：]\s*(.*)$/);
+    const labelMatch = t.match(/(序号|气瓶名称|制造厂\/商|型号\/规格|气瓶编号|检测\/校准地点|温度|湿度)\s*[:：]\s*(.*)$/);
     if (labelMatch) {
       const tail = normalizePreviewText(labelMatch[2] || "");
       if (!tail) return "missing";
